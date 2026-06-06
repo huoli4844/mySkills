@@ -181,3 +181,102 @@ class TestDownstreamPhases:
 
         downstream = _get_downstream_phases("l4_indices")
         assert downstream == []
+
+
+# ── 从 test_kb_graph_new_methods.py 合并 ──
+
+
+class TestCheckGraphQuality:
+    def test_empty_graph(self, kg):
+        q = kg.check_graph_quality()
+        assert "summary" in q
+        assert "issues" in q
+        assert q["summary"]["total"] == 0
+
+    def test_detects_hollow_concepts(self, kg):
+        _seed_db(kg)
+        q = kg.check_graph_quality()
+        hollow = [i for i in q["issues"] if i["category"] == "空心概念"]
+        assert len(hollow) > 0
+        assert any("空心概念" in h["message"] for h in hollow)
+
+    def test_returns_top_nodes(self, kg):
+        _seed_db(kg)
+        q = kg.check_graph_quality()
+        assert "top_nodes" in q
+
+
+class TestCheckL1Connectivity:
+    def test_empty_graph(self, kg):
+        conn = kg.check_l1_connectivity()
+        assert "overall_passed" in conn
+        assert "checks" in conn
+
+    def test_seeded_connectivity(self, kg):
+        _seed_db(kg)
+        conn = kg.check_l1_connectivity()
+        assert isinstance(conn["overall_passed"], bool)
+        assert len(conn["checks"]) > 0
+
+
+class TestCheckSimilarNames:
+    def test_empty(self, kg):
+        result = kg.check_similar_names()
+        # returns dict like {'pairs': [], 'total': 0}
+        assert isinstance(result, dict)
+        assert "pairs" in result
+        assert result["total"] == 0
+
+    def test_no_false_positive(self, kg):
+        _seed_db(kg)
+        result = kg.check_similar_names()
+        for pair in result.get("pairs", []):
+            assert pair.get("name1") != pair.get("name2")
+
+
+class TestDegreeCentrality:
+    def test_empty(self, kg):
+        cent = kg.degree_centrality()
+        assert isinstance(cent, dict)
+        assert "nodes" in cent
+        assert cent["total"] == 0
+
+    def test_seeded(self, kg):
+        _seed_db(kg)
+        cent = kg.degree_centrality()
+        assert cent["total"] > 0
+
+
+class TestCheckBridgeGaps:
+    def test_empty(self, kg):
+        gaps = kg.check_bridge_gaps()
+        assert isinstance(gaps, dict)
+
+    def test_seeded(self, kg):
+        _seed_db(kg)
+        gaps = kg.check_bridge_gaps()
+        assert "gaps" in gaps
+
+
+class TestCheckPathIntegrity:
+    def test_empty(self, kg):
+        paths = kg.check_path_integrity()
+        assert isinstance(paths, dict)
+
+    def test_seeded(self, kg):
+        _seed_db(kg)
+        paths = kg.check_path_integrity()
+        assert "broken_count" in paths
+        assert isinstance(paths["broken_count"], int)
+
+
+class TestSuggestBuildOrder:
+    def test_empty(self, kg):
+        order = kg.suggest_build_order()
+        assert isinstance(order, dict | list)
+
+    def test_seeded(self, kg):
+        _seed_db(kg)
+        order = kg.suggest_build_order()
+        if isinstance(order, dict) and "phases" in order:
+            assert len(order["phases"]) > 0

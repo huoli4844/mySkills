@@ -1,6 +1,6 @@
 ---
 name: domain-book-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v50.7: P0/P1 工程修复+质量闸门自动修复循环+内容深度二次审核+yaml_pre_validate 字段名校验——dag_utils shim/mypy 清理/KGraphQueryMixin/import 重定向/sys.exit 治理/template_assembler 拆分/全版本锁定 Python 3.12/自动批量编排+fix_report+review_batch+字段名 vs {{xxx}}"
+description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v50.7: P0/P1 工程修复+质量闸门自动修复循环+内容深度二次审核+yaml_pre_validate 字段名校验+清理18个死文件——dag_utils shim/mypy 清理/KGraphQueryMixin/import 重定向/sys.exit 治理/template_assembler+template_writers 拆分/全版本锁定 Python 3.12/自动批量编排+fix_report+review_batch+字段名 vs {{xxx}}+文件审计。脚本48个/测试20个，无 God 文件"
 version: "50.7"
 author: Hermes Agent
 license: MIT
@@ -111,6 +111,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 59 | 类继承中的前向引用：Mixin 定义在使用它的类之后 → `NameError` 🔥 | Mixin 定义必须**早于**使用它的类。`kb_graph.py` 实战：`KGraphQueryMixin` 在第 137 行被继承但定义在第 360 行 → 恢复 `kb_graph_query.py` 独立模块。 |
 | 60 | 模块拆分时循环导入：A 从 B import，B 从 A import → `cannot import name X` 🔥 | A 末尾放 re-export（`from B import ...`），此时 A 全部名字已定义。`template_assembler`+`template_writers` 实战：re-export 在 `safe_filename` 之后（文件最末）。 |
 | 61 | 质量闸门 FAIL 后无自动恢复路径——需人工诊断后修复 | `pipeline batch --retry N` 先用 `content_check_rules` + `post_build_fix` 机械修复；重试用尽后生成 `.dag/第N章/fix_report.json` 供 Agent 修复。详见 [auto-fix-agent-workflow.md](references/auto-fix-agent-workflow.md)。 |
+| 62 | 合并代码文件以减少文件数 → 产生 God 文件（>800行），维护性变差 🔥 | **合并的唯一正当理由是消除真正的重复或碎片化，不是减少文件数**。合并前衡量：合并后是否 <500行？职责是否真正重叠？(1) 签名不同的工具函数不合并（`load_source_text` 在 yaml_auto_gen 和 yaml_auto_fill 中签名不同）→ 应提取共享工具到 parse_utils；(2) 职责不同的模块不合并（yaml_gen 交互式 vs yaml_auto_fill 批量）→ 保持分离。死代码和孤立模块才删除。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -123,6 +124,8 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [auto-fix-agent-workflow.md](references/auto-fix-agent-workflow.md) | **v50.7** — 质量闸门自动修复 Agent 工作流 + fix_report.json 格式 |
 | [content-review-agent-workflow.md](references/content-review-agent-workflow.md) | **v50.7** — 内容深度 Agent 二次审核工作流 + review_batch.json 格式 + A/B/C/D 分层 |
 | [end-to-end-pipeline.md](references/end-to-end-pipeline.md) | **v50.7** — 全流程 11 阶段详解，每步标注 `🖥️ 脚本` / `🤖 Agent` |
+| [domain-book-wiki-file-audit.md](references/domain-book-wiki-file-audit.md) | **v50.7** — 文件清理与合并审计（48脚本/20测试/76参考，删除18个死文件，明确不合并原则） |
+| [domain-book-wiki-file-audit.md](references/domain-book-wiki-file-audit.md) | **v50.7** — 代码库文件清理与合并审计（脚本 52→47、参考 83→35、测试 22→18） |
 | [pitfalls.md](references/pitfalls.md) | 80+ 条已知陷阱完整清单（v50新增: staging覆写/命名规范/placeholder/空节一致/HTML剥离/深度自检） |
 | [architecture-overview.md](references/architecture-overview.md) | 九类节点 + 教学链 + DAG 依赖 |
 | [templates-overview.md](references/templates-overview.md) | 五类模板结构 + Bloom 体系（全已删 `## 关联目录`） |

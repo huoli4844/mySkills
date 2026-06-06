@@ -90,7 +90,6 @@ REQUIRED_SCRIPTS = [
     "index_assembler.py",
     "generate_index_data.py",
     "build_kb_files.py",
-    "validate_chapter_data.py",
     "kb_graph.py",
     "check_dir_registry.py",
 ]

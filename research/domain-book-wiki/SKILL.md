@@ -122,6 +122,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [yaml-structure-guide.md](references/yaml-structure-guide.md) | YAML fm/bd 容器结构 + 常见错误 |
 | [auto-fix-agent-workflow.md](references/auto-fix-agent-workflow.md) | **v50.7** — 质量闸门自动修复 Agent 工作流 + fix_report.json 格式 |
 | [content-review-agent-workflow.md](references/content-review-agent-workflow.md) | **v50.7** — 内容深度 Agent 二次审核工作流 + review_batch.json 格式 + A/B/C/D 分层 |
+| [end-to-end-pipeline.md](references/end-to-end-pipeline.md) | **v50.7** — 全流程 11 阶段详解，每步标注 `🖥️ 脚本` / `🤖 Agent` |
 | [pitfalls.md](references/pitfalls.md) | 80+ 条已知陷阱完整清单（v50新增: staging覆写/命名规范/placeholder/空节一致/HTML剥离/深度自检） |
 | [architecture-overview.md](references/architecture-overview.md) | 九类节点 + 教学链 + DAG 依赖 |
 | [templates-overview.md](references/templates-overview.md) | 五类模板结构 + Bloom 体系（全已删 `## 关联目录`） |

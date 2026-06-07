@@ -471,6 +471,89 @@ def build_type(output_dir, chapter: str | None = None, graph_check=True, type_na
     items = _load_items(cfg["data_file"], output_dir, chapter)
     ch_num = chapter if chapter and chapter != "0" else "0"
 
+    # v51.5: 一致性校验 —— solutions 存在但 exercises 缺失时 WARN
+    if type_name == "solution" and chapter:
+        _ex_yaml_check = os.path.join(
+            output_dir or "", ".dag", f"第{chapter}章", "data", "exercises.yaml"
+        ) if output_dir and chapter else ""
+        if _ex_yaml_check and not os.path.exists(_ex_yaml_check):
+            log.warning(
+                f"[solution] 第{chapter}章有 solutions.yaml 但 exercises.yaml 不存在！"
+                f" 自动从 solutions 生成 exercises..."
+            )
+            _sol_yaml = os.path.join(os.path.dirname(_ex_yaml_check), "solutions.yaml")
+            if os.path.exists(_sol_yaml):
+                try:
+                    import yaml as _yaml
+                    with open(_sol_yaml, encoding="utf-8") as _f:
+                        _sol_data = _yaml.safe_load(_f) or []
+                    _sol_items = _sol_data if isinstance(_sol_data, list) else _sol_data.get("items", [])
+                    _ex_items = []
+                    for _si in _sol_items:
+                        _ex_file = _si.get("file", "").replace("-解答", "")
+                        _ex_bd = _si.get("bd", {})
+                        _ex_items.append({
+                            "name": _ex_file,
+                            "file": _ex_file,
+                            "fm": {
+                                "source_chapter": str(chapter),
+                                "bloom_level": _ex_bd.get("bloom_level", _si.get("fm", {}).get("bloom_level", "理解")),
+                                "confidence": 0.65,
+                                "confidence_note": "auto-generated from solutions",
+                            },
+                            "bd": {
+                                "question": _ex_bd.get("question", f"第{chapter}章习题{_si.get('name', '?')}"),
+                            }
+                        })
+                    with open(_ex_yaml_check, "w", encoding="utf-8") as _f:
+                        _yaml.dump(_ex_items, _f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+                    log.info(f"  ✅ 自动生成 {len(_ex_items)} 道习题 → {_ex_yaml_check}")
+                    # 顺便触发 exercises build
+                    try:
+                        _ex_scripts_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else os.getcwd()
+                        _ex_abs_out = os.path.abspath(output_dir or ".")
+                        _ex_build_cmd = [
+                            sys.executable,
+                            os.path.join(_ex_scripts_dir, "build_kb_files.py"),
+                            "--type", "exercise", "--chapter", str(chapter),
+                            "--book-id", BOOK_ID,
+                            "--output-dir", _ex_abs_out,
+                        ]
+                        import subprocess as _sp
+                        _sp.run(_ex_build_cmd, capture_output=True, text=True, timeout=120)
+                        log.info(f"  ✅ 自动触发 exercises build：{_ex_abs_out}")
+                    except Exception as _ex_be:
+                        log.debug(f"  exercises build trigger failed: {_ex_be}")
+                except Exception as _e:
+                    log.warning(f"  自动生成 exercises.yaml 失败: {_e}")
+
+    # v51.5: 统一执行 auto-question（此时 exercises.yaml 已确保存在）
+    if type_name == "solution" and items and chapter:
+        import re as _re_autoq
+        _ex_yaml_auto = os.path.join(
+            output_dir or "", ".dag", f"第{chapter}章", "data", "exercises.yaml"
+        ) if output_dir and chapter else ""
+        if _ex_yaml_auto and os.path.exists(_ex_yaml_auto):
+            try:
+                import yaml as _yaml_auto
+                with open(_ex_yaml_auto, encoding="utf-8") as _f_auto:
+                    _ex_data_auto = _yaml_auto.safe_load(_f_auto) or []
+                _ex_items_auto = _ex_data_auto if isinstance(_ex_data_auto, list) else _ex_data_auto.get("items", [])
+                for _it in items:
+                    _bd = _it.get("bd", {})
+                    _q = str(_bd.get("question", ""))
+                    if _re_autoq.match(r'^第\d+章习题\d+$', _q.strip()):
+                        _ef = _it.get("file", "").replace("-解答", "")
+                        for _ex in _ex_items_auto:
+                            if _ex.get("file") == _ef:
+                                _rq = _ex.get("bd", {}).get("question", "")
+                                if _rq and not _re_autoq.match(r'^第\d+章习题\d+$', _rq.strip()):
+                                    _bd["question"] = _rq
+                                    log.info(f"  auto-question: {_ef} ← 从 exercises.yaml 获取")
+                                break
+            except Exception as _e:
+                log.debug(f"  auto-question 失败: {_e}")
+
     # v39.1: 空数据警告升级——明确告知调用者
     if not items:
         log.warning(f"[{type_name}] 数据为空（0 items），跳过构建。")
@@ -593,27 +676,8 @@ def build_type(output_dir, chapter: str | None = None, graph_check=True, type_na
                 _ex_file = _re.sub(r'-解答$', '', it["file"])
                 bd["exercise_link"] = f"90_习题/{_ex_file}"
                 bd["exercise_name"] = _ex_file
-                # v51.3: 如果 question 是占位符（"第N章习题N"），从习题 YAML 拉取
-                _q = str(bd.get("question", ""))
-                if _re.match(r'^第\d+章习题\d+$', _q.strip()):
-                    _ex_yaml = os.path.join(os.path.dirname(cfg["data_file"]) if os.path.isabs(cfg["data_file"]) else
-                        os.path.join(output_dir or "", ".dag", f"第{chapter}章", "data") if output_dir and chapter else "",
-                        "exercises.yaml") if output_dir and chapter else ""
-                    if _ex_yaml and os.path.exists(_ex_yaml):
-                        try:
-                            import yaml as _yaml
-                            with open(_ex_yaml, encoding="utf-8") as _f:
-                                _ex_data = _yaml.safe_load(_f) or []
-                            _ex_items = _ex_data if isinstance(_ex_data, list) else _ex_data.get("items", [])
-                            for _ex in _ex_items:
-                                if _ex.get("file") == _ex_file:
-                                    _real_q = _ex.get("bd", {}).get("question", "")
-                                    if _real_q and not _re.match(r'^第\d+章习题\d+$', _real_q.strip()):
-                                        bd["question"] = _real_q
-                                        log.info(f"  auto-question: {_ex_file} ← 从 exercises.yaml 获取")
-                                    break
-                        except Exception as _e:
-                            log.debug(f"  auto-question 失败: {_e}")
+
+            # (auto-question moved after exercises.yaml consistency fix below)
 
         try:
             filepath = assemble_md(

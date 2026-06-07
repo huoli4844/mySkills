@@ -18,11 +18,11 @@ JSON格式:
 {
   "index_type": "concept_index | knowledge_index | skill_index | scenario_index | book_overview | domain_overview | kb_overview",
   "output_dir": "/path/to/output",
-  "book_id": "02_电磁兼容基础",
-  "book_name": "02_电磁兼容基础",
-  "chapter_num": "2",
-  "domain_id": "01_电磁兼容领域",
-  "domain_name": "电磁兼容",
+  "book_id": "01_示例书籍",
+  "book_name": "01_示例书籍",
+  "chapter_num": "1",
+  "domain_id": "01_示例领域",
+  "domain_name": "示例领域",
   "kb_id": "my-kb",
   "name": "索引名称",
   "items": [
@@ -473,56 +473,14 @@ def build_book_overview(data):
                         log.debug(f"概念计数解析失败: {e}")
                         pass
 
-        description = (
-            f"《{book_name}》是一本系统全面的电磁兼容领域专业教材，"
-            f"全书共 {len(ch_titles) or 8} 章，构建了从基础理论到工程实践的完整知识体系。"
-            f"\n\n"
-            f"教材以电磁兼容三要素（干扰源、耦合途径、敏感设备）为主线，"
-            f"内容涵盖{ch_desc}。各章主要内容如下："
-            f"\n\n"
-            f"- **第1章 电磁兼容概述**：介绍电磁兼容的基本概念、发展历史、标准化体系与认证制度，"
-            f"阐述电磁干扰三要素分析框架，为全书奠定理论基础。"
-            f"\n"
-            f"- **第2章 电磁兼容的电磁原理**：讲解传导耦合与辐射耦合的电磁理论基础，"
-            f"包括传输线理论、天线模型、近场与远场特性，以及瞬态干扰的产生机理。"
-            f"\n"
-            f"- **第3章 电磁兼容预测**：介绍电磁兼容预测的基本原理与方法论，"
-            f"涵盖系统级与设备级预测模型、数值计算方法（矩量法、有限元法、时域有限差分法等），"
-            f"以及预测软件工具的应用。"
-            f"\n"
-            f"- **第4章 电磁兼容工程方法**：深入讲解三大核心抑制技术——屏蔽、滤波、接地，"
-            f"包括屏蔽效能分析、滤波器设计与选型、接地系统设计，以及搭接、隔离等辅助方法。"
-            f"\n"
-            f"- **第5章 电磁兼容设计**：聚焦 PCB 级电磁兼容设计实践，"
-            f"涵盖元器件高频特性与选型、PCB 层叠与布局布线规则、电源完整性设计等工程要点。"
-            f"\n"
-            f"- **第6章 电磁兼容测量**：系统阐述测量原理、标准体系（CISPR/IEC/FCC/MIL-STD）、"
-            f"测量设备与方法（传导发射、辐射发射、传导抗扰度、辐射抗扰度），"
-            f"以及测量结果评估与不确定度分析。"
-            f"\n"
-            f"- **第7章 电磁频谱管理**：聚焦无线电频谱资源管理的基本任务与流程，"
-            f"包括频率划分、规划、分配、指配的四步流程，频谱监测技术，以及联合作战电磁频谱管理。"
-            f"\n"
-            f"- **第8章 电磁兼容应用**：拓展至雷电防护、强电磁脉冲（HEMP/HPM）防护、"
-            f"电磁信息泄漏（TEMPEST）防护、生物电磁效应与辐射安全等特殊应用领域。"
-            f"\n\n"
-            f"本知识库基于教材原文，通过结构化知识加工构建了 {total} 个知识节点，"
-            f"其中核心概念 {c_count} 个、知识要素/实体 {e_count} 个、"
-            f"知识点 {k_count} 个、技能点 {s_count} 个、应用场景 {sc_count} 个。"
-            f"\n\n"
-            f"知识库以 Bloom 认知层级理论为指导，"
-            f"通过「概念→知识要素→知识点→技能点→应用场景」的五级学习链路组织知识，"
-            f"实现从知识记忆、理解、应用到分析、评价、创造的完整认知跃迁。"
-            f"所有节点均通过双向 wikilink 建立关联网络，"
-            f"图谱质量检查机制确保知识链完整性与内容深度。"
-            f"\n\n"
-            f"适合电磁兼容领域的在校本科生和研究生、工程技术人员、"
-            f"EMC 测试与认证工程师以及相关领域的科研工作者进行"
-            f"系统化学习、教学参考和工程实践指导。"
-            f"\n\n"
-            f"知识库提供知识图谱全景视图、动态学习路径推荐、Bloom 认知层级思维导图、"
-            f"以及按概念/知识点/技能点/应用场景的索引导航，"
-            f"支持按章节顺序学习或按知识关联网络自由探索两种学习模式。"
+        # ── 生成书籍描述（从 config/book_info.yaml 加载，无文件时自动降级）──
+        description = _build_book_description(
+            book_name=book_name,
+            ch_titles=ch_titles,
+            ch_desc=ch_desc,
+            total=total, c_count=c_count, e_count=e_count,
+            k_count=k_count, s_count=s_count, sc_count=sc_count,
+            wiki_root=os.path.dirname(od) if isinstance(od, str) else ".",
         )
 
     body = fill_template(
@@ -709,6 +667,58 @@ def build_kb_overview(data):
 
 
 # === 主入口 ===
+
+def _build_book_description(
+    book_name: str, ch_titles: list, ch_desc: str,
+    total: int, c_count: int, e_count: int,
+    k_count: int, s_count: int, sc_count: int,
+    wiki_root: str = ".",
+) -> str:
+    """从 config/book_info.yaml 生成书籍总揽描述，无配置时自动降级。"""
+    import yaml
+    # 尝试从技能 config 加载
+    skill_conf = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "book_info.yaml")
+    local_conf = os.path.join(wiki_root, ".dag", "book_info.yaml")
+    conf_data = {}
+    for p in [local_conf, skill_conf]:
+        try:
+            with open(p, encoding="utf-8") as f:
+                conf_data = yaml.safe_load(f) or {}
+            break
+        except Exception:
+            continue
+
+    domain = conf_data.get("domain", "本")
+    ch_descs = conf_data.get("chapter_descriptions", {})
+    tmpl = conf_data.get("book_template", "")
+
+    # 生成各章描述文本
+    ch_lines = []
+    for idx, (num, title) in enumerate(ch_titles):
+        idx_p1 = idx + 1
+        desc = ch_descs.get(str(idx_p1), ch_descs.get(idx_p1, "")).format(domain=domain)
+        if not desc:
+            desc = ch_desc if idx == 0 else f"第{idx_p1}章相关内容。"
+        ch_lines.append(f"- **{title}**：{desc}")
+
+    if tmpl:
+        return tmpl.format(
+            book_name=book_name, domain=domain,
+            chapter_count=len(ch_titles) or 8,
+            ch_desc=ch_desc,
+            chapter_descriptions="\n".join(ch_lines),
+            total=total, c_count=c_count, e_count=e_count,
+            k_count=k_count, s_count=s_count, sc_count=sc_count,
+        )
+
+    # 降级：无配置文件时生成简洁描述
+    return (
+        f"《{book_name}》是一本{domain}领域专业教材，共 {len(ch_titles) or 8} 章。\n\n"
+        + "\n".join(ch_lines) + "\n\n"
+        f"本知识库基于教材原文构建了 {total} 个知识节点（概念 {c_count}, "
+        f"知识要素/实体 {e_count}, 知识点 {k_count}, 技能点 {s_count}, 场景 {sc_count}）。"
+    )
+
 
 if __name__ == "__main__":
     try:

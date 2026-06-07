@@ -8,8 +8,8 @@ pytestmark = pytest.mark.unit
 
 
 class TestDagUtils:
-    def test_dir_has_16_keys(self):
-        assert len(DIR) == 16  # v44.0: added DATA
+    def test_dir_has_18_keys(self):
+        assert len(DIR) == 18  # v51.5: added DOMAIN_DIR, LIBRARY_DIR
         for key in [
             "CONCEPTS",
             "KE",

@@ -28,7 +28,7 @@ import sys
 from typing import Any
 
 # v36.5: 质量检查方法已拆分到 graph_quality.py
-from dag_constants import PipelineError
+from dag_constants import DIR, PipelineError
 from graph_quality import KGraphQualityMixin
 
 # v39.2: 构建和查询方法已拆分到独立 Mixin
@@ -209,7 +209,7 @@ class KGraph(KGraphBuilderMixin, KGraphQueryMixin, KGraphQualityMixin):
             if os.path.isdir(full):
                 result[full] = "index"
             # 也可能在 01_领域/下
-            domain_ctrl = os.path.join(self.wiki_root, "01_领域", gd)
+            domain_ctrl = os.path.join(self.wiki_root, DIR["DOMAIN_DIR"], gd)
             if os.path.isdir(domain_ctrl):
                 result[domain_ctrl] = "index"
         return result

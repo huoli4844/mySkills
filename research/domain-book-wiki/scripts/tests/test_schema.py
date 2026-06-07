@@ -5,7 +5,7 @@ import pytest
 from schema import (
     FILENAME_TYPE_MAP,
     TYPE_SCHEMA_MAP,
-    _resolve_type,
+    _detect_type,
     format_errors,
     load_schema,
     load_yaml_file,
@@ -15,39 +15,39 @@ from schema import (
 pytestmark = pytest.mark.unit
 
 
-# ── _resolve_type ────────────────────────────────────────
+# ── _detect_type ────────────────────────────────────────
 
 
 class TestResolveType:
     """文件名到类型名映射"""
 
     def test_concepts_yaml(self):
-        assert _resolve_type("concepts.yaml") == "concepts"
+        assert _detect_type("concepts.yaml") == "concepts"
 
     def test_kes_yaml(self):
-        assert _resolve_type("kes.yaml") == "kes"
+        assert _detect_type("kes.yaml") == "kes"
 
     def test_kps_yaml(self):
-        assert _resolve_type("kps.yaml") == "kps"
+        assert _detect_type("kps.yaml") == "kps"
 
     def test_sps_yaml(self):
-        assert _resolve_type("sps.yaml") == "sps"
+        assert _detect_type("sps.yaml") == "sps"
 
     def test_scenes_yaml(self):
-        assert _resolve_type("scenes.yaml") == "scenes"
+        assert _detect_type("scenes.yaml") == "scenes"
 
     def test_entities_yaml(self):
-        assert _resolve_type("entities.yaml") == "entities"
+        assert _detect_type("entities.yaml") == "entities"
 
     def test_json_variants(self):
-        assert _resolve_type("concepts.json") == "concepts"
-        assert _resolve_type("kes.json") == "kes"
+        assert _detect_type("concepts.json") == "concepts"
+        assert _detect_type("kes.json") == "kes"
 
     def test_unknown_filename(self):
-        assert _resolve_type("unknown_data.yaml") is None
+        assert _detect_type("unknown_data.yaml") is None
 
     def test_path_with_directory(self):
-        assert _resolve_type("/some/path/concepts.yaml") == "concepts"
+        assert _detect_type("/some/path/concepts.yaml") == "concepts"
 
 
 # ── load_schema ──────────────────────────────────────────

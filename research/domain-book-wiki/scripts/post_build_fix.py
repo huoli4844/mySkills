@@ -688,17 +688,13 @@ def run_phase_auto_fix(wiki_root, phase, chapter=None):
 
             # 5. 占位符填充（exercise / solution）
             if phase in ("exercises", "solutions"):
-                # 4. 空占位符填充
                 content, n = fill_placeholders(content)
                 summary["placeholder"] += n
 
-                # 5. v51.4: 解答文件内容增强（检测通用模板文字→从源文提取）
-                if phase == "solutions" and chapter:
-                    content, _n = content, 0  # 标记已处理
-
-                if content != original:
-                    write_file_safe(fpath, content)
-                    summary["files_touched"] += 1
+            # 通用：文件被修改则记录
+            if content != original:
+                write_file_safe(fpath, content)
+                summary["files_touched"] += 1
 
             # 5b. v51.4: 解答文件内容增强——在循环外批量处理
             if phase == "solutions" and chapter:
@@ -718,6 +714,9 @@ def run_phase_auto_fix(wiki_root, phase, chapter=None):
 
 # ── v51.4: 解答文件内容增强 ──────────────────────────────────
 # 检测通用模板文字（如"该习题考查教材"），从源文中提取相关段落替换
+# 通用化设计: 章节文件名自动发现，关键词映射外置 YAML 配置
+
+import yaml as _yaml
 
 _BOILERPLATE_PATTERNS = [
     r"该习题考查教材第\d+章.*核心内容",
@@ -728,35 +727,38 @@ _BOILERPLATE_PATTERNS = [
     r"建议从基本定义出发，结合麦克斯韦方程和边界条件进行分析",
     r"深入理解相关概念的定义和物理意义，掌握其数学表达和工程应用",
     r"掌握相关的数学推导过程，理解每一步的物理依据",
-    r"将理论知识应用于实际电磁兼容问题的分析和解决",
+    r"将理论知识应用于.*问题的分析和解决",
     r"分步解题流程",
     r"本题关联的知识体系",
 ]
 
-_SOURCE_FILE_MAP = {
-    "1": "第1章 电磁兼容概述.md", "2": "第2章 电磁兼容的电磁原理.md",
-    "3": "第3章 电磁兼容预测.md", "4": "第4章 电磁兼容工程方法.md",
-    "5": "第5章 电磁兼容设计.md", "6": "第6章 电磁兼容测量.md",
-    "7": "第7章 电磁频谱管理.md", "8": "第8章 电磁兼容应用.md",
-}
 
-_QUESTION_KEYWORD_MAP = {
-    "防雷电": ["雷击浪涌", "防雷", "SPD", "浪涌保护", "避雷", "接地"],
-    "静电": ["静电放电", "ESD"],
-    "屏蔽": ["屏蔽", "屏蔽效能", "SE"],
-    "滤波": ["滤波", "滤波器", "EMI滤波", "插入损耗"],
-    "接地": ["接地", "地线", "公共阻抗", "地环路"],
-    "瞬态": ["瞬态", "EFT", "浪涌", "脉冲群"],
-    "感性耦合": ["互感", "磁耦合", "电感性耦合"],
-    "容性耦合": ["电容性耦合"],
-    "传导耦合": ["传导耦合", "共阻抗", "地环路"],
-    "辐射": ["辐射", "天线", "电磁波"],
-    "电磁兼容": ["电磁兼容", "EMC"],
-    "麦克斯韦": ["麦克斯韦", "Maxwell"],
-}
+def _discover_source_files(wiki_root: str) -> dict[str, str]:
+    """自动发现 20_正文/ 目录中的章节文件，返回 {章节号: 文件路径}"""
+    from pipeline_batch import discover_chapters
+    chapters = discover_chapters(wiki_root)
+    return {ch: path for ch, path in chapters}
+
+
+def _load_keyword_map(wiki_root: str) -> dict[str, list[str]]:
+    """从 config/knowledge_keywords.yaml 加载关键词映射，失败时返回空字典"""
+    kw_path = os.path.join(os.path.dirname(__file__) if '__file__' in dir() else wiki_root,
+                           "config", "knowledge_keywords.yaml")
+    # 优先从技能目录加载
+    skill_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                              "config", "knowledge_keywords.yaml")
+    for p in [kw_path, skill_path]:
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = _yaml.safe_load(f) or {}
+            return data.get("keyword_maps", {})
+        except Exception:
+            continue
+    return {}
 
 
 def _detect_boilerplate(content: str) -> list[str]:
+    """检测文本中的通用模板文字"""
     matched = []
     for p in _BOILERPLATE_PATTERNS:
         if re.search(p, content):
@@ -765,10 +767,11 @@ def _detect_boilerplate(content: str) -> list[str]:
 
 
 def _load_source_text(wiki_root: str, chapter: str) -> str:
-    fname = _SOURCE_FILE_MAP.get(chapter)
-    if not fname:
+    """使用自动发现的章节文件映射加载源文"""
+    source_files = _discover_source_files(wiki_root)
+    path = source_files.get(chapter, "")
+    if not path:
         return ""
-    path = os.path.join(wiki_root, "20_正文", fname)
     if not os.path.exists(path):
         return ""
     try:
@@ -778,13 +781,15 @@ def _load_source_text(wiki_root: str, chapter: str) -> str:
         return ""
 
 
-def _extract_keywords(question: str) -> list[str]:
+def _extract_keywords(question: str, wiki_root: str | None = None) -> list[str]:
     q = re.sub(r"[？?，,。.、：:；;！!""（）()]", " ", question)
     q = re.sub(r"\s+", " ", q).strip()
     q = re.sub(r"^(简述|简要说明|什么是|有哪些|如何|怎么样|怎样|分析|论述|讨论|比较|对比|解释|阐述|说明|列举|列出|写出|描述)\s*", "", q)
     q = re.sub(r"(有哪些|是什么|怎么回事|如何|怎样|怎么样|什么)$", "", q)
     keywords = [w.strip() for w in re.split(r"[的与和及、,，]", q) if len(w.strip()) > 1]
-    for q_sub, mapped in _QUESTION_KEYWORD_MAP.items():
+    # 从外部配置加载关键词映射
+    kw_map = _load_keyword_map(wiki_root or "") if wiki_root else {}
+    for q_sub, mapped in kw_map.items():
         if q_sub in question:
             keywords.extend(mapped)
     return list(set(keywords))
@@ -812,14 +817,14 @@ def _find_relevant_paragraphs(source_text: str, keywords: list[str], max_n: int 
     return [p for _, p in scored[:max_n]]
 
 
-def _generate_section(question: str, source_text: str, sec_type: str) -> str:
-    keywords = _extract_keywords(question)
+def _generate_section(question: str, source_text: str, sec_type: str, wiki_root: str | None = None) -> str:
+    keywords = _extract_keywords(question, wiki_root)
     paras = _find_relevant_paragraphs(source_text, keywords)
 
     if not paras:
         fallback = {
             "principle_steps": f"本题涉及{question.replace('？', '')}的相关知识。建议从教材章节的理论出发进行分析。",
-            "characteristics": "该知识点涉及电磁兼容领域的基础理论。",
+            "characteristics": "该知识点涉及本领域的基础理论。",
             "exam_points": f"核心考点：对{question.replace('？', '')}相关概念的理解。",
             "common_mistakes": "常见错误包括忽略边界条件、混淆概念、遗漏参数。",
             "solving_tips": "建议从基本概念出发，结合公式和案例分析。",
@@ -892,7 +897,7 @@ def enhance_solution_content(wiki_root: str, chapter: str | None = None) -> dict
                 continue
             sc = m.group(1).strip()
             if _detect_boilerplate(sc):
-                new_text = _generate_section(question, source_text, sk)
+                new_text = _generate_section(question, source_text, sk, wiki_root)
                 # 替换该节内容——保留原 ### 标题行
                 old_block = m.group(0)
                 title_line = old_block.split("\n")[0]  # 原始标题行

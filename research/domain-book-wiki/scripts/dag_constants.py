@@ -81,6 +81,9 @@ DIR = {
     # 容器目录（不存节点文件，只做层级组织）
     "FIELD": "",  # domain 文件夹直接以领域名命名
     "LIBRARY": "",  # book 文件夹直接以书籍编号+名称命名
+    # 目录前缀（领域层 / 资料库层）
+    "DOMAIN_DIR": "01_领域",
+    "LIBRARY_DIR": "01_资料库",
     # v36.1: 章节 TOC 索引
     "TOC": ".dag",
     # YAML 数据存放在 .dag/第N章/data/ 下

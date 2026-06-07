@@ -539,7 +539,7 @@ def check_shared_figures(wiki_root, book_id):
 
     concept_dirs = []
     # 扫描所有可能的 book 目录
-    for base in [os.path.join(wiki_root, "01_领域", "01_资料库"), os.path.join(wiki_root, "01_资料库"), wiki_root]:
+    for base in [os.path.join(wiki_root, DIR["DOMAIN_DIR"], DIR["LIBRARY_DIR"]), os.path.join(wiki_root, DIR["LIBRARY_DIR"]), wiki_root]:
         if book_id:
             candidate = os.path.join(base, book_id, "30_核心概念")
         else:

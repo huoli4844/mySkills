@@ -764,7 +764,7 @@ if __name__ == "__main__":
                         _auto_base = _try_dir
                     else:
                         # nested: KB_ROOT/01_领域/01_资料库/BOOK_ID
-                        _auto_base = os.path.join(_dcfg["kb_root"], "01_领域", "01_资料库", BOOK_ID)
+                        _auto_base = os.path.join(_dcfg["kb_root"], DIR["DOMAIN_DIR"], DIR["LIBRARY_DIR"], BOOK_ID)
                     break
                 except Exception as e:
                     log.debug(f"配置探测跳过: {e}")

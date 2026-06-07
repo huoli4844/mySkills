@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import time
 
-from dag_constants import DAG_ORDER, DIR
+from dag_constants import DAG_ORDER, DIR, DIR_BY_PHASE
 from dag_state import _load_state, _state_path
 from log_utils import get_logger
 
@@ -340,12 +340,7 @@ def _auto_fix_blocked_phases(wr: str, book_id: str, ch_num: str, blocked_phases:
         try:
             from content_check_rules import check_file_full
 
-            phase_dir = os.path.join(wr, {
-                "concepts": "30_核心概念", "ke": "40_知识要素",
-                "kp": "50_知识点", "sp": "60_技能点",
-                "scene": "70_应用场景", "entities": "80_实体",
-                "exercises": "90_习题", "solutions": "90_习题/解答",
-            }.get(ph, ""))
+            phase_dir = os.path.join(wr, DIR_BY_PHASE.get(ph, ""))
             if not os.path.isdir(phase_dir):
                 continue
             for fname in sorted(os.listdir(phase_dir)):

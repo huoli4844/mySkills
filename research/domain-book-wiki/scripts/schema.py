@@ -58,6 +58,8 @@ TYPE_SCHEMA_MAP = {
     "sps": "sps.schema.json",
     "scenes": "scenarios.schema.json",
     "entities": "entities.schema.json",
+    "exercises": "exercises.schema.json",
+    "solutions": "solutions.schema.json",
 }
 
 # ── YAML 文件名 → 类型名映射（扩展名变体） ──────────────────────
@@ -68,6 +70,8 @@ FILENAME_TYPE_MAP = {
     "sps.yaml": "sps",
     "scenes.yaml": "scenes",
     "entities.yaml": "entities",
+    "exercises.yaml": "exercises",
+    "solutions.yaml": "solutions",
     "concepts.json": "concepts",
     "kes.json": "kes",
     "kps.json": "kps",

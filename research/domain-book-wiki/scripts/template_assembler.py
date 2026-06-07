@@ -1084,11 +1084,16 @@ safe_filename = safe_filename
 
 # =====================================================================
 # v50.7: 文件写入 + 索引渲染 + CLI 已拆分到 template_writers.py
-# 向后兼容的 re-export（置于文件末尾，避免循环导入）
+# 向后兼容的 re-export（用 try/except 解决 circular import）
 # =====================================================================
-from template_writers import (  # noqa: E402, F401
-    _assemble_index,
-    assemble_book_overview_md,
-    assemble_concept_md,
-    assemble_md,
-)
+try:
+    from template_writers import (  # noqa: E402, F401
+        _assemble_index,
+        assemble_book_overview_md,
+        assemble_concept_md,
+        assemble_md,
+    )
+except ImportError:
+    # 在 template_writers 导入本模块时，本模块尚未完全加载
+    # assemble_md 由调用方从 template_writers 直接导入
+    pass

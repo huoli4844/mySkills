@@ -1,6 +1,6 @@
 ---
 name: domain-book-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.1: pipeline batch 完全可运行（book_name 修复），现存 YAML 数据版本落后 schema 导致质量闸门失败，需迁移脚本或降级校验"
+description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.1: DAG 全流程验证通过（第1章docx→329知识文件），schema.py/phase_validator/yaml_pre_validate 5个pipeline bug修复+migrate_yaml_schema.py迁移脚本"
 version: "51.1"
 author: Hermes Agent
 license: MIT
@@ -118,7 +118,12 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 64 | `pipeline batch` → `'SimpleNamespace' object has no attribute 'book_name'` | **v51.1**: `pipeline_batch.py` 中 `auto_args` SimpleNamespace 缺少 `book_name` 字段。修复：在创建 `auto_args` 时加 `book_name=_book_name(book_id)`。l3/l4 索引生成依赖此字段。 |
 | 65 | 旧版 YAML 数据（v50.0 模板）无法通过新版 pipeline（v50.7+ schema）质量闸门 🔥 | `yaml_pre_validate` 要求新字段（`solved_problem`, `upstream_downstream`, `entity_type`），旧数据不含。**两种修复路径**：(A) 降低 `solved_problem` 等高频必填字段校验等级至 WARN；(B) 写 `migrate_yaml_schema.py` 批量迁移旧格式 YAML。详见 [yaml-schema-migration.md](references/yaml-schema-migration.md)。 |
 | 66 | `migrate_yaml_schema.py` 的 `detect_type()` 按文件名判定类型。`entities.yaml` 不含 `"entity"` 子串（含 `"entities"`）；`kes.yaml` 含 `"kes"` 导致 `"kes" not in base` 为 False → 返回 `unknown`，迁移跳过实体和 KE 文件 ❌ | **v51.1**: `detect_type` 改为 `"entity" in base or "entities" in base`、`base.startswith("ke") or base.startswith("kes")`。同时注意 `"ke" in "entities.yaml"` 可能误报——必须先检查 entity 再检查 ke。 |
-| 67 | 部分 YAML 文件（如 `concepts_4_7.yaml`）保存为 `{items: [...]}` 格式但 `yaml_pre_validate._load_yaml()` 期望扁平列表。校验器遍历顶层 dict 而非 items → `bd` 字段全空 ❌ | **v51.1**: `migrate_yaml_schema.py` 保存时统一写扁平列表格式。预校验器的 `_load_yaml` 函数（line 86-88）如果顶层不是 list 会包装为 `[data]`，与 `{items: [...]}` 不兼容。 |
+| 67 | 部分 YAML 文件（如 `concepts_4_7.yaml`）保存为 `{items: [...]}` 格式但 `yaml_pre_validate._load_yaml()` 期望扁平列表。校验器遍历顶层 dict 而非 items → `bd` 字段全空 ❌ | **v51.1**: `migrate_yaml_schema.py` 保存时统一写扁平列表格式。预校验器的 `_load_yaml` 函数如果顶层不是 list 会包装为 `[data]`，与 `{items: [...]}` 不兼容。 |
+| 68 | `schema.py` CLI 传入相对路径时 `DATA_DIR` 会错误前置 → `scripts/data/.dag/...` 文件找不到 ❌ | **v51.1**: `schema.py` 修改为 `os.path.isabs(fname) or os.path.exists(fname) else os.path.join(DATA_DIR, fname)`。文件已存在时不拼接 DATA_DIR。 |
+| 69 | `schema.py` `_resolve_type()` 重构为 `_detect_type()` 但未更新调用点 → `NameError` ❌ | **v51.1**: `validate_yaml()` 中 `_resolve_type(yaml_path)` 改为 `_detect_type(yaml_path)`。同时 `_detect_type` 增加 `kps_机械.yaml` 等变体文件名的前缀匹配。 |
+| 70 | `schema.py` `FILENAME_TYPE_MAP` 只有精确文件名匹配，`kps_机械.yaml` 等 Agent 变体文件名无法识别类型 → schema 校验失败 ❌ | **v51.1**: `_detect_type` 增加 fallback：`basename.startswith(prefix + "_")` 或 `basename.startswith(prefix + ".")` 前缀匹配。 |
+| 71 | `phase_validator.py` 把 `### 已知条件`、`### 效果验证` 等案例内部分段当成子节检查 → 误报空子节 ❌ | **v51.1**: 空子节 issue 降级为 `⚠️` warning。`validate_phase_output()` 的 `passed` 改为：所有 issue 是 `⚠️` 前缀则视为通过。构建不阻断。 |
+| 72 | `yaml_pre_validate.py` 把 `"无"`（规范允许的空值）当作 placeholder 阻断 ❌ | **v51.1**: 从占位符列表中移除 `"无"`。规范要求"空节必须写无"。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -156,4 +161,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [engineering-improvement-roadmap.md](references/engineering-improvement-roadmap.md) | **v51.0** — 系统性改善路线图：dag_utils 符号映射、sys.exit 精确分布、mypy 13 个死模块名、CI 空白、4 批次含工时估算的改善路线图 |
 | [yaml-schema-migration.md](references/yaml-schema-migration.md) | **v51.1** — YAML 模板版本迁移指南：v50.0→v50.7+ 字段变化 + 修复方案 (A/B) |
 
-<!-- v51.1 — Last updated: 2026-06-07 — pipeline batch book_name fix + YAML schema migration guide + 2 new pitfalls -->
+<!-- v51.1 — Last updated: 2026-06-07 — DAG 第1章全流程验证通过。9个pipeline bug修复（book_name+schema路径+类型检测+空子节误检+"无"误报+变体文件名+扁平列表格式）。migrate_yaml_schema.py创建。5个新pitfalls (#68-#72) -->

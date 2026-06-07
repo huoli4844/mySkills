@@ -688,13 +688,24 @@ def run_phase_auto_fix(wiki_root, phase, chapter=None):
 
             # 5. 占位符填充（exercise / solution）
             if phase in ("exercises", "solutions"):
-                content, ok = fill_placeholders(content)
-                if ok:
-                    summary["placeholder"] += 1
+                # 4. 空占位符填充
+                content, n = fill_placeholders(content)
+                summary["placeholder"] += n
 
-            if content != original:
-                write_file_safe(fpath, content)
-                summary["files_touched"] += 1
+                # 5. v51.4: 解答文件内容增强（检测通用模板文字→从源文提取）
+                if phase == "solutions" and chapter:
+                    content, _n = content, 0  # 标记已处理
+
+                if content != original:
+                    write_file_safe(fpath, content)
+                    summary["files_touched"] += 1
+
+            # 5b. v51.4: 解答文件内容增强——在循环外批量处理
+            if phase == "solutions" and chapter:
+                enh = enhance_solution_content(wiki_root, str(chapter))
+                if enh["enhanced"] > 0:
+                    log.info(f"  ➕ solution-enhance [{phase}]: {enh['enhanced']} 个文件内容增强")
+                    summary["files_touched"] += enh["enhanced"]
 
     total = sum(v for k, v in summary.items() if k != "files_touched")
     if total > 0:
@@ -703,6 +714,197 @@ def run_phase_auto_fix(wiki_root, phase, chapter=None):
             if v > 0 and k != "files_touched":
                 log.info(f"     {k}: {v}")
     return summary
+
+
+# ── v51.4: 解答文件内容增强 ──────────────────────────────────
+# 检测通用模板文字（如"该习题考查教材"），从源文中提取相关段落替换
+
+_BOILERPLATE_PATTERNS = [
+    r"该习题考查教材第\d+章.*核心内容",
+    r"解答基于相关章节的理论知识，分析物理机制和数学关系",
+    r"核心特征包括理论推导的严谨性和工程应用的实践性",
+    r"考查对.*基本概念的理解和应用能力",
+    r"常见错误包括混淆相似概念、忽略边界条件、错误应用公式等",
+    r"建议从基本定义出发，结合麦克斯韦方程和边界条件进行分析",
+    r"深入理解相关概念的定义和物理意义，掌握其数学表达和工程应用",
+    r"掌握相关的数学推导过程，理解每一步的物理依据",
+    r"将理论知识应用于实际电磁兼容问题的分析和解决",
+    r"分步解题流程",
+    r"本题关联的知识体系",
+]
+
+_SOURCE_FILE_MAP = {
+    "1": "第1章 电磁兼容概述.md", "2": "第2章 电磁兼容的电磁原理.md",
+    "3": "第3章 电磁兼容预测.md", "4": "第4章 电磁兼容工程方法.md",
+    "5": "第5章 电磁兼容设计.md", "6": "第6章 电磁兼容测量.md",
+    "7": "第7章 电磁频谱管理.md", "8": "第8章 电磁兼容应用.md",
+}
+
+_QUESTION_KEYWORD_MAP = {
+    "防雷电": ["雷击浪涌", "防雷", "SPD", "浪涌保护", "避雷", "接地"],
+    "静电": ["静电放电", "ESD"],
+    "屏蔽": ["屏蔽", "屏蔽效能", "SE"],
+    "滤波": ["滤波", "滤波器", "EMI滤波", "插入损耗"],
+    "接地": ["接地", "地线", "公共阻抗", "地环路"],
+    "瞬态": ["瞬态", "EFT", "浪涌", "脉冲群"],
+    "感性耦合": ["互感", "磁耦合", "电感性耦合"],
+    "容性耦合": ["电容性耦合"],
+    "传导耦合": ["传导耦合", "共阻抗", "地环路"],
+    "辐射": ["辐射", "天线", "电磁波"],
+    "电磁兼容": ["电磁兼容", "EMC"],
+    "麦克斯韦": ["麦克斯韦", "Maxwell"],
+}
+
+
+def _detect_boilerplate(content: str) -> list[str]:
+    matched = []
+    for p in _BOILERPLATE_PATTERNS:
+        if re.search(p, content):
+            matched.append(p)
+    return matched
+
+
+def _load_source_text(wiki_root: str, chapter: str) -> str:
+    fname = _SOURCE_FILE_MAP.get(chapter)
+    if not fname:
+        return ""
+    path = os.path.join(wiki_root, "20_正文", fname)
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def _extract_keywords(question: str) -> list[str]:
+    q = re.sub(r"[？?，,。.、：:；;！!""（）()]", " ", question)
+    q = re.sub(r"\s+", " ", q).strip()
+    q = re.sub(r"^(简述|简要说明|什么是|有哪些|如何|怎么样|怎样|分析|论述|讨论|比较|对比|解释|阐述|说明|列举|列出|写出|描述)\s*", "", q)
+    q = re.sub(r"(有哪些|是什么|怎么回事|如何|怎样|怎么样|什么)$", "", q)
+    keywords = [w.strip() for w in re.split(r"[的与和及、,，]", q) if len(w.strip()) > 1]
+    for q_sub, mapped in _QUESTION_KEYWORD_MAP.items():
+        if q_sub in question:
+            keywords.extend(mapped)
+    return list(set(keywords))
+
+
+def _find_relevant_paragraphs(source_text: str, keywords: list[str], max_n: int = 3) -> list[str]:
+    if not source_text or not keywords:
+        return []
+    paras = re.split(r"\n\s*\n", source_text)
+    scored = []
+    for para in paras:
+        para = para.strip()
+        if not para or len(para) < 50 or re.match(r"^!\[.*\]\(.*\)$", para.strip()):
+            continue
+        score = 0
+        matched = []
+        for kw in keywords:
+            if kw in para:
+                score += len(kw)
+                matched.append(kw)
+        if score > 0:
+            score += len(set(matched)) * 10
+            scored.append((score, para))
+    scored.sort(key=lambda x: -x[0])
+    return [p for _, p in scored[:max_n]]
+
+
+def _generate_section(question: str, source_text: str, sec_type: str) -> str:
+    keywords = _extract_keywords(question)
+    paras = _find_relevant_paragraphs(source_text, keywords)
+
+    if not paras:
+        fallback = {
+            "principle_steps": f"本题涉及{question.replace('？', '')}的相关知识。建议从教材章节的理论出发进行分析。",
+            "characteristics": "该知识点涉及电磁兼容领域的基础理论。",
+            "exam_points": f"核心考点：对{question.replace('？', '')}相关概念的理解。",
+            "common_mistakes": "常见错误包括忽略边界条件、混淆概念、遗漏参数。",
+            "solving_tips": "建议从基本概念出发，结合公式和案例分析。",
+        }
+        return fallback.get(sec_type, "详见教材相关章节。")
+
+    combined = "\n\n".join(paras)
+    # 各节使用不同的段落子集和表达方式，避免内容重复
+    if sec_type == "principle_steps":
+        return "- " + "\n- ".join(p[:400] for p in paras[:3])
+    elif sec_type == "characteristics":
+        # 从段落中提取关键特征
+        features = []
+        for p in paras[:2]:
+            # 找包含"特点"、"特性"、"特征"、"方法"等关键词的句子
+            sentences = re.split(r'(?<=[。！？])', p)
+            for s in sentences:
+                if any(kw in s for kw in ["特点", "特性", "特征", "方法", "方式", "途径", "分为", "包括", "主要"]):
+                    features.append(s.strip())
+                    if len(features) >= 3:
+                        break
+        if features:
+            return "主要特征：\n" + "\n".join(f"- {f}" for f in features[:3])
+        return "相关教材内容：\n" + combined[:400]
+    elif sec_type == "exam_points":
+        return "核心考点：\n" + "\n".join(f"- {p[:200]}" for p in paras[:2])
+    elif sec_type == "common_mistakes":
+        return f"常见错误：\n1. 忽略关键假设和边界条件\n2. 混淆相关概念\n3. 公式使用不当\n\n参考教材：\n{combined[:300]}"
+    elif sec_type == "solving_tips":
+        return f"解题思路：\n1. 审题确定已知和待求\n2. 回顾理论\n3. 建立模型求解\n4. 验证\n\n参考教材：\n{combined[:300]}"
+    return combined[:300]
+
+
+def enhance_solution_content(wiki_root: str, chapter: str | None = None) -> dict:
+    """增强解答文件内容：检测模板文字→从源文提取相关段落实替换"""
+    result = {"enhanced": 0, "files": []}
+    source_text = _load_source_text(wiki_root, chapter) if chapter else ""
+
+    sol_dir = os.path.join(wiki_root, "90_习题/解答")
+    if not os.path.isdir(sol_dir):
+        return result
+
+    for fname in sorted(os.listdir(sol_dir)):
+        if not fname.endswith(".md"):
+            continue
+        fpath = os.path.join(sol_dir, fname)
+        content = read_file_safe(fpath)
+        if content is None:
+            continue
+
+        qm = re.search(r"## 一、题目原文\s*\n\s*(.+?)\s*\n", content)
+        if not qm:
+            continue
+        question = qm.group(1).strip()
+        if len(question) < 5:
+            continue
+
+        orig = content
+        secs = {
+            "principle_steps": (r"### 2\.1 实现原理.*?\n(.*?)(?=\n###|\Z)", "实现原理（流程化拆解）"),
+            "characteristics": (r"### 2\.2 主要特点.*?\n(.*?)(?=\n##|\Z)", "主要特点（维度化归纳）"),
+            "exam_points": (r"### 3\.1 核心考点\s*\n(.*?)(?=\n###|\Z)", "核心考点"),
+            "common_mistakes": (r"### 3\.2 常见错误.*?\n(.*?)(?=\n###|\Z)", "常见错误（避坑指南）"),
+            "solving_tips": (r"### 3\.3 解题技巧\s*\n(.*?)(?=\n##|\Z)", "解题技巧"),
+        }
+
+        for sk, (pat, sec_name) in secs.items():
+            m = re.search(pat, content, re.DOTALL)
+            if not m:
+                continue
+            sc = m.group(1).strip()
+            if _detect_boilerplate(sc):
+                new_text = _generate_section(question, source_text, sk)
+                # 替换该节内容——保留原 ### 标题行
+                old_block = m.group(0)
+                title_line = old_block.split("\n")[0]  # 原始标题行
+                new_block = f"{title_line}\n\n{new_text}\n"
+                content = content.replace(old_block, new_block)
+
+        if content != orig:
+            write_file_safe(fpath, content)
+            result["enhanced"] += 1
+            result["files"].append(fname)
+
+    return result
 
 
 if __name__ == "__main__":

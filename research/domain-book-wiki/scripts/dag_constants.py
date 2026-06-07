@@ -376,10 +376,10 @@ BUILDER_CONFIG = {
         "print_label": "Concept:",
     },
     "solution": {
-        "data_file": "solutions.json",
+        "data_file": "solutions.yaml",
         "dir_key": "SOLUTIONS",
-        "template": "eval_template.md",  # v37.0: 归并到评测类模板
-        "quality_key": "eval/solution",  # v37.0: 质量检查子类型键
+        "template": "eval_template.md",
+        "quality_key": "eval/solution",
         "type_tags": ["习题解答"],
         "fm_type": "solution",
         "template_version": "v7.0",
@@ -389,14 +389,24 @@ BUILDER_CONFIG = {
         "fm_extra_keys_from_item_fm": ["bloom_level"],
         "fm_extra_keys_from_item_bd": [],
         "bd_extra_keys_from_item_fm": ["source_chapter"],
-        "bd_extra_keys_from_item_bd": [],
+        "bd_extra_keys_from_item_bd": [
+            "question", "principle_steps", "characteristics",
+            "exam_points", "common_mistakes", "solving_tips",
+            "difficulty_1_title", "difficulty_1_content",
+            "difficulty_2_title", "difficulty_2_content",
+            "difficulty_3_title", "difficulty_3_content",
+            "flowchart_diagram", "flowchart_steps",
+            "knowledge_loop_diagram", "knowledge_loop_analysis",
+            "related_concepts", "source_reference",
+            "exercise_link", "exercise_name", "answer",
+        ],
         "print_label": "Solution:",
     },
     "exercise": {
-        "data_file": "exercises.json",
+        "data_file": "exercises.yaml",
         "dir_key": "EXERCISES",
-        "template": "exercise_template.md",  # v43.5: 习题只含题目
-        "quality_key": "eval/exercise",  # v37.0: 质量检查子类型键
+        "template": "exercise_template.md",
+        "quality_key": "eval/exercise",
         "type_tags": ["习题"],
         "fm_type": "exercise",
         "template_version": "v7.0",
@@ -406,7 +416,7 @@ BUILDER_CONFIG = {
         "fm_extra_keys_from_item_fm": ["bloom_level"],
         "fm_extra_keys_from_item_bd": [],
         "bd_extra_keys_from_item_fm": ["source_chapter"],
-        "bd_extra_keys_from_item_bd": [],
+        "bd_extra_keys_from_item_bd": ["question", "related_answer"],
         "print_label": "Exercise:",
     },
 }

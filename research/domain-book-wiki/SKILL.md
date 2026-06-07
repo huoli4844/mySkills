@@ -1,7 +1,7 @@
 ---
 name: domain-book-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.1: DAG 全流程验证通过（第1章docx→329知识文件），schema.py/phase_validator/yaml_pre_validate 5个pipeline bug修复+migrate_yaml_schema.py迁移脚本"
-version: "51.1"
+description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.2: DAG 第1、2章全流程验证通过（docx→329知识文件）10/12阶段done。migrate_yaml_schema迁移引擎+template_assembler circular import+exercises/solutions schema类型修复"
+version: "51.2"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -112,7 +112,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 58 | `str | None` 语法需要 Python 3.10+（代码中 41 处使用） | 本技能已统一锁定 Python 3.12，无需降级。CI 中已验证 `python-version: ["3.12"]` |
 | 59 | mypy 配置引用了 13 个不存在的模块——重构时删除的文件未清理 pyproject.toml 🔥 | ✅ **v50.7 已修复**：移除 `[[tool.mypy.overrides]]` 中 14 个不存在模块。|
 | 60 | 类继承中的前向引用：Mixin 定义在使用它的类之后 → `NameError` 🔥 | Mixin 定义必须**早于**使用它的类。`kb_graph.py` 实战：`KGraphQueryMixin` 在第 137 行被继承但定义在第 360 行 → 恢复 `kb_graph_query.py` 独立模块。 |
-| 61 | 模块拆分时循环导入：A 从 B import，B 从 A import → `cannot import name X` 🔥 | A 末尾放 re-export（`from B import ...`），此时 A 全部名字已定义。`template_assembler`+`template_writers` 实战：re-export 在 `safe_filename` 之后（文件最末）。 |
+| 61 | 模块拆分时循环导入：A 从 B import，B 从 A import → `cannot import name X` 🔥 | 模块底部 re-export 解决不了真正的 circular import。`template_assembler`+`template_writers` 实战：`template_assembler` 底部 `from template_writers import assemble_md` 会在 `template_writers` 导入 `template_assembler` 时触发——因为 `template_assembler` 尚未完全加载。**正确修复**：`try/except ImportError: pass` 包裹 re-export。调用方从 `template_writers` 直接导入 `assemble_md`（单向依赖）。 |
 | 62 | 质量闸门 FAIL 后无自动恢复路径——需人工诊断后修复 | `pipeline batch --retry N` 先用 `content_check_rules` + `post_build_fix` 机械修复；重试用尽后生成 `.dag/第N章/fix_report.json` 供 Agent 修复。详见 [auto-fix-agent-workflow.md](references/auto-fix-agent-workflow.md)。 |
 | 63 | 合并代码文件以减少文件数 → 产生 God 文件（>800行），维护性变差 🔥 | **合并的唯一正当理由是消除真正的重复或碎片化，不是减少文件数**。合并前衡量：合并后是否 <500行？职责是否真正重叠？(1) 签名不同的工具函数不合并（`load_source_text` 在 yaml_auto_gen 和 yaml_auto_fill 中签名不同）→ 应提取共享工具到 parse_utils；(2) 职责不同的模块不合并（yaml_gen 交互式 vs yaml_auto_fill 批量）→ 保持分离。死代码和孤立模块才删除。 |
 | 64 | `pipeline batch` → `'SimpleNamespace' object has no attribute 'book_name'` | **v51.1**: `pipeline_batch.py` 中 `auto_args` SimpleNamespace 缺少 `book_name` 字段。修复：在创建 `auto_args` 时加 `book_name=_book_name(book_id)`。l3/l4 索引生成依赖此字段。 |
@@ -124,6 +124,8 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 70 | `schema.py` `FILENAME_TYPE_MAP` 只有精确文件名匹配，`kps_机械.yaml` 等 Agent 变体文件名无法识别类型 → schema 校验失败 ❌ | **v51.1**: `_detect_type` 增加 fallback：`basename.startswith(prefix + "_")` 或 `basename.startswith(prefix + ".")` 前缀匹配。 |
 | 71 | `phase_validator.py` 把 `### 已知条件`、`### 效果验证` 等案例内部分段当成子节检查 → 误报空子节 ❌ | **v51.1**: 空子节 issue 降级为 `⚠️` warning。`validate_phase_output()` 的 `passed` 改为：所有 issue 是 `⚠️` 前缀则视为通过。构建不阻断。 |
 | 72 | `yaml_pre_validate.py` 把 `"无"`（规范允许的空值）当作 placeholder 阻断 ❌ | **v51.1**: 从占位符列表中移除 `"无"`。规范要求"空节必须写无"。 |
+| 73 | `schema.py` `TYPE_SCHEMA_MAP` 和 `FILENAME_TYPE_MAP` 缺少 `exercises` 和 `solutions` 类型 → Phase 0 schema 校验失败 ❌ | **v51.2**: 新增 `"exercises": "exercises.schema.json"` 和 `"solutions": "solutions.schema.json"`。同时 `FILENAME_TYPE_MAP` 补对应条目。 |
+| 74 | `template_assembler.py` 底部 re-export（`from template_writers import assemble_md`）在 exercises 构建阶段触发 circular import → exercises 阶段阻塞 ❌ | **v51.2**: 改为 `try/except ImportError: pass`。当 `template_writers` 导入 `template_assembler` 时本模块尚未完成加载 → ImportError 静默捕获，`assemble_md` 由调用方从 `template_writers` 直接获取。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -161,4 +163,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [engineering-improvement-roadmap.md](references/engineering-improvement-roadmap.md) | **v51.0** — 系统性改善路线图：dag_utils 符号映射、sys.exit 精确分布、mypy 13 个死模块名、CI 空白、4 批次含工时估算的改善路线图 |
 | [yaml-schema-migration.md](references/yaml-schema-migration.md) | **v51.1** — YAML 模板版本迁移指南：v50.0→v50.7+ 字段变化 + 修复方案 (A/B) |
 
-<!-- v51.1 — Last updated: 2026-06-07 — DAG 第1章全流程验证通过。9个pipeline bug修复（book_name+schema路径+类型检测+空子节误检+"无"误报+变体文件名+扁平列表格式）。migrate_yaml_schema.py创建。5个新pitfalls (#68-#72) -->
+<!-- v51.2 — Last updated: 2026-06-07 — DAG 第1、2章验证通过。template_assembler circular import try/except 修复。schema.py exercises/solutions 类型补全。pitfalls #61重写, #73-#74新增 -->

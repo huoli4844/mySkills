@@ -15,6 +15,9 @@ v38.0: 将硬编码在代码中的配置字典外置为 YAML，支持按书籍/�
     confidence_levels = cfg.confidence_levels
 """
 
+from __future__ import annotations
+
+
 import os
 from dataclasses import dataclass, field
 from typing import Any

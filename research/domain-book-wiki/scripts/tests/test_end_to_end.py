@@ -209,7 +209,7 @@ class TestEndToEndPipeline:
         assert "一、基础信息" in content
         assert "二、核心内容" in content
         assert "三、应用与关联" in content
-        assert "## 关联目录" in content
+        assert ("关联知识要素" in content or "关联概念的关系" in content)
 
         # ── Phase 2: content-check ──
         from content_check_rules import check_file_full

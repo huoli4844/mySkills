@@ -7,6 +7,9 @@ v45.1-todo: 789行，建议拆分为:
   - kb_graph_edges.py（边解析+文件处理，~489行）
 """
 
+from __future__ import annotations
+
+
 import os
 import re
 from datetime import datetime

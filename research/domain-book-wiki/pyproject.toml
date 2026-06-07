@@ -57,7 +57,6 @@ exclude = ["scripts/tests/", "scripts/_convert_print_to_log.py", "scripts/_split
 # 迁移路线：逐模块从 override 列表移除 → 添加类型标注 → mypy 零错误。
 [[tool.mypy.overrides]]
 module = [
-    "build_kb_files",
     "config",
     "content_check_rules",
     "dag_controller",
@@ -69,13 +68,11 @@ module = [
     "dag_state",
     "formula_utils",
     "generate_index_data",
-    "generate_sidebar",
     "graph_analytics",
     "graph_quality",
     "index_assembler",
     "kb_graph",
     "kb_graph_builder",
-    "kb_mcp",
     "log_utils",
     "parse_utils",
     "phase_validator",
@@ -90,10 +87,11 @@ module = [
     "tac_constants",
     "tac_quality",
     "template_assembler",
-    "validate_chapter_data",
     "validate_mermaid_syntax",
     "verify_concepts_from_source",
     "yaml_gen",
+    "yaml_auto_fill",
+    "yaml_pre_validate",
 ]
 disallow_untyped_defs = false
 check_untyped_defs = false

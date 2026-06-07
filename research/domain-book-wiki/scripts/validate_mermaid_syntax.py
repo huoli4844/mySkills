@@ -466,7 +466,8 @@ if __name__ == "__main__":
         json_out = "--json" in sys.argv
 
         ok = scan_dir(wiki_root, fix=fix, scan_only=scan_only, json_output=json_out)
-        sys.exit(0 if ok else 1)
+        if not ok:
+            raise PipelineError("Mermaid validation FAILED")
     except PipelineError as e:
         log.error(str(e))
-        sys.exit(1)
+        raise

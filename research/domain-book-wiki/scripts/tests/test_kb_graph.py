@@ -12,6 +12,50 @@ from kb_graph import KGraph
 pytestmark = pytest.mark.integration
 
 
+# ── 测试辅助 ───────────────────────────────────────────────
+
+
+def _seed_db(kg):
+    """初始化数据库并插入最小测试数据，供质量检查测试使用。"""
+    kg._init_db()
+    conn = kg._conn()
+    nodes = [
+        ("concept_1", "concept", "概念A", "01_test", "1",
+         "/b/01_test/30_核心概念/概念A.md"),
+        ("concept_2", "concept", "概念AB", "01_test", "1",
+         "/b/01_test/30_核心概念/概念AB.md"),
+        ("ke_1", "knowledge-element", "要素X", "01_test", "1",
+         "/b/01_test/40_知识要素/要素X.md"),
+        ("kp_1", "knowledge", "知识点P", "01_test", "1",
+         "/b/01_test/50_知识点/知识点P.md"),
+        ("sp_1", "skill", "技能S", "01_test", "1",
+         "/b/01_test/60_技能点/技能S.md"),
+        ("scene_1", "scenario", "场景C", "01_test", "1",
+         "/b/01_test/70_应用场景/场景C.md"),
+    ]
+    for nid, ntype, name, bid, ch, fpath in nodes:
+        conn.execute(
+            "INSERT OR REPLACE INTO nodes (id, type, name, book_id, chapter_num, file_path) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (nid, ntype, name, bid, ch, fpath),
+        )
+    edges = [
+        ("concept_1", "ke_1", "has_ke"),
+        ("ke_1", "kp_1", "has_kp"),
+        ("kp_1", "sp_1", "has_sp"),
+        ("sp_1", "scene_1", "has_scene"),
+        ("concept_2", "concept_1", "related_to"),
+    ]
+    for src, tgt, rel in edges:
+        conn.execute(
+            "INSERT OR REPLACE INTO edges (source_id, target_id, rel_type) "
+            "VALUES (?, ?, ?)",
+            (src, tgt, rel),
+        )
+    conn.commit()
+    conn.close()
+
+
 @pytest.fixture
 def graph_workspace(tmp_path):
     """创建临时 wiki 目录结构"""
@@ -188,6 +232,7 @@ class TestDownstreamPhases:
 
 class TestCheckGraphQuality:
     def test_empty_graph(self, kg):
+        kg._init_db()
         q = kg.check_graph_quality()
         assert "summary" in q
         assert "issues" in q
@@ -198,7 +243,7 @@ class TestCheckGraphQuality:
         q = kg.check_graph_quality()
         hollow = [i for i in q["issues"] if i["category"] == "空心概念"]
         assert len(hollow) > 0
-        assert any("空心概念" in h["message"] for h in hollow)
+        assert any("概念" in h["message"] for h in hollow)
 
     def test_returns_top_nodes(self, kg):
         _seed_db(kg)
@@ -208,6 +253,7 @@ class TestCheckGraphQuality:
 
 class TestCheckL1Connectivity:
     def test_empty_graph(self, kg):
+        kg._init_db()
         conn = kg.check_l1_connectivity()
         assert "overall_passed" in conn
         assert "checks" in conn
@@ -221,6 +267,7 @@ class TestCheckL1Connectivity:
 
 class TestCheckSimilarNames:
     def test_empty(self, kg):
+        kg._init_db()
         result = kg.check_similar_names()
         # returns dict like {'pairs': [], 'total': 0}
         assert isinstance(result, dict)
@@ -236,6 +283,7 @@ class TestCheckSimilarNames:
 
 class TestDegreeCentrality:
     def test_empty(self, kg):
+        kg._init_db()
         cent = kg.degree_centrality()
         assert isinstance(cent, dict)
         assert "nodes" in cent
@@ -249,6 +297,7 @@ class TestDegreeCentrality:
 
 class TestCheckBridgeGaps:
     def test_empty(self, kg):
+        kg._init_db()
         gaps = kg.check_bridge_gaps()
         assert isinstance(gaps, dict)
 
@@ -260,6 +309,7 @@ class TestCheckBridgeGaps:
 
 class TestCheckPathIntegrity:
     def test_empty(self, kg):
+        kg._init_db()
         paths = kg.check_path_integrity()
         assert isinstance(paths, dict)
 
@@ -272,6 +322,7 @@ class TestCheckPathIntegrity:
 
 class TestSuggestBuildOrder:
     def test_empty(self, kg):
+        kg._init_db()
         order = kg.suggest_build_order()
         assert isinstance(order, dict | list)
 

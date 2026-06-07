@@ -17,6 +17,9 @@ CLI：
   python3 kb_graph.py /path/to/wiki validate
 """
 
+from __future__ import annotations
+
+
 import json
 import os
 import re
@@ -503,4 +506,4 @@ if __name__ == "__main__":
         main()
     except PipelineError as e:
         log.error(str(e))
-        sys.exit(1)
+        raise

@@ -14,6 +14,9 @@
   python3 pipeline_insights.py communities -w BOOK_DIR --book-id XX # 仅社区分析
 """
 
+from __future__ import annotations
+
+
 import os
 import sys
 from collections import defaultdict

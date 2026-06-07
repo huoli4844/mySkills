@@ -81,9 +81,9 @@ class TestPipelineInit:
         from dag_pipeline_ops import pipeline_init
 
         with (
-            patch("dag_pipeline.detect_layout") as mock_detect,
-            patch("dag_pipeline.save_workspace_config"),
-            patch("dag_pipeline._print_pipeline_status"),
+            patch("dag_pipeline_ops.detect_layout") as mock_detect,
+            patch("dag_pipeline_ops.save_workspace_config"),
+            patch("dag_pipeline_ops._print_pipeline_status"),
         ):
             mock_detect.return_value = {"layout": "flat", "kb_root": wiki_workspace}
             pipeline_init(mock_args)
@@ -96,9 +96,9 @@ class TestPipelineInit:
         from dag_pipeline_ops import pipeline_init
 
         with (
-            patch("dag_pipeline.detect_layout") as mock_detect,
-            patch("dag_pipeline.save_workspace_config"),
-            patch("dag_pipeline._print_pipeline_status"),
+            patch("dag_pipeline_ops.detect_layout") as mock_detect,
+            patch("dag_pipeline_ops.save_workspace_config"),
+            patch("dag_pipeline_ops._print_pipeline_status"),
         ):
             mock_detect.return_value = {"layout": "flat", "kb_root": wiki_workspace}
             pipeline_init(mock_args)
@@ -193,8 +193,8 @@ class TestDAGDependencyCheck:
 
         with (
             patch("dag_utils.PipelineLock") as mock_lock_cls,
-            patch("dag_pipeline.pipeline_validate") as mock_pv,
-            patch("dag_pipeline.build_skeleton", create=True) as _mock_bs,
+            patch("dag_pipeline_run.pipeline_validate") as mock_pv,
+            patch("dag_index.build_skeleton", create=True) as _mock_bs,
         ):
             mock_lock = MagicMock()
             mock_lock.acquire.return_value = True
@@ -242,12 +242,12 @@ class TestPipelineValidate:
         _save_state(sp, state)
 
         with (
-            patch("dag_pipeline.validate_phase_output") as mock_vpo,
-            patch("dag_pipeline.fix_broken_links"),
-            patch("dag_pipeline.check_stray_files"),
-            patch("dag_pipeline.scan_broken_links") as mock_sbl,
-            patch("dag_pipeline.verify_exercise_solution_mapping") as mock_vesm,
-            patch("dag_pipeline.check_level_quality") as mock_clq,
+            patch("dag_pipeline_run.validate_phase_output") as mock_vpo,
+            patch("dag_pipeline_run.fix_broken_links"),
+            patch("dag_pipeline_run.check_stray_files"),
+            patch("dag_pipeline_run.scan_broken_links") as mock_sbl,
+            patch("dag_pipeline_run.verify_exercise_solution_mapping") as mock_vesm,
+            patch("dag_pipeline_run.check_level_quality") as mock_clq,
             patch("kb_graph.KGraph") as mock_kg,
             patch("subprocess.run") as mock_sub,
         ):

@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from dag_constants import DIR, BUILDER_CONFIG
+from dag_constants import DIR, BUILDER_CONFIG, PipelineError
 
 _CONFIDENCE = {
     "concept": 0.95, "ke": 0.85, "entity": 0.85,
@@ -558,7 +558,7 @@ def cmd_fill(args):
     source_text, _, source_lines = load_source_text(book_dir, args.chapter)
     if not source_text:
         print(f"❌ 未找到第{args.chapter}章源文", file=sys.stderr)
-        sys.exit(1)
+        raise PipelineError(f"未找到第{args.chapter}章源文")
 
     # 从现有 YAML 读取名称列表(如果有的话)
     yaml_path = os.path.join(book_dir, ".dag", f"第{args.chapter}章", "data",
@@ -575,7 +575,7 @@ def cmd_fill(args):
 
     if not names:
         print("❌ 未提供 name 参数且 YAML 中无条目", file=sys.stderr)
-        sys.exit(1)
+        raise PipelineError("未提供 name 参数且 YAML 中无条目")
 
     items = []
     for name in names:
@@ -605,7 +605,7 @@ def cmd_llm_prompt(args):
     source_text, _, source_lines = load_source_text(book_dir, args.chapter)
     if not source_text:
         print(f"❌ 未找到第{args.chapter}章源文", file=sys.stderr)
-        sys.exit(1)
+        raise PipelineError(f"未找到第{args.chapter}章源文")
 
     # 先机械填充
     item = mechanical_fill(args.type, args.name, args.book_id, args.chapter,

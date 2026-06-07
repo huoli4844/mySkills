@@ -11,6 +11,9 @@ v40.0: 消除 subprocess.run + emoji stdout 解析的重复代码。
         print(result.data["fail"])  # 结构化访问
 """
 
+from __future__ import annotations
+
+
 import json
 import os
 import subprocess

@@ -13,12 +13,16 @@ Exit codes:
     1 — One or more checks failed
 """
 
+from __future__ import annotations
+
+
 import argparse
 import importlib
 import inspect
 import os
 import sys
 
+from dag_constants import PipelineError
 from log_utils import get_logger
 
 log = get_logger(__name__)
@@ -476,7 +480,8 @@ def main():
         log.info("Some pre-flight checks FAILED \u2717")
     log.info("=" * 60)
 
-    sys.exit(0 if all_passed else 1)
+    if not all_passed:
+        raise PipelineError("Some pre-flight checks FAILED")
 
 
 if __name__ == "__main__":

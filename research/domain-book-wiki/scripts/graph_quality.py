@@ -6,6 +6,9 @@ v36.5: 从 kb_graph.py 拆分。KGraph 继承此 Mixin 获得质量检查方法�
       check_path_integrity, suggest_build_order, export_mermaid
 """
 
+from __future__ import annotations
+
+
 
 
 class KGraphQualityMixin:

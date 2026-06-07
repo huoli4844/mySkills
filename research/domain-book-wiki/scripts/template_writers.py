@@ -6,6 +6,9 @@ v50.7: 从 template_assembler.py 独立（v45.1 TODO: 拆分为 3 文件）。
 包含文件写入（原子写入）、索引渲染、CLI 入口，不包含字段填充逻辑。
 """
 
+from __future__ import annotations
+
+
 import json
 import os
 import re
@@ -289,4 +292,4 @@ if __name__ == "__main__":
         main()
     except PipelineError as e:
         log.error(str(e))
-        sys.exit(1)
+        raise

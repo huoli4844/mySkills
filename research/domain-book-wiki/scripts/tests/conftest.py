@@ -118,6 +118,10 @@ def _reset_log_utils():
 
         for logger in _loggers.values():
             for handler in logger.handlers[:]:
-                handler.flush()
+                try:
+                    handler.flush()
+                except (ValueError, OSError):
+                    # handler 可能已被其他测试关闭（如 subprocess/tempfile），静默跳过
+                    pass
     except ImportError:
         pass

@@ -530,4 +530,4 @@ if __name__ == "__main__":
         main()
     except PipelineError as e:
         log.error(str(e))
-        sys.exit(1)
+        raise

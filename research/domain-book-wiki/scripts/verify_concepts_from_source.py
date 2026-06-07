@@ -29,6 +29,9 @@ verify-concepts-from-source.py — 核心概念定义出处验证脚本（硬约
 输出：过滤后的 JSON（移除了所有定义不可检索的概念项）
 """
 
+from __future__ import annotations
+
+
 import argparse
 import json
 import os
@@ -265,7 +268,8 @@ def main():
         log.info("\n  建议: 被删除的概念需要 Agent 重新从正文提取准确的定义")
 
     # 返回码：全通过=0，有删除=1
-    sys.exit(0 if result["removed"] == 0 else 1)
+    if result["removed"] > 0:
+        raise PipelineError(f"Deleted {result['removed']} concepts not found in source")
 
 
 if __name__ == "__main__":
@@ -273,4 +277,4 @@ if __name__ == "__main__":
         main()
     except PipelineError as e:
         log.error(str(e))
-        sys.exit(1)
+        raise

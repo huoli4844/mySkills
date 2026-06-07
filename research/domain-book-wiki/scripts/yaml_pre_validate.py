@@ -12,11 +12,16 @@
 退出码: 0=全部通过, 1=有错误, 2=有警告
 """
 
+from __future__ import annotations
+
+
 import argparse
 import os
 import sys
 import yaml
 from typing import Any
+
+from dag_constants import PipelineError
 
 # ── 类型名映射: yaml_pre_validate 内部名 → dag_constants.REQUIRED_BD_FIELDS key ──
 _TYPE_TO_BD_KEY = {
@@ -461,11 +466,12 @@ def main():
         results = [validate_file(args.yaml_path)]
     else:
         parser.print_help()
-        sys.exit(2)
+        raise PipelineError("请指定 YAML 文件或目录")
 
     output, all_pass = format_results(results, verbose=args.verbose)
     print(output)
-    sys.exit(0 if all_pass else 1)
+    if not all_pass:
+        raise PipelineError("YAML pre-validation FAILED")
 
 
 if __name__ == "__main__":

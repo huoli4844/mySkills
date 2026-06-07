@@ -13,11 +13,15 @@ schema.py — YAML 数据校验器
   python3 schema.py --strict                 # 严格模式：additionalProperties 也报错
 """
 
+from __future__ import annotations
+
+
 import json
 import os
 import sys
 from typing import Any
 
+from dag_constants import PipelineError
 from log_utils import get_logger
 
 log = get_logger(__name__)
@@ -324,7 +328,7 @@ def validate_all(strict: bool = False) -> dict[str, list[dict[str, Any]]]:
 
 
 # ── CLI ──────────────────────────────────────────────────────────
-if __name__ == "__main__":
+def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Validate YAML data files against JSON Schemas")
@@ -340,8 +344,7 @@ if __name__ == "__main__":
             schema_path = os.path.join(SCHEMA_DIR, TYPE_SCHEMA_MAP[t])
             exists = "✅" if os.path.exists(schema_path) else "❌"
             log.info(f"  {exists} {t:12s} → {TYPE_SCHEMA_MAP[t]}")
-        sys.exit(0)
-
+        return
     if args.files:
         all_ok = True
         for fname in args.files:
@@ -359,7 +362,8 @@ if __name__ == "__main__":
             crit = [e for e in errors if e["severity"] == "error"]
             if crit:
                 all_ok = False
-        sys.exit(0 if all_ok else 1)
+        if not all_ok:
+            raise PipelineError("Some validations FAILED")
     else:
         # Validate all
         log.info(f"{'='*60}")
@@ -385,4 +389,9 @@ if __name__ == "__main__":
         else:
             log.error(f"  ❌ Total: {total_errors} error(s)")
         log.info(f"{'='*60}")
-        sys.exit(0 if all_ok else 1)
+        if not all_ok:
+            raise PipelineError("Some validations FAILED")
+
+
+if __name__ == "__main__":
+    main()

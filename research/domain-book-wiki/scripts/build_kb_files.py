@@ -15,6 +15,9 @@ build_kb_files.py - 知识库L1节点文件工程化生成脚本
   python3 build_kb_files.py --type concept --chapter 3   # 生成第3章的概念
 """
 
+from __future__ import annotations
+
+
 import json
 import os
 import re

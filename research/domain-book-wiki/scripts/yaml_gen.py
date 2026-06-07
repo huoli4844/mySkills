@@ -27,6 +27,9 @@
     python3 yaml_gen.py interactive concept concepts_template.yaml
 """
 
+from __future__ import annotations
+
+
 import argparse
 import os
 import re
@@ -569,11 +572,11 @@ def cmd_interactive(args: argparse.Namespace) -> None:
             user_input = input("      输入: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n\n已取消。")
-            sys.exit(0)
+            return
 
         if user_input.lower() == "q":
             print("已退出。已输入的字段将不会保存。")
-            sys.exit(0)
+            return
         if user_input:
             values[field] = user_input
 
@@ -673,4 +676,4 @@ if __name__ == "__main__":
         main()
     except PipelineError as e:
         print(f"错误: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise

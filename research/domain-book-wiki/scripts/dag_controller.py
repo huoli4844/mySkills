@@ -30,7 +30,7 @@ from dag_pipeline_done import pipeline_done, pipeline_next
 from dag_quality import pipeline_check
 from dag_state import _wr
 from log_utils import get_logger
-from pipeline_batch import run_batch_pipeline
+from pipeline_batch import run_batch_pipeline, generate_phase2_tasks
 from pipeline_extras import pipeline_fill_solutions, pipeline_fix, pipeline_review, pipeline_rollback
 
 log = get_logger(__name__)
@@ -57,7 +57,7 @@ def main():
     # pipeline
     pl = sp.add_parser("pipeline")
     pl.add_argument(
-        "action", choices=["init", "status", "next", "done", "check", "validate", "auto", "fill-solutions", "rollback", "batch", "insights", "fix", "review", "consistency"]
+        "action", choices=["init", "status", "next", "done", "check", "validate", "auto", "fill-solutions", "rollback", "batch", "insights", "fix", "review", "consistency", "build-all", "phase2-tasks"]
     )
     pl.add_argument("phase", nargs="?")
     pl.add_argument("-w", "--wiki-root")
@@ -71,6 +71,7 @@ def main():
     pl.add_argument("--no-cache", dest="no_cache", action="store_true", help="禁用增量缓存（强制重建所有章节）")
     pl.add_argument("--field", dest="field", help="仅检查/修复指定字段（如 solved_problem、entity_type）")
     pl.add_argument("--auto-fill", dest="auto_fill", action="store_true", help="自动填充模式（fix 命令可用，尝试推断并写入）")
+    pl.add_argument("--source-dir", dest="source_dir", help="源文件目录（build-all 命令用）")
 
     # check (shortcut)
     ck = sp.add_parser("check")
@@ -247,6 +248,15 @@ def main():
         elif a.action == "review":
             # v50.7: 内容深度 Agent 二次审核
             pipeline_review(a)
+        elif a.action == "build-all":
+            # v50.8: 一键全流程（Phase 0→1→1.5→Phase2任务生成→3+）
+            from pipeline_batch import pipeline_build_all
+            pipeline_build_all(a)
+        elif a.action == "phase2-tasks":
+            # v50.8: 仅为指定章生成 Phase 2 任务
+            wr = os.path.abspath(a.wiki_root) if a.wiki_root else os.path.abspath(".")
+            ch = str(getattr(a, "chapter", "0") or "0")
+            generate_phase2_tasks(wr, getattr(a, "book_id", ""), ch)
         elif a.action == "batch":
             # v45.2: 批量章编排 | v46.0: 增量缓存
             wr = os.path.abspath(a.wiki_root) if a.wiki_root else os.path.abspath(".")

@@ -17,6 +17,9 @@ v47.0 P2: 缓存版本感知
   python3 chapter_cache.py invalidate-all -w BOOK_DIR  # 清空所有缓存
 """
 
+from __future__ import annotations
+
+
 import hashlib
 import json
 import os

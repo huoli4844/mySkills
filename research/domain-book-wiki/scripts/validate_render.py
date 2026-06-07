@@ -15,6 +15,9 @@
   - 被 dag_pipeline_run.py 的 pipeline_validate 调用
 """
 
+from __future__ import annotations
+
+
 import argparse
 import json
 import os
@@ -374,7 +377,8 @@ def main():
     else:
         _print_report(result)
 
-    sys.exit(0 if result["passed"] else 1)
+    if not result["passed"]:
+        raise PipelineError("Render validation FAILED")
 
 
 def _print_report(result: dict[str, Any]) -> None:

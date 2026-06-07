@@ -240,4 +240,4 @@ if __name__ == "__main__":
         main()
     except PipelineError as e:
         print(f"❌ {e}", file=sys.stderr)
-        sys.exit(1)
+        raise

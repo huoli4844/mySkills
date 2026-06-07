@@ -11,6 +11,9 @@ dag_quality.py 等多个模块共同使用。
     safe_filename(name) → str                文件名安全化
 """
 
+from __future__ import annotations
+
+
 import json
 import re
 from typing import Any

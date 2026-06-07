@@ -20,6 +20,9 @@ from dag_constants import DAG_ORDER, DIR, DIR_BY_PHASE, NODE_CONFIG, PipelineArg
 
 
 from workspace_paths import WorkspacePaths  # noqa: F401 — v43.1 re-export
+
+STATE_SCHEMA_VERSION = "1.0.0"
+
 # ── P0-3: 并发锁（防止两个 pipeline 同时运行）─────────────
 try:
     import fcntl
@@ -199,7 +202,12 @@ def _load_state(p: str) -> dict[str, Any]:
     if os.path.exists(p):
         try:
             with _state_lock(p, exclusive=False), open(p) as f:
-                return json.load(f)
+                data = json.load(f)
+            # Schema 版本检查
+            ver = data.get("_schema_version", "")
+            if not ver or ver < STATE_SCHEMA_VERSION:
+                log.warning("⚠️ 状态文件 schema 版本 %s 低于当前 %s，尝试向后兼容加载", ver or "（无版本）", STATE_SCHEMA_VERSION)
+            return data
         except (json.JSONDecodeError, ValueError):
             # 尝试从 WAL 恢复
             wal_path = p + ".wal"
@@ -228,6 +236,7 @@ def _save_state(p: str, s: dict[str, Any]) -> None:
 
     # 自动记录最后修改时间
     s["_last_modified"] = _time.strftime("%Y-%m-%dT%H:%M:%S")
+    s["_schema_version"] = STATE_SCHEMA_VERSION
 
     # v43.12: 阶段一致性检查 —— 防止"下游 done 但上游 pending"的矛盾状态
     DAG_ORDER = [
@@ -278,6 +287,7 @@ def _log_check_result(wr: str, book_id: str, ch: str, check_name: str, result_di
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(
                 {
+                    "_schema_version": STATE_SCHEMA_VERSION,
                     "timestamp": _time.time(),
                     "book_id": book_id,
                     "chapter": ch,

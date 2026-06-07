@@ -757,4 +757,4 @@ if __name__ == "__main__":
         log.success(f"  ✅ {os.path.basename(filepath)} ({len(result)} chars)")
     except PipelineError as e:
         log.error(str(e))
-        sys.exit(1)
+        raise

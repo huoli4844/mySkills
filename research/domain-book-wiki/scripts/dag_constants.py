@@ -3,6 +3,8 @@
 从 dag_utils.py 拆分。纯常量 + 类型定义，零函数逻辑。
 """
 
+from __future__ import annotations
+
 from typing import Protocol
 
 

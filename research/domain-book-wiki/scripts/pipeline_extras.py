@@ -4,6 +4,9 @@ v40.1: 从 dag_pipeline.py 拆分，减少核心文件体量。
 包含: pipeline_fill_solutions, pipeline_rollback, _get_downstream_phases
 """
 
+from __future__ import annotations
+
+
 import os
 
 from dag_constants import (

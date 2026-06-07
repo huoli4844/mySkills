@@ -1,7 +1,7 @@
 ---
 name: domain-book-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.2: DAG 第1、2章全流程验证通过（docx→329知识文件）10/12阶段done。migrate_yaml_schema迁移引擎+template_assembler circular import+exercises/solutions schema类型修复"
-version: "51.2"
+description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.3: 习题解答内容修复——data_file solutions.json→solutions.yaml + bd_extra_keys_from_item_bd补全21个模板字段。DAG 第1、2章验证通过，12类节点全部正确渲染"
+version: "51.3"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -125,7 +125,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 71 | `phase_validator.py` 把 `### 已知条件`、`### 效果验证` 等案例内部分段当成子节检查 → 误报空子节 ❌ | **v51.1**: 空子节 issue 降级为 `⚠️` warning。`validate_phase_output()` 的 `passed` 改为：所有 issue 是 `⚠️` 前缀则视为通过。构建不阻断。 |
 | 72 | `yaml_pre_validate.py` 把 `"无"`（规范允许的空值）当作 placeholder 阻断 ❌ | **v51.1**: 从占位符列表中移除 `"无"`。规范要求"空节必须写无"。 |
 | 73 | `schema.py` `TYPE_SCHEMA_MAP` 和 `FILENAME_TYPE_MAP` 缺少 `exercises` 和 `solutions` 类型 → Phase 0 schema 校验失败 ❌ | **v51.2**: 新增 `"exercises": "exercises.schema.json"` 和 `"solutions": "solutions.schema.json"`。同时 `FILENAME_TYPE_MAP` 补对应条目。 |
-| 74 | `template_assembler.py` 底部 re-export（`from template_writers import assemble_md`）在 exercises 构建阶段触发 circular import → exercises 阶段阻塞 ❌ | **v51.2**: 改为 `try/except ImportError: pass`。当 `template_writers` 导入 `template_assembler` 时本模块尚未完成加载 → ImportError 静默捕获，`assemble_md` 由调用方从 `template_writers` 直接获取。 |
+| 74 | `template_assembler.py` 底部 re-export（`from template_writers import assemble_md`）在 exercises 构建阶段触发 circular import → exercises 阶段阻塞 ❌ | **v51.2**: 改为 `try/except ImportError: pass`。当 `template_writers` 导入 `template_assembler` 时本模块尚未完成加载 → ImportError 静默捕获，`assemble_md` 由调用方从 `template_writers` 直接获取。 |\n| 75 | 习题/解答 build 后全部是"待后续AI Agent深度填充"——内容全被 post_build_fix 替换为占位符 | **v51.3**: 根因在 `dag_constants.BUILDER_CONFIG`：`solution` 的 `data_file` 指向 `solutions.json` 但文件已迁移为 `solutions.yaml`。build_kb_files 读不到数据 → 0 items → 走模板默认值 → post_build_fix 将模板中的 `（待Agent补充）` 替换为 `待后续AI Agent深度填充`。**修复**：(1) `data_file: solutions.json` → `solutions.yaml`；(2) `bd_extra_keys_from_item_bd: []` → 补充全部21个模板字段名——否则 build 认为这些字段不存在于 YAML 中，即使 YAML 里有也走"缺失→填无"路径。`exercises` 同理 (`exercises.json`→`exercises.yaml`)。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -163,4 +163,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [engineering-improvement-roadmap.md](references/engineering-improvement-roadmap.md) | **v51.0** — 系统性改善路线图：dag_utils 符号映射、sys.exit 精确分布、mypy 13 个死模块名、CI 空白、4 批次含工时估算的改善路线图 |
 | [yaml-schema-migration.md](references/yaml-schema-migration.md) | **v51.1** — YAML 模板版本迁移指南：v50.0→v50.7+ 字段变化 + 修复方案 (A/B) |
 
-<!-- v51.2 — Last updated: 2026-06-07 — DAG 第1、2章验证通过。template_assembler circular import try/except 修复。schema.py exercises/solutions 类型补全。pitfalls #61重写, #73-#74新增 -->
+<!-- v51.3 — Last updated: 2026-06-07 — 习题解答内容修复 JSON→YAML + bd_extra_keys。DAG 第1、2章全流程验证通过，12类节点全部正确渲染。Pitfalls #64-#75 含 pipeline batch/schema/phase_validator/template_assembler 修复记录。 -->

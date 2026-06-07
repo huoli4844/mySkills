@@ -593,6 +593,27 @@ def build_type(output_dir, chapter: str | None = None, graph_check=True, type_na
                 _ex_file = _re.sub(r'-解答$', '', it["file"])
                 bd["exercise_link"] = f"90_习题/{_ex_file}"
                 bd["exercise_name"] = _ex_file
+                # v51.3: 如果 question 是占位符（"第N章习题N"），从习题 YAML 拉取
+                _q = str(bd.get("question", ""))
+                if _re.match(r'^第\d+章习题\d+$', _q.strip()):
+                    _ex_yaml = os.path.join(os.path.dirname(cfg["data_file"]) if os.path.isabs(cfg["data_file"]) else
+                        os.path.join(output_dir or "", ".dag", f"第{chapter}章", "data") if output_dir and chapter else "",
+                        "exercises.yaml") if output_dir and chapter else ""
+                    if _ex_yaml and os.path.exists(_ex_yaml):
+                        try:
+                            import yaml as _yaml
+                            with open(_ex_yaml, encoding="utf-8") as _f:
+                                _ex_data = _yaml.safe_load(_f) or []
+                            _ex_items = _ex_data if isinstance(_ex_data, list) else _ex_data.get("items", [])
+                            for _ex in _ex_items:
+                                if _ex.get("file") == _ex_file:
+                                    _real_q = _ex.get("bd", {}).get("question", "")
+                                    if _real_q and not _re.match(r'^第\d+章习题\d+$', _real_q.strip()):
+                                        bd["question"] = _real_q
+                                        log.info(f"  auto-question: {_ex_file} ← 从 exercises.yaml 获取")
+                                    break
+                        except Exception as _e:
+                            log.debug(f"  auto-question 失败: {_e}")
 
         try:
             filepath = assemble_md(

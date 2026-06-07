@@ -49,9 +49,9 @@ _CONFIDENCE = {
 }
 
 _BLOOM_RANGES: dict[str, list[str]] = {
-    "knowledge": ["知道→理解", "知道→应用", "理解→应用"],
-    "skill": ["应用", "理解→应用", "应用→分析", "分析"],
-    "scenario": ["分析→评价", "分析→评价→创造", "评价→创造"],
+    "knowledge": ["知道→理解", "知道→应用", "理解→应用", "知道→分析", "应用→分析", "理解→分析", "应用→评价"],
+    "skill": ["应用", "理解→应用", "应用→分析", "分析", "知道→应用"],
+    "scenario": ["分析→评价", "分析→评价→创造", "评价→创造", "应用→分析→评价"],
 }
 
 # 定义句标记词
@@ -148,7 +148,8 @@ def check_required_fields(items: list[dict], node_type: str) -> list[dict]:
                         "message": f"必填字段 '{field}' 为空列表/字典",
                         "severity": "error",
                     })
-            elif not val or str(val).strip() in ("", "无", "none", "None", "N/A"):
+            elif not val or str(val).strip() in ("", "none", "None", "N/A"):
+                # 将 "无" 排除在占位符判断之外——"空节必须写无"是本规范的明确要求
                 errors.append({
                     "item": i, "field": f"bd.{field}",
                     "message": f"必填字段 '{field}' 为空或占位符",

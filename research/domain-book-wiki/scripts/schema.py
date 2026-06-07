@@ -77,10 +77,18 @@ FILENAME_TYPE_MAP = {
 }
 
 
-def _resolve_type(filename: str) -> str | None:
-    """根据文件名解析数据类型名"""
-    basename = os.path.basename(filename)
-    return FILENAME_TYPE_MAP.get(basename)
+def _detect_type(path: str) -> str | None:
+    """从 YAML 文件名推断数据类型的映射。"""
+    basename = os.path.basename(path)
+    # 精确匹配优先
+    if basename in FILENAME_TYPE_MAP:
+        return FILENAME_TYPE_MAP[basename]
+    # 容错匹配：文件名以已知类型前缀开头（如 kps_机械.yaml → kps）
+    for pattern, type_name in FILENAME_TYPE_MAP.items():
+        base_pattern = pattern.rsplit(".", 1)[0]  # "kps.yaml" → "kps"
+        if basename.startswith(base_pattern + "_") or basename.startswith(base_pattern + "."):
+            return type_name
+    return None
 
 
 def load_schema(type_name: str) -> dict[str, Any]:
@@ -119,7 +127,7 @@ def validate_yaml(yaml_path: str) -> list[dict[str, Any]]:
           - severity: "error" 或 "warning"
         如果无错误则返回空列表 []
     """
-    type_name = _resolve_type(yaml_path)
+    type_name = _detect_type(yaml_path)
     if not type_name:
         return [
             {
@@ -348,7 +356,7 @@ def main():
     if args.files:
         all_ok = True
         for fname in args.files:
-            yaml_path = fname if os.path.isabs(fname) else os.path.join(DATA_DIR, fname)
+            yaml_path = fname if os.path.isabs(fname) or os.path.exists(fname) else os.path.join(DATA_DIR, fname)
             if not os.path.exists(yaml_path):
                 log.error(f"❌ File not found: {yaml_path}")
                 all_ok = False

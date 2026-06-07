@@ -1,7 +1,7 @@
 ---
 name: domain-book-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v50.7: P0/P1 工程修复+质量闸门自动修复循环+内容深度二次审核+yaml_pre_validate 字段名校验+清理18个死文件——dag_utils shim/mypy 清理/KGraphQueryMixin/import 重定向/sys.exit 治理/template_assembler+template_writers 拆分/全版本锁定 Python 3.12/自动批量编排+fix_report+review_batch+字段名 vs {{xxx}}+文件审计。脚本48个/测试20个，无 God 文件"
-version: "50.7"
+description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.1: pipeline batch 完全可运行（book_name 修复），现存 YAML 数据版本落后 schema 导致质量闸门失败，需迁移脚本或降级校验"
+version: "51.1"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -16,6 +16,8 @@ metadata:
 用户要求从教材（.doc/.docx/.pdf）构建结构化 Obsidian 知识库，包含核心概念、知识要素、知识点、技能点、应用场景、习题和解答。
 
 ## Design
+
+**工作模式偏好（v51.0）**：所有修复类任务严格按"**分析全部→一次性全部修复→最终验证**"模式执行。禁止逐个修复逐个验证。使用 `delegate_task` 并行分析不同维度（架构/UX/内容规范），汇总优先级矩阵，按 P0→P1→P2 批次修复。详见 [batch-analysis-pattern.md](references/batch-analysis-pattern.md)。
 
 **工程 vs 内容边界原则（v50.7）**：本技能的所有任务严格按以下原则分工：
 
@@ -70,6 +72,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | `yaml_auto_fill.py fill -w $DIR -t kp -c 1 -o .dag/.../kps.yaml` | 机械填充 YAML（自动填 meta + 源文提取 + 派生计算） |
 | `yaml_auto_fill.py llm-prompt -w $DIR -t kp -n "名称" -c 1` | 为 LLM 待填字段生成结构化 prompt + 源文片段 |
 | `auto_fix_wikilinks(wiki_root, dry_run=False)` | **v50.5** — 扫描全库断裂 wikilink→fuzzy-match→自动替换。Python API: `from rules.wikilink import auto_fix_wikilinks; result = auto_fix_wikilinks('.')`。返回值 `{total_broken, fixed, skipped, details}`。`dry_run=True` 只报告不修改。EMC 实战：354→0 断裂 |
+| `migrate_yaml_schema.py --book-dir $DIR` | **v51.1** — YAML 数据版本迁移：自动读取 `dag_constants.REQUIRED_BD_FIELDS` 并逐字段比对。处理旧字段重命名（7组）、非法字段删除（KE/Entity）、必填字段补充（171+处）。统一 `{items:[...]}` → 扁平列表格式。运行前自动检测类型（concept/ke/entity/kp/sp/scene/exercise/solution）。支持 `--dry-run` 预览。 |
 
 ## Pitfalls 速查
 
@@ -86,7 +89,6 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 31 | delegate_task 子代理可靠性问题：约17%只返回文本不写文件，33%格式不一致 | context 末尾必须加"用 patch 工具写入文件"；父代理收到 summary 后验证文件实际更新 |
 | 36 | chapter-data-generation.md 目录前缀全部偏移 10（KE→30而非40） | wikilink 必须带正确目录前缀：`[[40_知识要素/xxx|xxx]]`，6/6 前缀已修正 |
 | 37 | 解答 `related_concepts` wikilink 不带目录前缀，子目录中无法跳转 | YAML 中 wikilink 强制 `[[前缀/文件名|显示名]]`，禁止裸 `[[xxx]]` |
-
 | 38 | 知识点模板 `{{placeholder}}` 残留（skill_requirements 等字段 YAML 缺失时留 `{{skill_requirements}}` 字面量） | v50.0: build_kb_files 缺失字段统一填"无"（不再保留 {{}}） |
 | 39 | 空节被 `_strip_wu_sections` 删除导致同类型文件结构不一致 | v50.0: `_strip_wu_sections` 已禁用——内容为"无"的节保留，确保结构一致 |
 | 40 | 模板 HTML 注释（`<!-- Agent提示 -->`）泄漏到生成文件中 | `fill_template()` 返回前 `re.sub(r'<!--.*?-->', '', result, flags=re.DOTALL)` 剥离 |
@@ -104,15 +106,19 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 52 | quality_score 不检测 wikilink 断裂 → 实际断裂率远高于评分显示的 errors 数（31.5% vs 表面 ~20%） | v50.4: 质量审计必须**独立运行** wikilink 检查——扫描所有 `[[ ]]`→提取目标文件名→交叉验证文件系统。修复采用 [wikilink-batch-fix.md](references/wikilink-batch-fix.md)：fuzzy-match 断裂目标→构建替换映射→Python 批量 `re.sub` 跨所有 .md 文件。EMC 实战：354→129 断裂（64%↓），225 处替换，104 文件。 |
 | 53 | 断裂 wikilink 手工逐个修复效率极低——121 个唯一断裂目标逐一手工映射和替换需 >30 分钟 | **v50.5**: `rules/wikilink.py` 新增 `auto_fix_wikilinks(wiki_root)` 函数——扫描全库→`get_close_matches` 模糊匹配→自动 `re.sub` 替换。支持 `dry_run` 预览模式。已对 EMC 知识库 121 目标 x 97 替换全部自动化。集成进质量审查体系：`content_check_rules.check_file_full()` 每次构建后自动调用 `check_wikilink_validity` → 发现断裂立即 `auto_fix_wikilinks` → 重新 build。 |
 | 54 | 全量跑 pytest 显示 336 "I/O operation on closed file" errors + 20 failures | **v51.0**: conftest.py `_reset_log_utils` fixture 中 `handler.flush()` 未捕获 `ValueError/OSError`——其他测试关闭的 logger handler 在 conftest 的 autouse fixture 中间接被 flush。修复：`try/except (ValueError, OSError): pass`。验证：441 passed, 0 failed, 0 errors。 |
-| 54 | 概念公式来自 Agent 视觉解读 WMF 图片，非正文文本提取，无自动化交叉验证 🔥 | 公式质量闸门仅检查 `$$` 存在性（PASS/FAIL），不验证公式内容是否正确。1,133 个 WMF 公式图片中 Agent 可能写错积分号/矢量符号/上下标。需配置 API key 后用 `formula-extract` 技能做 WMF→LaTeX OCR 全量比对，或人工逐条校验概念 `mathematical_model` 字段。详见 [wmf-formula-verification.md](references/wmf-formula-verification.md)。 |
-| 55 | `dag_utils.py` 已被删除但 10 个测试文件仍从中导入——新环境/CI 会 ImportError 全量崩溃 🔥 | ✅ **v50.7 已修复**：创建 `dag_utils.py` shim（从 `dag_state` + `dag_constants` re-export）。含 `DAG_ORDER`, `DIR`, `DAG_DEPENDS`, `PipelineError`, `_state_path`, `PipelineLock` 等全部 15 个符号。CI 已增加 import 烟雾测试。 |
-| 56 | 代码库散落 26 处 `sys.exit()`，非统一通过 `PipelineError` 传播——模块无法被其它代码安全调用 | 部分已修复（dag_controller.py 中 batch 失败已改为 `raise PipelineError`）。剩余 24 处多数在 `if __name__ == "__main__"` 的 CLI 入口，不阻塞程序化调用。API 调用场景（如 dag_controller 被 import）已保护。 |
-| 57 | `str | None` 语法需要 Python 3.10+（代码中 41 处使用） | 本技能已统一锁定 Python 3.12，无需降级。CI 中已验证 `python-version: ["3.12"]` |
-| 58 | mypy 配置引用了 13 个不存在的模块——重构时删除的文件未清理 pyproject.toml 🔥 | ✅ **v50.7 已修复**：移除 `[[tool.mypy.overrides]]` 中 14 个不存在模块。|
-| 59 | 类继承中的前向引用：Mixin 定义在使用它的类之后 → `NameError` 🔥 | Mixin 定义必须**早于**使用它的类。`kb_graph.py` 实战：`KGraphQueryMixin` 在第 137 行被继承但定义在第 360 行 → 恢复 `kb_graph_query.py` 独立模块。 |
-| 60 | 模块拆分时循环导入：A 从 B import，B 从 A import → `cannot import name X` 🔥 | A 末尾放 re-export（`from B import ...`），此时 A 全部名字已定义。`template_assembler`+`template_writers` 实战：re-export 在 `safe_filename` 之后（文件最末）。 |
-| 61 | 质量闸门 FAIL 后无自动恢复路径——需人工诊断后修复 | `pipeline batch --retry N` 先用 `content_check_rules` + `post_build_fix` 机械修复；重试用尽后生成 `.dag/第N章/fix_report.json` 供 Agent 修复。详见 [auto-fix-agent-workflow.md](references/auto-fix-agent-workflow.md)。 |
-| 62 | 合并代码文件以减少文件数 → 产生 God 文件（>800行），维护性变差 🔥 | **合并的唯一正当理由是消除真正的重复或碎片化，不是减少文件数**。合并前衡量：合并后是否 <500行？职责是否真正重叠？(1) 签名不同的工具函数不合并（`load_source_text` 在 yaml_auto_gen 和 yaml_auto_fill 中签名不同）→ 应提取共享工具到 parse_utils；(2) 职责不同的模块不合并（yaml_gen 交互式 vs yaml_auto_fill 批量）→ 保持分离。死代码和孤立模块才删除。 |
+| 55 | 概念公式来自 Agent 视觉解读 WMF 图片，非正文文本提取，无自动化交叉验证 🔥 | 公式质量闸门仅检查 `$$` 存在性（PASS/FAIL），不验证公式内容是否正确。1,133 个 WMF 公式图片中 Agent 可能写错积分号/矢量符号/上下标。需配置 API key 后用 `formula-extract` 技能做 WMF→LaTeX OCR 全量比对，或人工逐条校验概念 `mathematical_model` 字段。详见 [wmf-formula-verification.md](references/wmf-formula-verification.md)。 |
+| 56 | `dag_utils.py` 已被删除但 10 个测试文件仍从中导入——新环境/CI 会 ImportError 全量崩溃 🔥 | ✅ **v50.7 已修复**：创建 `dag_utils.py` shim（从 `dag_state` + `dag_constants` re-export）。含 `DAG_ORDER`, `DIR`, `DAG_DEPENDS`, `PipelineError`, `_state_path`, `PipelineLock` 等全部 15 个符号。CI 已增加 import 烟雾测试。 |
+| 57 | 代码库散落 26 处 `sys.exit()`，非统一通过 `PipelineError` 传播——模块无法被其它代码安全调用 | 部分已修复（dag_controller.py 中 batch 失败已改为 `raise PipelineError`）。剩余 24 处多数在 `if __name__ == "__main__"` 的 CLI 入口，不阻塞程序化调用。API 调用场景（如 dag_controller 被 import）已保护。 |
+| 58 | `str | None` 语法需要 Python 3.10+（代码中 41 处使用） | 本技能已统一锁定 Python 3.12，无需降级。CI 中已验证 `python-version: ["3.12"]` |
+| 59 | mypy 配置引用了 13 个不存在的模块——重构时删除的文件未清理 pyproject.toml 🔥 | ✅ **v50.7 已修复**：移除 `[[tool.mypy.overrides]]` 中 14 个不存在模块。|
+| 60 | 类继承中的前向引用：Mixin 定义在使用它的类之后 → `NameError` 🔥 | Mixin 定义必须**早于**使用它的类。`kb_graph.py` 实战：`KGraphQueryMixin` 在第 137 行被继承但定义在第 360 行 → 恢复 `kb_graph_query.py` 独立模块。 |
+| 61 | 模块拆分时循环导入：A 从 B import，B 从 A import → `cannot import name X` 🔥 | A 末尾放 re-export（`from B import ...`），此时 A 全部名字已定义。`template_assembler`+`template_writers` 实战：re-export 在 `safe_filename` 之后（文件最末）。 |
+| 62 | 质量闸门 FAIL 后无自动恢复路径——需人工诊断后修复 | `pipeline batch --retry N` 先用 `content_check_rules` + `post_build_fix` 机械修复；重试用尽后生成 `.dag/第N章/fix_report.json` 供 Agent 修复。详见 [auto-fix-agent-workflow.md](references/auto-fix-agent-workflow.md)。 |
+| 63 | 合并代码文件以减少文件数 → 产生 God 文件（>800行），维护性变差 🔥 | **合并的唯一正当理由是消除真正的重复或碎片化，不是减少文件数**。合并前衡量：合并后是否 <500行？职责是否真正重叠？(1) 签名不同的工具函数不合并（`load_source_text` 在 yaml_auto_gen 和 yaml_auto_fill 中签名不同）→ 应提取共享工具到 parse_utils；(2) 职责不同的模块不合并（yaml_gen 交互式 vs yaml_auto_fill 批量）→ 保持分离。死代码和孤立模块才删除。 |
+| 64 | `pipeline batch` → `'SimpleNamespace' object has no attribute 'book_name'` | **v51.1**: `pipeline_batch.py` 中 `auto_args` SimpleNamespace 缺少 `book_name` 字段。修复：在创建 `auto_args` 时加 `book_name=_book_name(book_id)`。l3/l4 索引生成依赖此字段。 |
+| 65 | 旧版 YAML 数据（v50.0 模板）无法通过新版 pipeline（v50.7+ schema）质量闸门 🔥 | `yaml_pre_validate` 要求新字段（`solved_problem`, `upstream_downstream`, `entity_type`），旧数据不含。**两种修复路径**：(A) 降低 `solved_problem` 等高频必填字段校验等级至 WARN；(B) 写 `migrate_yaml_schema.py` 批量迁移旧格式 YAML。详见 [yaml-schema-migration.md](references/yaml-schema-migration.md)。 |
+| 66 | `migrate_yaml_schema.py` 的 `detect_type()` 按文件名判定类型。`entities.yaml` 不含 `"entity"` 子串（含 `"entities"`）；`kes.yaml` 含 `"kes"` 导致 `"kes" not in base` 为 False → 返回 `unknown`，迁移跳过实体和 KE 文件 ❌ | **v51.1**: `detect_type` 改为 `"entity" in base or "entities" in base`、`base.startswith("ke") or base.startswith("kes")`。同时注意 `"ke" in "entities.yaml"` 可能误报——必须先检查 entity 再检查 ke。 |
+| 67 | 部分 YAML 文件（如 `concepts_4_7.yaml`）保存为 `{items: [...]}` 格式但 `yaml_pre_validate._load_yaml()` 期望扁平列表。校验器遍历顶层 dict 而非 items → `bd` 字段全空 ❌ | **v51.1**: `migrate_yaml_schema.py` 保存时统一写扁平列表格式。预校验器的 `_load_yaml` 函数（line 86-88）如果顶层不是 list 会包装为 `[data]`，与 `{items: [...]}` 不兼容。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -123,10 +129,10 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [chapter-data-generation.md](references/chapter-data-generation.md) | Agent 写 YAML 完整指南（容器策略+三标准+wikilink前缀规范+文件命名规范#10） |
 | [yaml-structure-guide.md](references/yaml-structure-guide.md) | YAML fm/bd 容器结构 + 常见错误 |
 | [auto-fix-agent-workflow.md](references/auto-fix-agent-workflow.md) | **v50.7** — 质量闸门自动修复 Agent 工作流 + fix_report.json 格式 |
+| [batch-analysis-pattern.md](references/batch-analysis-pattern.md) | **v51.0** — 批量分析→修复→验证工作模式：delegate_task并行审计+优先级矩阵+P0/P1/P2批次 |
 | [content-review-agent-workflow.md](references/content-review-agent-workflow.md) | **v50.7** — 内容深度 Agent 二次审核工作流 + review_batch.json 格式 + A/B/C/D 分层 |
 | [end-to-end-pipeline.md](references/end-to-end-pipeline.md) | **v50.7** — 全流程 11 阶段详解，每步标注 `🖥️ 脚本` / `🤖 Agent` |
-| [domain-book-wiki-file-audit.md](references/domain-book-wiki-file-audit.md) | **v50.7** — 文件清理与合并审计（48脚本/20测试/76参考，删除18个死文件，明确不合并原则） |
-| [domain-book-wiki-file-audit.md](references/domain-book-wiki-file-audit.md) | **v50.7** — 代码库文件清理与合并审计（脚本 52→47、参考 83→35、测试 22→18） |
+| [domain-book-wiki-file-audit.md](references/domain-book-wiki-file-audit.md) | **v50.7** — 文件清理与合并审计（48脚本/20测试，删除18个死文件，明确不合并原则） |
 | [pitfalls.md](references/pitfalls.md) | 80+ 条已知陷阱完整清单（v50新增: staging覆写/命名规范/placeholder/空节一致/HTML剥离/深度自检） |
 | [architecture-overview.md](references/architecture-overview.md) | 九类节点 + 教学链 + DAG 依赖 |
 | [templates-overview.md](references/templates-overview.md) | 五类模板结构 + Bloom 体系（全已删 `## 关联目录`） |
@@ -148,3 +154,6 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [wmf-formula-verification.md](references/wmf-formula-verification.md) | **v50.6** — WMF 公式验证方案：1,133 个公式图片 Agent 视觉解读不可交叉验证，含修复步骤和降级方案 |
 | [engineering-audit-v50.7.md](references/engineering-audit-v50.7.md) | **v50.7** — 工程化审计跟进：P0 全部修复，工程评级 C→B，剩余 P2 待修 |
 | [engineering-improvement-roadmap.md](references/engineering-improvement-roadmap.md) | **v51.0** — 系统性改善路线图：dag_utils 符号映射、sys.exit 精确分布、mypy 13 个死模块名、CI 空白、4 批次含工时估算的改善路线图 |
+| [yaml-schema-migration.md](references/yaml-schema-migration.md) | **v51.1** — YAML 模板版本迁移指南：v50.0→v50.7+ 字段变化 + 修复方案 (A/B) |
+
+<!-- v51.1 — Last updated: 2026-06-07 — pipeline batch book_name fix + YAML schema migration guide + 2 new pitfalls -->

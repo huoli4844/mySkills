@@ -240,12 +240,14 @@ def _execute_chapter_pipeline(
 
         from types import SimpleNamespace
 
+        from dag_state import _book_name
         from dag_pipeline_run import pipeline_auto
 
         auto_args = SimpleNamespace(
             wiki_root=wr,
             book_id=book_id,
             chapter=ch_num,
+            book_name=_book_name(book_id),
             from_phase=None,
             l1_only=l1_only,
             dry_run=False,

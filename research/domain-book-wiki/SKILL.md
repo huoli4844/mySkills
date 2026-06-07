@@ -1,6 +1,6 @@
 ---
 name: domain-book-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.6: exercises.yaml 缺失时自动从 solutions.yaml 生成 + 触发 exercises build。441测试全通。"
+description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v51.7: 解答内容增强改为质量评分驱动（非固定模式匹配）。441测试全通。"
 version: "51.6"
 author: Hermes Agent
 license: MIT
@@ -128,7 +128,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 74 | `template_assembler.py` 底部 re-export（`from template_writers import assemble_md`）在 exercises 构建阶段触发 circular import → exercises 阶段阻塞 ❌ | **v51.2**: 改为 `try/except ImportError: pass`。当 `template_writers` 导入 `template_assembler` 时本模块尚未完成加载 → ImportError 静默捕获，`assemble_md` 由调用方从 `template_writers` 直接获取。 |\n| 75 | 习题/解答 build 后全部是"待后续AI Agent深度填充"——内容全被 post_build_fix 替换为占位符 | **v51.3**: 根因在 `dag_constants.BUILDER_CONFIG`：`solution` 的 `data_file` 指向 `solutions.json` 但文件已迁移为 `solutions.yaml`。build_kb_files 读不到数据 → 0 items → 走模板默认值 → post_build_fix 将模板中的 `（待Agent补充）` 替换为 `待后续AI Agent深度填充`。**修复**：(1) `data_file: solutions.json` → `solutions.yaml`；(2) `bd_extra_keys_from_item_bd: []` → 补充全部21个模板字段名——否则 build 认为这些字段不存在于 YAML 中，即使 YAML 里有也走"缺失→填无"路径。`exercises` 同理 (`exercises.json`→`exercises.yaml`)。 |
 | 76 | 解答文件 `question` 显示为"第N章习题N"占位符（从 solutions.yaml 直接读） | **v51.4**: `build_kb_files.py` 在构建 solution 时检测 `question` 是否匹配 `第\\d+章习题\\d+` 模式。若是，从对应章节的 `exercises.yaml` 自动查找同名的 exercise 条目，拉取其真实 `question` 文本。第2章 16个解答自动修复。 |
 | 77 | 解答文件内容全是通用模板文字（"该习题考查教材第X章核心内容"等）— 无实际教学价值 🔥 | **v51.4**: `post_build_fix.py` 新增 `enhance_solution_content()`。检测11种通用模板文字模式 → 从题目提取关键词 → 从 external `config/knowledge_keywords.yaml` 加载领域映射扩写 → 在源文中匹配最相关段落 → 按节类型差异化生成。自动集成到 pipeline run_phase_auto_fix()。 |\n| 78 | 换一本书所有代码都要改——章节文件名映射、关键词映射、教材描述、路径全部硬编码绑定到电磁兼容教材 🔥 | **v51.5**: 全面外置化——(1) 章节文件名改为 `discover_chapters()` 从 `20_正文/` 自动发现；(2) 关键词映射外置 `config/knowledge_keywords.yaml`（领域+version+keyword_maps）；(3) 50行教材描述外置 `config/book_info.yaml`（含 `{domain}` 模板化）；(4) 目录层级 `01_领域/01_资料库` 改为 `DIR["DOMAIN_DIR"]/DIR["LIBRARY_DIR"]`。换书流程：改 `config/` 目录下的 YAML 文件即可，Python 代码不动。 |\n| 79 | `enhance_solution_content` 解答增强函数内置了 EMC 领域硬编码的 fallback 文字 | **v51.5**: "电磁兼容领域的基础理论" → "本领域的基础理论"。所有领域特定文字从 `config/` 加载，加载失败时降级为通用占位符。 |\n| 80 | `post_build_fix.run_phase_auto_fix` 中 `files_touched` 计数器在非 exercises/solutions 阶段不递增——只记录了修复次数但没记录文件数，导致 test_fix_ke_files 断言失败 | **v51.5**: 将 `if content != original:` 移出 `if phase in ("exercises", "solutions"):` 条件块，所有阶段共享文件变动计数。 |
-| 81 | solutions.yaml 存在但 exercises.yaml 缺失 → 解答题目显示占位符、exercises 阶段跳过（0 文件） | **v51.6**: `build_kb_files.py` 在 solution 构建时检查 exercises.yaml 是否存在。若缺失 → 从 solutions.yaml 自动生成 exercises.yaml（提取 file/name/fm/bd.question）+ 触发 exercises build 子进程。注意 confidence 必须匹配 eval/exercise schema（0.65 非 0.75）。子进程路径用 os.path.abspath 避免 cwd 偏移。 |
+| 81 | solutions.yaml 存在但 exercises.yaml 缺失 → 解答题目显示占位符、exercises 阶段跳过（0 文件） | **v51.6**: `build_kb_files.py` 在 solution 构建时检查 exercises.yaml 是否存在。若缺失 → 从 solutions.yaml 自动生成 exercises.yaml（提取 file/name/fm/bd.question）+ 触发 exercises build 子进程。注意 confidence 必须匹配 eval/exercise schema（0.65 非 0.75）。子进程路径用 os.path.abspath 避免 cwd 偏移。 |\n| 82 | 解答内容增强 `_detect_boilerplate` 使用固定正则模式("该习题考查教材第\\d+章")—Ch3 的"解答基于教材第3章..."就没匹配到，31个文件全部漏过 ❌ | **v51.7**: 改为**多维度内容质量评分**：(1) 长度 <60字 → too_short；(2) 模板词密度 >40%（该习题/基于/教材/核心/分析等15个高频模板词）→ high_boilerplate_density；(3) 不含任何领域术语且 <200字 → no_domain_terms。三条中任一条触发即替换。同时 `_extract_keywords` 增加章节标题回退：问题为占位符("第3章习题1")时从 `20_正文/第3章 电磁兼容预测.md` 提取章节名作为关键词。`_load_source_text` 跳过源文 YAML frontmatter。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -165,6 +165,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [engineering-audit-v50.7.md](references/engineering-audit-v50.7.md) | **v50.7** — 工程化审计跟进：P0 全部修复，工程评级 C→B，剩余 P2 待修 |
 | [engineering-improvement-roadmap.md](references/engineering-improvement-roadmap.md) | **v51.0** — 系统性改善路线图：dag_utils 符号映射、sys.exit 精确分布、mypy 13 个死模块名、CI 空白、4 批次含工时估算的改善路线图 |
 | [yaml-schema-migration.md](references/yaml-schema-migration.md) | **v51.1** — YAML 模板版本迁移指南：v50.0→v50.7+ 字段变化 + 修复方案 (A/B) |
-| [exercises-auto-generation.md](references/exercises-auto-generation.md) | **v51.6** — exercises.yaml 缺失时从 solutions 自动生成 + 触发 build 的数据流和注意事项 |
-
-<!-- v51.6 — Last updated: 2026-06-07 — exercises.yaml 缺失自动生成 + 触发 build。441 测试全通。 -->
+| [exercises-auto-generation.md](references/exercises-auto-generation.md) | **v51.6** — exercises.yaml 缺失时从 solutions 自动生成 + 触发 build 的数据流和注意事项 |\n| [solution-content-quality.md](references/solution-content-quality.md) | **v51.7** — 解答内容增强设计：质量评分检测通用模板→章节标题回退关键词→源文段落匹配→差异化生成 |\n\n<!-- v51.7 — Last updated: 2026-06-07 — 解答内容增强改为质量评分驱动。441 测试全通。 -->

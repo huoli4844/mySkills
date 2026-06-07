@@ -758,16 +758,51 @@ def _load_keyword_map(wiki_root: str) -> dict[str, list[str]]:
 
 
 def _detect_boilerplate(content: str) -> list[str]:
-    """检测文本中的通用模板文字"""
+    """检测文本中的通用模板文字——基于内容质量评分而非固定模式
+
+    使用多维度评分：长度、特异性、模板词密度。
+    返回匹配到的模式列表（空=高质量，不需要替换）。
+    """
     matched = []
-    for p in _BOILERPLATE_PATTERNS:
-        if re.search(p, content):
-            matched.append(p)
+    stripped = content.strip()
+    if not stripped:
+        return ["empty"]
+
+    # 1. 长度检测：过短的内容视为模板
+    if len(stripped) < 60:
+        matched.append("too_short")
+
+    # 2. 模板词密度检测：高频模板词占比过高
+    boilerplate_words = {"该习题", "解答", "基于", "教材", "第", "章", "相关内容",
+                         "核心特征", "核心内容", "分析", "相关知识点", "基本概念",
+                         "理解和应用", "能力", "混淆", "相似概念", "建议从",
+                         "基本定义", "出发", "结合", "理论", "和", "边界条件",
+                         "进行", "所", "的", "是", "了"}
+    words = set(re.findall(r'[\u4e00-\u9fff]{2,4}', stripped))
+    if words:
+        bw_ratio = len(words & boilerplate_words) / len(words)
+        if bw_ratio > 0.4:
+            matched.append("high_boilerplate_density")
+
+    # 3. 特异性检测：不含任何领域术语（从章节标题提取的关键词）
+    # 如果内容全是通用词（教材、章节、核心、分析、方法等），判为模板
+    domain_words = {"电磁兼容", "预测", "干扰", "耦合", "辐射", "屏蔽",
+                    "滤波", "接地", "测量", "频谱", "管理", "EMC",
+                    "麦克斯韦", "Maxwell", "法拉第", "安培", "高斯",
+                    "阻抗", "天线", "接收机", "发射", "标准", "CISPR",
+                    "FCC", "限值", "裕量", "LISN", "dB", "dBμV",
+                    "传导", "瞬态", "浪涌", "ESD", "EFT", "Surge",
+                    "防护", "避雷", "SPD", "滤波器", "共模", "差模",
+                    "互感", "磁耦合", "电感", "电容", "电阻"}
+    has_domain_term = any(dw in stripped for dw in domain_words)
+    if not has_domain_term and len(stripped) < 200:
+        matched.append("no_domain_terms")
+
     return matched
 
 
 def _load_source_text(wiki_root: str, chapter: str) -> str:
-    """使用自动发现的章节文件映射加载源文"""
+    """使用自动发现的章节文件映射加载源文（跳过 YAML frontmatter）"""
     source_files = _discover_source_files(wiki_root)
     path = source_files.get(chapter, "")
     if not path:
@@ -776,7 +811,10 @@ def _load_source_text(wiki_root: str, chapter: str) -> str:
         return ""
     try:
         with open(path, encoding="utf-8") as f:
-            return f.read()
+            content = f.read()
+        # 跳过 YAML frontmatter（--- ... ---）
+        content = re.sub(r"^---\n.*?\n---\n", "", content, flags=re.DOTALL)
+        return content
     except Exception:
         return ""
 
@@ -792,6 +830,31 @@ def _extract_keywords(question: str, wiki_root: str | None = None) -> list[str]:
     for q_sub, mapped in kw_map.items():
         if q_sub in question:
             keywords.extend(mapped)
+
+    # v51.6: 如果问题是占位符（"第3章习题1"），用章节标题补关键词
+    q_clean = re.sub(r"^第", "", q.strip())
+    if not keywords or re.match(r"^\d+章", q_clean):
+        chapter = ""
+        m_ch = re.search(r"第(\d+)章", question)
+        if m_ch:
+            chapter = m_ch.group(1)
+        if chapter and wiki_root:
+            source_files = _discover_source_files(wiki_root)
+            ch_path = source_files.get(chapter, "")
+            if ch_path:
+                ch_title = os.path.basename(ch_path).replace(".md", "")
+                # 从章节标题提取关键词（"第3章 电磁兼容预测" → "电磁兼容预测"）
+                ch_kw = re.sub(r"^第\d+章\s*", "", ch_title)
+                ch_parts = re.split(r"[的与和及、,，]", ch_kw)
+                for p in ch_parts:
+                    p = p.strip()
+                    if len(p) > 1 and p not in keywords:
+                        keywords.append(p)
+                # 对齐 kw_map（如果章节标题中的词在映射表里）
+                for q_sub, mapped in kw_map.items():
+                    if q_sub in ch_kw:
+                        keywords.extend(mapped)
+
     return list(set(keywords))
 
 

@@ -716,7 +716,7 @@ def _extract_domain_signals(source_sections: dict) -> dict:
         'technical': [],   # 高频率技术术语
     }
 
-    # 1. 提取单位词: 数字后的字母组合（如 dB, MHz, GHz, V/m, kg, N·m）
+    # 1. 提取单位词: 数字后的字母组合（如 Hz, V/m, kg, N·m 等）
     unit_pattern = _re.findall(r'(?<=\d)\s*[a-zA-Z/°μΩ×·][a-zA-Z/°μΩ0-9\-·]*(?:\^\{?\-?\d+\}?)?', all_text)
     for u in unit_pattern:
         u = u.strip()

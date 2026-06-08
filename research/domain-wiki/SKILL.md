@@ -110,7 +110,7 @@ python3 scripts/yaml_writer.py skeleton --type concept
 
 ## Quickstart
 
-**写 YAML → 自指导 → 校验 → 渲染 → 验证图**（五步完成一章）：
+**写 YAML → 自指导 → 校验 → 渲染 → wikilink审计 → 验证图 → 领域验证**（六步完成一章）：
 
 ```bash\n# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）\npython3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path\n\n# 1b. Agent 基于自指导提示词写 YAML\npython3 scripts/yaml_writer.py write --type concept \\\n  --yaml-path .dag/第N章/data/concepts.yaml \\\n  --items '[...]'
 
@@ -126,6 +126,9 @@ python3 scripts/pipeline_v2.py phase-a \
 
 # 4. 验证输出的 Mermaid 图语法
 `python3 scripts/validate_mermaid.py --book-dir /path/to/book`
+## 5. wikilink 审计（检查孤立节点和非对称链接）
+`python3 scripts/link_audit.py /path/to/book --dry-run`
+## 6. 领域无关验证
 `bash scripts/verify_domain_agnostic.sh`
 ```
 
@@ -188,7 +191,9 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 11 | Mermaid 标签中的 `()` `,` 等特殊字符未用引号包裹 `A[label(内容)]` → 渲染报错 `Syntax error in graph` | 标签必须用 `A["label(内容)"]` 包裹。`scripts/validate_mermaid.py` 可批量检测。 |
 | 12 | Agent 把 graph 写在一行 `graph TD A-->B A-->C` 内 → 某些渲染器失败 | 必须用多行：每个节点/边一行。`scripts/validate_mermaid.py` 可检测。 |
 | 13 | 把领域专有词硬编码到信号词列表（signals 含 dBm/FDTD/PCB 等 EMC 术语）→换本机械/生物教材匹配全失效 | **两阶段信号词体系：** `_LANG_SIGNALS`（中文技术写作通用模式，领域无关）+ `_extract_domain_signals()`（运行时从源文自动提取单位词、节标题术语、高频技术词）。零硬编码领域词。详见 `yaml_writer.py` 中的 `_extract_domain_signals()`。 |
-| 14 | 只在 `_LANG_SIGNALS` 做了领域净化，但漏了 `_TEMPLATE_SECTION_KEYWORDS`、`_FIELD_KEYWORDS` 等其他静态关键字映射——这些也把 `dB`、`电平`、`限值` 等 EMC 术语硬编码了进去，产生相同的领域偏置 | **全面审计所有静态列表：** 任何以 `_KEYWORDS`、`_LABELS`、`_TAGS` 命名的模块级常量都可能泄漏领域词。修改后运行 `grep -n 'dB\|kHz\|MHz\|GHz\|V/m\|A/m' scripts/*.py` 和 `grep -nE '[a-zA-Z]{2,3}/(m|s|Hz|V)' scripts/*.py` 验证零匹配。领域词只能出现在 `_extract_domain_signals()` 的运行时提取路径中。每次在 scripts/ 中新增字符串列表必须审计是否含领域专有词。 |
+| 14 | 只在 `_LANG_SIGNALS` 做了领域净化，但漏了 `_TEMPLATE_SECTION_KEYWORDS`、`_FIELD_KEYWORDS` 等其他静态关键字映射——这些也把 `dB`、`电平`、`限值` 等 EMC 术语硬编码了进去，产生相同的领域偏置 | **全面审计所有静态列表：** 任何以 `_KEYWORDS`、`_LABELS`、`_TAGS` 命名的模块级常量都可能泄漏领域词。修改后运行 `scripts/verify_domain_agnostic.sh` 验证零匹配。领域词只能出现在 `_extract_domain_signals()` 的运行时提取路径中。每次在 scripts/ 中新增字符串列表必须审计是否含领域专有词。 |
+| 15 | 模板 `<!-- @prompt ... -->` 中的示例文本含领域专有词（如 `"电磁兼容/子领域"`、`"诊断EMC故障"`）→ 换本机械/化学教材这些示例词即成为误导 | **模板 @prompt 的示例必须用通用占位描述：** `"大领域/子领域"` 替代 `"电磁兼容/子领域"`，`"诊断故障"` 替代 `"诊断EMC故障"`。写示例时问自己"这句话放生物/金融/机械教材里会不会显得奇怪"。 |
+| 16 | `.py` 文件 docstring 中的示例命令行含领域特定值（如 `--book-name "工程电磁兼容第3版_路宏敏"`）→ 读者复制粘贴跑不通他自己的书 | **docstring 示例用占位符：** `--book-id 01_书籍ID --book-name "书籍名称" -c N`。全书搜 `工程电磁兼容`、`电磁兼容`、`EMC` 等词确认零出现在代码/docstring 中。 |
 
 ## 领域自适应设计原则
 
@@ -198,6 +203,7 @@ python3 scripts/split_book_to_chapters.py prepare \
 | **领域词从源文自动提取** | `_extract_domain_signals()` 通过 `\d+[unit]` 模式提取单位、节标题提取领域术语、高频词统计提取技术词 —— 换书零配置 |
 | **不需要 embedding** | 规则足够细 + 运行时自适应 = 语义级匹配。embedding 增加几百 MB 依赖和 10 倍+延迟，非必需 |
 | **`@prompt` 是原料不是指令** | Agent 把模板 `<!-- @prompt ... -->` 当作写作指导原料，结合当前章节源文自行形成一次性自指导提示词。人工改 @prompt 文字即可控制输出质量 |
+| **领域词检查面覆盖全部文本载体** | 不仅是代码中的常量列表，以下位置也必须审计领域专有词：① docstring 示例命令行 (`--book-id 01_工程电磁兼容`) ② 模板 @prompt 示例 (`"电磁兼容/子领域"`) ③ 源文匹配引擎注释 (`如 dB, MHz, GHz`)。替换为 `01_书籍ID`、`大领域/子领域`、`如 Hz, V/m` 等通用占位。 |
 
 ## Reference Index
 
@@ -213,3 +219,4 @@ python3 scripts/split_book_to_chapters.py prepare \
 | [chapter-data-generation.md](references/chapter-data-generation.md) | Agent 写 YAML 指南 |
 | [yaml-generation-guide.md](references/yaml-generation-guide.md) | YAML 数据格式规范 |
 | [quality-gate-architecture.md](references/quality-gate-architecture.md) | 质量门架构 |\n| [link-audit-design.md](references/link-audit-design.md) | wikilink 审计设计 |\n| [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
+| [wikilink-fix-patterns.md](references/wikilink-fix-patterns.md) | wikilink 孤立节点和非对称链接批量修复指南 |

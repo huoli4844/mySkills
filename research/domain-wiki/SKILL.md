@@ -39,10 +39,7 @@ pipeline_v2.py          → 编排器(.py) + review-fix(.py) + 索引构建(.py)
 ② grep -rn "script_name" SKILL.md      # 检查是否在技能文档中引用
 ③ grep -rn "script_name" references/    # 检查是否在参考文档中引用
 ④ 如果零引用 → git rm + 更新文档      # 确认删除
-⑤ ls scripts/fix_*.py scripts/generate_*.py scripts/fix_*_data.py 2>/dev/null  # 子Agent泄漏的临时脚本
-⑥ 发现⑤中的文件立即 rm + grep -rn "old_name" scripts/ 确认无引用后删除
 ```
-子 Agent 经常在 scripts/ 下留下 `fix_*.py`、`generate_*.py`、`fix_*_data.py`(28-38KB,含硬编码领域词) 等一次性临时脚本——它们在 pipeline 中零引用，不是技能的一部分。**发现立即删除，绝不提交。**
 
 ### 领域词审计
 每次新增 `_KEYWORDS` / `_LABELS` / `_TAGS` / 分类逻辑后执行：
@@ -458,9 +455,6 @@ python3 scripts/index_builder.py /path/to/book \
 | | **`.venv` 缺少关键依赖（pyyaml/pytest）** → 质量审查和测试静默失败、返回空结果。日常开发依赖变化不会自动传播到已有的 .venv | **初始 setup 和每次新增依赖后运行：** `python3 -m pip install pyyaml pytest`。pyproject.toml 的 `dependencies` 和 `[project.optional-dependencies] test` 必须反映实际运行时依赖。`python3 -m pip list` 验证。 |
 | | **SKILL.md 因多次 AI 编辑累积重复章节** → 两个"第一步：内联质量检查"、两个"第二步：全量校验"等，造成文档混乱 | 每次编辑 SKILL.md 后运行 `grep -c "^#" SKILL.md | sort | uniq -d` 检查关键标题唯一性。用 `git diff --stat SKILL.md` 观察新增量远大于删除量时要警觉。 |
 | | **`pyproject.toml` 遗留旧模块引用** → mypy overrides 列表含已删除的旧脚本名（`log_utils`, `yaml_auto_fill` 等），导致无效配置和混淆 | **每次重命名/删除脚本后同步清理 pyproject.toml。** 搜索 `pyproject.toml` 中是否还有对已删除模块的引用。`git rm` 后运行 `grep -rn "deleted_name" pyproject.toml` 确认零残留。 |
-| 31 | **`quality_reviewer.py` 模板字段提取正则 `[a-z_]+` 不匹配数字** → 字段名如 `difficulty_1_title`、`difficulty_2_content` 不会被提取到有效 bd 字段集合中 → pipeline 校验时报 "bd 缺少必填字段: difficulty_3_title" | **模板字段提取正则必须用 `\w+` 而非 `[a-z_]+`。** `\w` 包含 `[a-zA-Z0-9_]`，覆盖 `difficulty_N_title` 等带数字的字段名。`template_engine.py` 已使用 `\w+`（正确），但 `quality_reviewer.py` line 84 曾使用 `[a-z_]+`（已修复）。新增任何从模板提取 `{{xxx}}` 占位符的代码必须确认用了 `\w+`。 |
-| 32 | **`schema.json` 将 `difficulty` 标为 bd required:true，但它在模板中同时出现在 frontmatter 和 body** → 当 Agent 只写 fm 不写 bd（因为 template_engine 可从 fm 回退），pipeline 校验报 "bd 缺少必填字段: difficulty" | **frontmatter 和 bd 同名的字段（如 `difficulty`）应在 schema.json 中设为 bd required:false，或同时在 frontmatter 中定义。** 原则：frontmatter 已有的字段不应在 bd 中再要求 required。新增模板时必须检查 schema.json 的 frontmatter/bd 是否重叠。 |
-| 33 | **子 Agent 在 scripts/ 下泄漏一次性修复脚本（`fix_*.py`, `generate_*.py`）** → 这些文件含硬编码领域词（EMC 等），使 `verify_domain_agnostic.sh` 失败；它们不是技能的一部分，提交后污染技能目录 | **提交前必须执行① `ls scripts/fix_*.py scripts/generate_*.py 2>/dev/null` ② 发现立即 `rm` ③ `bash scripts/verify_domain_agnostic.sh` 验证零泄露。** 子 Agent 的 fix 逻辑应 inline 到已有的 pipeline 模块中，或用 `delegate_task` 时强调"不创建任何 .py 文件，只用 write_file 写 YAML"。 |
 
 ## 领域自适应设计原则
 

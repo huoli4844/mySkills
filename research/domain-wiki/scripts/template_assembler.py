@@ -287,6 +287,17 @@ try:
         assemble_book_overview_md,
         assemble_concept_md,
         assemble_md,
+        main as _tw_main,
     )
 except ImportError:
     pass
+
+# v52.2: CLI entry point — delegates to template_writers.main()
+# Fixes: pipeline_auto, dag_pipeline_done, dag_index call sites
+# that invoke template_assembler.py as a CLI script.
+if __name__ == "__main__":
+    try:
+        _tw_main()
+    except NameError:
+        # template_writers not importable — never reached in normal use
+        raise SystemExit("template_writers.main() not available")

@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.1: 新增 split_book_to_chapters.py 整书预处理）"
-version: "52.2"
+description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.3: 新增 template-yaml-field-map.md 字段映射表和内容深度要求）"
+version: "52.3"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -133,8 +133,8 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | `知识链接审计` `link_audit.run_link_audit(wiki_root, auto_fix=True)` | **v52.0** — 替代 KGraph（1551行→266行）。纯文本扫描：孤立节点检测（入度=0）、反向链接补全（A→B 但 B↛A）、跨章引用统计（→L2枢纽节点）。集成到 pipeline auto scene→l2_indices 之间自动运行。 |
 | 外部配置 `config/book_info.yaml` | **v51.5** — 书籍总揽描述模板。`domain`、`book_template`、`chapter_descriptions` 三字段。`{book_name}`/`{domain}`/`{chapter_count}` 自动替换。`.dag/book_info.yaml` 可覆盖技能默认配置。 |
 || 外部配置 `config/knowledge_keywords.yaml` | **v51.5** — 领域知识关键词映射 + 领域术语集。`domain`+`keyword_maps` 字典（题目关键词→源文搜索词列表）。换领域只需改此文件。 |
-|| `split_book_to_chapters.py prepare --raw-dir raw/书/ -w $BOOK_DIR --split` | **vN** — 整书预处理：创建标准目录结构（10_总揽~90_习题）→ 复制图片 → 拆分章节。一步生成全部骨架。 |
-|| `split_book_to_chapters.py split <整书.md> -w $BOOK_DIR` | **vN** — 仅拆分章节（目录和图片已就绪时）。自动消除 TOC 重复。 |
+|| `split_book_to_chapters.py prepare --raw-dir raw/书/ -w $BOOK_DIR --split` | **v52.1** — 整书预处理：创建标准目录结构（10_总揽~90_习题）→ 复制图片 → 拆分章节。一步生成全部骨架。 |
+|| `split_book_to_chapters.py split <整书.md> -w $BOOK_DIR` | **v52.1** — 仅拆分章节（目录和图片已就绪时）。自动消除 TOC 重复。 |
 
 ## Pitfalls 速查
 
@@ -192,15 +192,16 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 77 | 解答文件内容全是通用模板文字（"该习题考查教材第X章核心内容"等）— 无实际教学价值 🔥 | **v51.4**: `post_build_fix.py` 新增 `enhance_solution_content()`。检测11种通用模板文字模式 → 从题目提取关键词 → 从 external `config/knowledge_keywords.yaml` 加载领域映射扩写 → 在源文中匹配最相关段落 → 按节类型差异化生成。自动集成到 pipeline run_phase_auto_fix()。 |\n| 78 | 换一本书所有代码都要改——章节文件名映射、关键词映射、教材描述、路径全部硬编码绑定到电磁兼容教材 🔥 | **v51.5**: 全面外置化——(1) 章节文件名改为 `discover_chapters()` 从 `20_正文/` 自动发现；(2) 关键词映射外置 `config/knowledge_keywords.yaml`（领域+version+keyword_maps）；(3) 50行教材描述外置 `config/book_info.yaml`（含 `{domain}` 模板化）；(4) 目录层级 `01_领域/01_资料库` 改为 `DIR["DOMAIN_DIR"]/DIR["LIBRARY_DIR"]`。换书流程：改 `config/` 目录下的 YAML 文件即可，Python 代码不动。 |\n| 79 | `enhance_solution_content` 解答增强函数内置了 EMC 领域硬编码的 fallback 文字 | **v51.5**: "电磁兼容领域的基础理论" → "本领域的基础理论"。所有领域特定文字从 `config/` 加载，加载失败时降级为通用占位符。 |\n| 80 | `post_build_fix.run_phase_auto_fix` 中 `files_touched` 计数器在非 exercises/solutions 阶段不递增——只记录了修复次数但没记录文件数，导致 test_fix_ke_files 断言失败 | **v51.5**: 将 `if content != original:` 移出 `if phase in ("exercises", "solutions"):` 条件块，所有阶段共享文件变动计数。 |
 | 85 | 内容质量问题绝不能在输出端修补——YAML frontmatter 在 `_load_source_text` 阶段就应剥离，等进入 paragraph splitting 再擦已经晚了 🔥 | **核心原则**: 任何读取源文的函数必须在第一时间剥离 file2md 的 YAML frontmatter（`--- {title, source, parser, sha256} ---`）。脏数据一旦进入下游（paragraph splitting、keyword scoring）会不可逆地污染产出。 |
 || 86 | 知识图谱 KGraph（1551 行）从未被 pipeline 调用——SQLite 图数据库不提供语义判断能力 | **v52.0**: 废弃 KGraph，`link_audit.py`（266 行）替代。纯文本扫描 `[[wikilink]]` 即可完成入度统计/反向链路/跨章分析。 |
-|| 87 | 整书 MD 中有目录(TOC)和正文两套章节标题，split_book_to_chapters 误将 TOC 版当正文输出 | **vN**: `discover_chapter_ranges` 按章节号去重，只保留最后出现（正文版）的分段。已验证：工程电磁兼容第3版 26→13 章节。 |
-|| 88 | 章节标题使用混合格式（`# 第N章` vs `## 第N章`，空格分布不一致），grep 模式 `^## 第` 或 `^# 第` 单独均不全匹配 | **vN**: `CHAPTER_PATTERN` 使用 `^(#{1,2})\s*(第\s*\d+\s*章\s*...)`，兼容单#和双#，同时自动折叠空格。 |
-|| 89 | 章节文件名包含 TOC 页码（如 `第9章 EMC 标准简介……215.md`）导致 discover_chapters 匹配失败 | **vN**: `normalize_filename` 中对 `……\s*\d+\s*$` 做 strip。正则 `第(\d+)章\s.*\.md$` 要求文件名无多余尾部。 |
-|| 90 | 输出目录在 `raw/` 下（raw 是只读源文件区） | **vN**: 整书预处理必须输出到平行于 `raw/` 的领域目录下。`split_book_to_chapters.py prepare` 默认在 `-w` 指定的 `book_dir` 下操作。 |
-|| 91 | exercise/solution 的 confidence 值误用 0.85（子代理从 concept 偷了模板），build 说"不符合允许值 {0.65}"，0 文件产出 | **vN**: exercise/solution 的允许值仅 `{0.65}`，非 0.85。写 YAML 前检查 schema JSON 中的 enum。 |
-|| 92 | kps.yaml 的内容字段（solved_problem/learning_objectives 等）在顶层而非 bd 下 → build 说"数据未找到" | **vN**: 所有 YAML 必须 `{name, file, fm, bd}` 四字段。内容字段必须位于 `bd: {}` 内部，非顶层。 |
-|| 93 | exercises.yaml/solutions.yaml 扁平结构（无 fm/bd） → build_kb_files 跳过该文件 | **vN**: 即使 exercises/solutions 结构简单，也必须包含 `fm: {source_chapter, confidence}` 和 `bd: {}`。 |
-|| 94 | KP file 命名用 `第1章-知识点N`。build 产出 `50_知识点/第1章-知识点1.md`，文件名无意义 | **vN**: KP `file` 必须用知识点中文名（如 `EMC基本概念`）。schema 强制校验 file 字段不可含 `第.*章-知识点` 模式。|
+|| 87 | 整书 MD 中有目录(TOC)和正文两套章节标题，split_book_to_chapters 误将 TOC 版当正文输出 | **v52.1**: `discover_chapter_ranges` 按章节号去重，只保留最后出现（正文版）的分段。已验证：工程电磁兼容第3版 26→13 章节。 |
+|| 88 | 章节标题使用混合格式（`# 第N章` vs `## 第N章`，空格分布不一致），grep 模式 `^## 第` 或 `^# 第` 单独均不全匹配 | **v52.1**: `CHAPTER_PATTERN` 使用 `^(#{1,2})\s*(第\s*\d+\s*章\s*...)`，兼容单#和双#，同时自动折叠空格。 |
+|| 89 | 章节文件名包含 TOC 页码（如 `第9章 EMC 标准简介……215.md`）导致 discover_chapters 匹配失败 | **v52.1**: `normalize_filename` 中对 `……\s*\d+\s*$` 做 strip。正则 `第(\d+)章\s.*\.md$` 要求文件名无多余尾部。 |
+|| 90 | 输出目录在 `raw/` 下（raw 是只读源文件区） | **v52.1**: 整书预处理必须输出到平行于 `raw/` 的领域目录下。`split_book_to_chapters.py prepare` 默认在 `-w` 指定的 `book_dir` 下操作。 |
+|| 91 | exercise/solution 的 confidence 值误用 0.85（子代理从 concept 偷了模板），build 说"不符合允许值 {0.65}"，0 文件产出 | **v52.2**: exercise/solution 的允许值仅 `{0.65}`，非 0.85。写 YAML 前检查 schema JSON 中的 enum。 |
+|| 92 | kps.yaml 的内容字段（solved_problem/learning_objectives 等）在顶层而非 bd 下 → build 说"数据未找到" | **v52.2**: 所有 YAML 必须 `{name, file, fm, bd}` 四字段。内容字段必须位于 `bd: {}` 内部，非顶层。 |
+|| 93 | exercises.yaml/solutions.yaml 扁平结构（无 fm/bd） → build_kb_files 跳过该文件 | **v52.2**: 即使 exercises/solutions 结构简单，也必须包含 `fm: {source_chapter, confidence}` 和 `bd: {}`。 |
+|| 94 | KP file 命名用 `第1章-知识点N`。build 产出 `50_知识点/第1章-知识点1.md`，文件名无意义 | **v52.2**: KP `file` 必须用知识点中文名（如 `EMC基本概念`）。schema 强制校验 file 字段不可含 `第.*章-知识点` 模式。参见 [template-yaml-field-map.md](references/template-yaml-field-map.md) KP 节。|
 || 95 | Solution 仅 answer 有内容，其余 17 个 bd 字段全是"无"→ 解答"只有答案没有讲解" | **vN**: Solution 使用 eval_template.md（18 字段），至少填 14 个(principle_steps/characteristics/exam_points/solving_tips/difficulty 等)。Agent prompt 中必须列出 eval_template.md 的全部 bd 字段名。 |
+|| 96 | 模板拆分时 template_assembler.py 的 CLI 入口被移到 template_writers.py 但未加 `__main__` 回调。`_auto_detect_and_build_exercises` 调用 `template_assembler.py` 执行了 0 行代码，习题永不被生成 🔥 | **v52.2**: 在 template_assembler.py 末尾添加 `if __name__ == "__main__": _tw_main()` 回调。修复 3 处调用点。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -239,4 +240,5 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [solution-content-quality.md](references/solution-content-quality.md) | **v51.7** — 解答内容增强设计：质量评分检测通用模板→章节标题回退关键词→源文段落匹配→差异化生成 |
 | [link-audit-design.md](references/link-audit-design.md) | **v52.0** — link_audit 替代 KGraph 设计文档：纯文本扫描入度/反向链路/跨章统计，无 SQLite 维护成本 |
 | [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md) | **v52.1** — 整书 MD 预处理工作流：目录创建 + 图片复制 + 章节拆分（TOC 去重/标题格式兼容/文件名标准化） |
-| [yaml-generation-guide.md](references/yaml-generation-guide.md) | **v52.1** — YAML 数据文件生成规范：四字段结构 (name/fm/bd/file) + 节点类型 vs 置信度对照表 + 常见结构错误修复 + pipeline auto 工作流 |
+| [yaml-generation-guide.md](references/yaml-generation-guide.md) | **v52.2** — YAML 数据文件生成规范：四字段结构 (name/fm/bd/file) + 节点类型 vs 置信度对照表 + 内容深度要求(最少填充数/字段分级) + 常见结构错误修复 + pipeline auto 工作流 |
+| [template-yaml-field-map.md](references/template-yaml-field-map.md) | **v52.3** — 模板-YAML 字段完整映射表(8节点类型)：每类型全部模板字段的 YAML bd 键、填充等级(必填/应填/条件填)、最少非无字段数。写 YAML 时对照此文档确保无遗漏。 |

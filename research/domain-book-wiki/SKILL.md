@@ -48,9 +48,68 @@ L3（领域）: 领域总控（最后一章统一生成）
 L4（全库）: 知识库总控（最后一章统一生成）
 ```
 
-## 核心工作流
+## 设计原则（用户明确要求）
 
-### Phase A（纯代码，零Agent）
+```
+1. 正文是唯一可信数据源 — 不从任何其他文件读取知识内容
+2. 模板 .md 定义输出格式 — 严格按模板结构输出，不改标题不改节名
+3. 模板是领域无关的 — 不限于EMC，任何书籍/任何领域适用
+4. 代码不硬编码字段名 — 所有字段定义在 schema.json，代码只读 schema
+5. 结构化数据走代码 — 概念/KE/实体是结构性提取，纯代码渲染
+6. 语义内容走Agent — KP/SP/Scene/解答需要理解判断，Agent 写 YAML
+7. 无 YAML 无渲染 — Phase A 入口闸门检查 6 个 L1 YAML 文件完整
+```
+
+## 新章构建完整流程
+
+### Phase A + C：结构数据 + Agent解答
+
+```bash
+# === Phase A: 概念/KE/实体（结构性，可一次写完）===
+
+# 1. Agent 写概念/KE/实体 YAML（用 yaml_writer 校验字段）
+python3 scripts/yaml_writer.py write --type concept ...
+python3 scripts/yaml_writer.py write --type ke ...
+python3 scripts/yaml_writer.py write --type entity ...
+
+# 2. 可选：KP/SP/Scene（Agent判断后写）
+python3 scripts/yaml_writer.py write --type kp ...
+python3 scripts/yaml_writer.py write --type sp ...
+python3 scripts/yaml_writer.py write --type scene ...
+
+# 3. 批量校验+渲染
+python3 scripts/pipeline_v2.py phase-a \
+  --book-dir /path/to/book -c N \
+  --book-id XXX --book-name "名称"
+
+# === Phase C: 解答（Agent写真实解答，非骨架）===
+
+# 4. Agent 写 solutions.yaml（含真实内容）
+#   - 读 Phase A 已渲染的概念/KE/KP .md 文件
+#   - 每道习题写：原理/特点/考点/难点/流程图/知识闭环
+#   - 不写 exercise_link/exercise_name（auto_fill自动生成）
+#   - confidence = 0.85（Agent填充），非骨架0.65
+
+# 5. 校验
+python3 scripts/yaml_writer.py validate \
+  --yaml-path .dag/第N章/data/solutions.yaml --type solution
+
+# 6. 渲染
+python3 scripts/template_engine.py render \
+  --type solution \
+  --data .dag/第N章/data/solutions.yaml \
+  --output 90_习题/解答 \
+  --book-id XXX --book-name "名称" -c N
+```
+
+### Phase A（快速模式：含自动检测习题/骨架解答）
+
+```bash
+# YAML不存在 exercises.yaml/solutions.yaml 时：
+# - exercises: 从 20_正文/第N章*.md 自动检测习题
+# - solutions: 生成骨架解答（题目原文自动填入，内容用占位符）
+python3 scripts/pipeline_v2.py phase-a --book-dir /path/to/book -c N ...
+```
 
 ```bash
 # 一步完成：校验YAML → 模板渲染

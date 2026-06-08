@@ -1,0 +1,1271 @@
+{
+  "schema_version": "2.0",
+  "description": "domain-book-wiki 数据模型 — 领域无关、书籍无关",
+  "author": "huoli4844",
+  "node_types": {
+    "concept": {
+      "template": "concept_template.md",
+      "confidence": {
+        "allowed": [
+          0.95
+        ],
+        "default": 0.95,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "entity_type": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "type": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "type_tag": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "application_scenarios": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "classification": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "common_misconceptions": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "confusion_compare": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "core_concept_map": {
+          "type": "mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "core_concept_map_analysis": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "definition_sentence": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "domain": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "engineering_practices": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "evolution": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "features": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "key_parameters": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "learning_objectives": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "mathematical_model": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false,
+          "constraints": {
+            "formula_check": true
+          }
+        },
+        "prerequisite_knowledge": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_concepts_relations": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_knowledge_elements": {
+          "type": "list:string",
+          "required": false,
+          "auto_fill": false
+        },
+        "self_check_questions": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "solved_problem": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "structure": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "tech_classification": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "term_definition": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "term_english": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "typical_systems": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "upstream_downstream": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "value": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        }
+      }
+    },
+    "entity": {
+      "template": "entity_template.md",
+      "confidence": {
+        "allowed": [
+          0.85
+        ],
+        "default": 0.85,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "entity_type": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "type_tag": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "application_scenarios": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "definition_sentence": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "evolution": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "features": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "key_parameters": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_concepts": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_entities": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_standards": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "structure": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "term_definition": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "time_milestones": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "typical_products": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        }
+      }
+    },
+    "exercise": {
+      "template": "exercise_template.md",
+      "confidence": {
+        "allowed": [
+          0.65
+        ],
+        "default": 0.65,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "bloom_level": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "type": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "type_tag": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "question": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false,
+          "constraints": {
+            "min_chars": 20
+          }
+        },
+        "related_answer": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        }
+      }
+    },
+    "ke": {
+      "template": "ke_template.md",
+      "confidence": {
+        "allowed": [
+          0.85
+        ],
+        "default": 0.85,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "type_tag": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "application_scenarios": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "confusion_compare": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "definition_sentence": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "domain": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "evolution": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "features": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "key_parameters": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "mathematical_model": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false,
+          "constraints": {
+            "formula_check": true
+          }
+        },
+        "related_concepts_relations": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_knowledge_elements": {
+          "type": "list:string",
+          "required": false,
+          "auto_fill": false
+        },
+        "term_definition": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "term_english": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        }
+      }
+    },
+    "kp": {
+      "template": "knowledge_template.md",
+      "confidence": {
+        "allowed": [
+          0.85
+        ],
+        "default": 0.85,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "bloom_level": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "application_methods": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "application_scenarios": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "bloom_alignment": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "bloom_level_description": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "bloom_progression": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "confusion_compare": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "core_knowledge_elements_table": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "derivation_analysis": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "derivation_diagram": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "diagram_analysis": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "difficulty": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "engineering_practices": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "key_details": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "knowledge_context_diagram": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "learning_objectives": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "self_check_questions": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "skill_objectives": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "skill_requirements": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "solved_problem": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "theoretical_basis": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false,
+          "constraints": {
+            "min_chars": 150
+          }
+        },
+        "typical_examples": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "bloom_progression_analysis": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false,
+          "constraints": {
+            "min_chars": 50
+          }
+        }
+      }
+    },
+    "scene": {
+      "template": "scenario_template.md",
+      "confidence": {
+        "allowed": [
+          0.65
+        ],
+        "default": 0.65,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "bloom_level": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "confusion_scenario_compare": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "core_knowledge_support": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "core_skill_support": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "diagram_analysis": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "domain": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "knowledge_context_diagram": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "node_descriptions": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_scenes": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "scenario_description": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "scenario_type": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "scene_concept_support": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "scene_elements": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "scene_ke_support": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "typical_application_cases": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "workflow_diagram": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        }
+      }
+    },
+    "solution": {
+      "template": "eval_template.md",
+      "confidence": {
+        "allowed": [
+          0.65,
+          0.85
+        ],
+        "default": 0.65,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "bloom_level": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "type": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "type_tag": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "characteristics": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "common_mistakes": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "difficulty_1_content": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "difficulty_1_title": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "difficulty_2_content": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "difficulty_2_title": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "difficulty_3_content": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "difficulty_3_title": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "exam_points": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "flowchart_diagram": {
+          "type": "mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "flowchart_steps": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "knowledge_loop_analysis": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "knowledge_loop_diagram": {
+          "type": "mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "principle_steps": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "question": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false,
+          "constraints": {
+            "min_chars": 20
+          }
+        },
+        "related_concepts": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "solving_tips": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "exercise_link": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "exercise_name": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        }
+      }
+    },
+    "sp": {
+      "template": "skill_template.md",
+      "confidence": {
+        "allowed": [
+          0.75
+        ],
+        "default": 0.75,
+        "note": "系统自动填充，Agent不可修改"
+      },
+      "frontmatter": {
+        "aliases": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        },
+        "bloom_level": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_id": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "book_name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "chapter_num": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "confidence": {
+          "type": "number",
+          "required": true,
+          "auto_fill": true
+        },
+        "confidence_note": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "auto_fill": true
+        },
+        "source_chapter": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "source_from": {
+          "type": "string",
+          "required": true,
+          "auto_fill": true
+        },
+        "tags": {
+          "type": "list",
+          "required": false,
+          "auto_fill": true
+        }
+      },
+      "bd": {
+        "bloom_alignment": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "bloom_level_description": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "bloom_progression": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "common_errors_table": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "competency_standards": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "confusion_skill_compare": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "core_operation": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "core_theoretical_support": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "diagram_analysis": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "domain": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "extended_skills": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "knowledge_context_diagram": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "operation_boundaries": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "operation_flow_analysis": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "operation_flowchart": {
+          "type": "string|mermaid",
+          "required": false,
+          "auto_fill": false
+        },
+        "prerequisite_skills": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "related_concepts_knowledge": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "skill_objectives": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "solved_problem": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "supported_scenarios": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "tool_support": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "typical_practical_cases": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false
+        },
+        "bloom_progression_analysis": {
+          "type": "string",
+          "required": true,
+          "auto_fill": false,
+          "constraints": {
+            "min_chars": 50
+          }
+        }
+      }
+    }
+  }
+}

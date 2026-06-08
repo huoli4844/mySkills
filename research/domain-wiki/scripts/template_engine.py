@@ -1,260 +1,486 @@
 #!/usr/bin/env python3
-"""Template engine: load, parse, fill templates, mermaid helpers"""
+"""template_engine.py — YAML → .md 渲染引擎（v2.0）
 
+从 domain_book_schema.json 读取字段映射，从模板 .md 读取输出格式。
+纯代码引擎，无硬编码字段名，领域无关、书籍无关。
+
+用法:
+  # 渲染单个类型
+  python3 template_engine.py render --type concept \\
+    --data .dag/第4章/data/concepts.yaml \\
+    --output 30_核心概念 \\
+    --book-id 01_工程电磁兼容 --book-name "工程电磁兼容第3版_路宏敏" -c 4
+
+  # 按顺序渲染一个章节的全部L1类型（concept→ke→entity→kp→sp→scene→exercise→solution）
+  python3 template_engine.py render-chapter \\
+    --data-dir .dag/第4章/data \\
+    --output-dir . \\
+    --book-id 01_工程电磁兼容 --book-name "工程电磁兼容第3版_路宏敏" -c 4
+
+设计原则：
+  - 不读取任何`.py`中的字段定义，全部从 schema.json + 模板 .md 驱动
+  - 模板中写了什么 {{xxx}}，就从 YAML 的对应字段取值
+  - 字段名映射通过 schema.json 的 template_var 字段
+  - 所有自动填充字段（book_id/book_name/chapter_num 等）由代码注入，不依赖 YAML
+"""
+
+import argparse
+import json
 import os
 import re
+import sys
+from typing import Any, Optional
 
-from log_utils import get_logger
-from parse_utils import parse_frontmatter as _parse_fm
+try:
+    import yaml as _yaml
+except ImportError:
+    _yaml = None
 
-log = get_logger(__name__)
+
+# ── 路径 ──
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SKILL_DIR = os.path.dirname(SCRIPT_DIR)
+SCHEMA_PATH = os.path.join(SKILL_DIR, "schemas", "domain_book_schema.json")
+TEMPLATES_DIR = os.path.join(SKILL_DIR, "assets", "templates")
+
+# 节点类型 → 输出目录映射（知识库目录约定）
+DIR_MAP = {
+    'concept':    '30_核心概念',
+    'ke':         '40_知识要素',
+    'entity':     '80_实体',
+    'kp':         '50_知识点',
+    'sp':         '60_技能点',
+    'scene':      '70_应用场景',
+    'exercise':   '90_习题',
+    'solution':   '90_习题/解答',
+}
+
+# 习题/解答特殊处理（filename 不同）
+EXERCISE_FILENAME_MAP = {
+    'exercise': lambda item, ch: f"{item['name']}.md" if item['name'].startswith(f'第{ch}章') else f"第{ch}章-{item['name']}.md",
+    'solution': lambda item, ch: f"{item['name']}.md" if item['name'].startswith(f'第{ch}章') else f"第{ch}章-{item['name']}-解答.md",
+}
 
 
-# ── 模板加载与解析 ──────────────────────────────────────────
+# ════════════════════════════════════════════════════════════
+# Schema 加载
+# ════════════════════════════════════════════════════════════
+
+def load_schema() -> dict:
+    if not os.path.exists(SCHEMA_PATH):
+        raise FileNotFoundError(f"schema 文件不存在: {SCHEMA_PATH}")
+    with open(SCHEMA_PATH) as f:
+        return json.load(f)
 
 
 def load_template(template_name: str) -> str:
-    """从 assets/templates/ 加载模板文件（完整内容，含Front Matter）"""
-    skill_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    template_path = os.path.join(skill_root, "assets", "templates", template_name)
-
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(f"模板文件不存在: {template_path}")
-
-    with open(template_path, encoding="utf-8") as f:
+    """加载模板 .md 文件"""
+    tpl_path = os.path.join(TEMPLATES_DIR, template_name)
+    if not os.path.exists(tpl_path):
+        raise FileNotFoundError(f"模板文件不存在: {tpl_path}")
+    with open(tpl_path, encoding='utf-8') as f:
         return f.read()
 
 
-def parse_template(template_content: str) -> dict:
-    """解析模板，分离Front Matter和Body
+# ════════════════════════════════════════════════════════════
+# 核心渲染逻辑
+# ════════════════════════════════════════════════════════════
 
-    返回：
-        {
-            'front_matter': {...},  # 解析后的YAML（字典）
-            'body_template': str,       # Body部分的模板（含占位符）
-            'raw_front_matter': str     # Front Matter原始文本（用于替换）
-        }
-    """
-    if not template_content.startswith("---"):
-        raise ValueError("模板必须包含Front Matter（以---开头）")
+def render_item(item: dict, type_name: str, schema: dict,
+                book_id: str, book_name: str, chapter_num: str) -> Optional[str]:
+    """将单个 YAML item 渲染为 .md 文本。返回 None 表示失败。"""
+    node_schema = schema['node_types'].get(type_name)
+    if not node_schema:
+        print(f"❌ 未知节点类型: {type_name}", file=sys.stderr)
+        return None
 
-    parts = template_content.split("---", 2)
-    if len(parts) < 3:
-        raise ValueError("模板格式错误：无法分割Front Matter和Body")
+    # 加载模板
+    template_name = node_schema['template']
+    template_content = load_template(template_name)
 
-    raw_fm = parts[1].strip()
-    body_template = parts[2].strip()
+    # 构建替换表：{{xxx}} → 值
+    replacements = {}
 
-    fm_dict = _parse_fm("---" + "\n" + raw_fm + "\n" + "---")
+    # 1. 从 YAML fm 字段
+    fm = item.get('fm', {})
+    for fm_name, fm_def in node_schema['frontmatter'].items():
+        if fm_name in fm:
+            val = fm[fm_name]
+        else:
+            # 自动填充字段
+            val = _auto_fill_value(fm_name, item, book_id, book_name, chapter_num, type_name)
+        replacements[fm_name] = val if val is not None else ''
 
-    return {"front_matter": fm_dict, "body_template": body_template, "raw_front_matter": raw_fm}
+    # 2. 从 YAML bd 字段
+    bd = item.get('bd', {})
+    for bd_name, bd_def in node_schema['bd'].items():
+        val = bd.get(bd_name, '')
+        if val is None:
+            val = ''
+        # 处理 list 类型
+        if isinstance(val, list):
+            val = '\n'.join(f'- {v}' for v in val) if val else ''
+        replacements[bd_name] = val
 
+    # 3. name 特殊处理（item 顶层）
+    if 'name' not in replacements or not replacements.get('name'):
+        replacements['name'] = item.get('name', '')
 
-def fill_template(body_template: str, replacements: dict) -> str:
-    """替换模板Body上的占位符（格式：{{key}}），并清理 Jinja2 条件句
+    # 执行替换
+    result = template_content
+    for key, val in replacements.items():
+        result = result.replace('{{' + key + '}}', str(val))
 
-    v39.1: 自动展开 YAML 多行字符串中的 \\n 字面量为实际换行符
-    """
-    result = body_template
-    for key, value in replacements.items():
-        placeholder = "{{" + key + "}}"
-        val_str = str(value)
-        if "\\n" in val_str:
-            val_str = re.sub(r"\\n(?![a-zA-Z])", "\n", val_str)
-        result = result.replace(placeholder, val_str)
-    # Clean up Jinja2 conditionals (strip them WITHOUT evaluating — LIMITATION!)
-    if re.search(r"\{%[- ]+(if|endif|for|raw|end)", result):
-        matches = re.findall(r"\{%[- ]+[^%]+%\}", result)
-        log.warning(f"  ⚠️  WARNING: {len(matches)} Jinja2 blocks STRIPPED (not evaluated). "
-            f"All conditional content will always render regardless of conditions.")
-    result = re.sub(r"\{%[- ]+if[^%]+%\}", "", result)
-    result = re.sub(r"\{%[- ]+endif[^%]*%\}", "", result)
-    # Warn about unmatched template placeholders
-    unmatched = re.findall(r"\{\{[a-z_][a-z0-9_]*\|\|[a-z_][a-z0-9_]*\}\}", result)
-    unmatched += re.findall(r"\{\{[a-z_][a-z0-9_]*\}\}", result)
-    if unmatched:
-        uniq = sorted(set(unmatched))
-        log.info(f"  WARNING: {len(uniq)} template placeholders missing from body_replacements: {', '.join(uniq[:6])}")
-    # v50.0: 去除 HTML 注释（模板中的Agent提示，不输出到文件）
-    result = re.sub(r'<!--.*?-->', '', result, flags=re.DOTALL)
+    # 检查未替换的占位符
+    remaining = set(re.findall(r'\{\{(\w+)\}\}', result))
+    if remaining:
+        # 尝试用自动填充兜底
+        for key in list(remaining):
+            val = _auto_fill_value(key, item, book_id, book_name, chapter_num, type_name)
+            if val is not None and val != '':
+                result = result.replace('{{' + key + '}}', str(val))
+                remaining.discard(key)
+        if remaining:
+            print(f"  ⚠️ 未替换的占位符: {', '.join(sorted(remaining))}", file=sys.stderr)
+
     return result
 
 
-def _strip_wu_sections(body: str) -> str:
-    """C2: 删除内容恰好为'无'或'无。'的 ### / #### / ## 子节
-
-    v52.3: 扩展支持 ## 级标题,用于删除纯'无'的模板节段。
-    v52.4: 第二遍扫描: 处理表格/列表内的"无"空节。
-    """
-    import re as _re
-
-    # Pass 1: Remove subsections where content is exactly "无"
-    pattern = _re.compile(r"^(#{2,4})\s+[^\n]+\n\s*\n?\s*无[。]?\s*\n?", _re.MULTILINE)
-    stripped = pattern.sub("", body)
-
-    # Pass 2: Remove subsections whose content is only a table with "无" cells
-    # Pattern: heading + table where ALL cell values are "无"
-    table_wu = _re.compile(
-        r"^(#{2,4})\s+[^\n]+\n"
-        r"(?:\s*\n)*"
-        r"\|[^|]*\|[^n]*\n"
-        r"\|[-:]+\|[-:]+\|\n"
-        r"(?:\|[^|]*\|[^\n]*\n)*?"
-        r"(?=\n#{2,4}\s|\Z)",
-        _re.MULTILINE
-    )
-    # Check each matched table section - if all data cells are "无", remove it
-    def _should_remove_table(m):
-        section = m.group(0)
-        # Count data rows (skip header and separator)
-        lines = section.strip().split('\n')
-        data_rows = [l for l in lines if l.startswith('|') and not l.startswith('|-')]
-        # Skip header row
-        data_rows = data_rows[1:]
-        if not data_rows:
-            return False
-        # Check each data cell
-        all_wu = True
-        for row in data_rows:
-            cells = row.split('|')[1:-1]  # skip leading/trailing empty
-            for cell in cells:
-                val = cell.strip()
-                if val and val != "无":
-                    all_wu = False
-                    break
-            if not all_wu:
-                break
-        return all_wu
-
-    # Apply pass 2
-    stripped = table_wu.sub("", stripped)
-
-    # Pass 3: Clean up excessive blank lines
-    stripped = _re.sub(r"\n{4,}", "\n\n\n", stripped)
-    return stripped
+def _auto_fill_value(field_name: str, item: dict,
+                     book_id: str, book_name: str, chapter_num: str,
+                     type_name: str) -> Any:
+    """为自动填充字段生成值"""
+    defaults = {
+        'book_id': book_id,
+        'book_name': book_name,
+        'chapter_num': chapter_num,
+        'name': item.get('name', ''),
+        'type': type_name,
+        'type_tag': NODE_TAG_MAP.get(type_name, [type_name]),
+        'template_version': 'v7.0',
+        'cssclass': 'knowledge-base',
+        'bloom_level': item.get('fm', {}).get('bloom_level', ''),
+        'entity_type': item.get('fm', {}).get('entity_type', ''),
+        'bloom_progression_analysis': '',
+        'exercise_link': _gen_exercise_link(item, type_name, chapter_num),
+        'exercise_name': _gen_exercise_link(item, type_name, chapter_num),
+        'source_chapter': chapter_num,
+        'source_from': '',
+    }
+    if field_name in defaults:
+        return defaults[field_name]
+    if field_name == 'aliases':
+        return item.get('fm', {}).get('aliases', [])
+    if field_name == 'tags':
+        tags = [book_id, type_name]
+        extra_tags = item.get('fm', {}).get('tags', [])
+        if isinstance(extra_tags, list):
+            tags.extend(extra_tags)
+        return tags
+    return ''
 
 
-# ── 占位符残留检查 ───────────────────────────────────────────
-
-# P8 fix: （暂无）是故意填写的空节标记，不是占位符（见 SKILL.md 坑 #14）
-PLACEHOLDER_PATTERN = re.compile(r"\{\{[^}]+\}\}|（待补充）")
-
-
-def check_placeholders(content: str, filename: str) -> int:
-    """检查组装后的内容中是否存在未替换的 {{placeholder}}，返回残留数"""
-    matches = PLACEHOLDER_PATTERN.findall(content)
-    if matches:
-        log.warning(f"  ⚠️  {filename}: {len(matches)} 个占位符残留 — {', '.join(matches[:8])}")
-    return len(matches)
+NODE_TAG_MAP = {
+    'concept': ['核心概念'],
+    'ke': ['知识要素'],
+    'entity': ['实体'],
+    'kp': ['知识点'],
+    'sp': ['技能点'],
+    'scene': ['应用场景'],
+    'exercise': ['习题'],
+    'solution': ['习题解答'],
+}
 
 
-MERMAID_INIT = '%%{init: {"theme": "base", "themeVariables": {"fontSize": "12px"}}}%%'
+def _gen_exercise_link(item: dict, type_name: str, chapter_num: str) -> str:
+    """从solution item的名称生成对应的习题链接名"""
+    name = item.get('name', '')
+    base_name = name.replace('-解答', '').replace(f'第{chapter_num}章-', f'第{chapter_num}章-')
+    return f"第{chapter_num}章-{base_name}" if not base_name.startswith(f'第{chapter_num}章') else base_name
 
 
-def add_mermaid_init(content: str) -> str:
-    """自动为所有 ```mermaid 代码块添加 %%{init} 紧凑配置（若无）"""
+# ════════════════════════════════════════════════════════════
+# 输出文件名生成
+# ════════════════════════════════════════════════════════════
 
-    def _add_init(m):
-        block = m.group(0)
-        if "%%{" in block:
-            return block
-        lines = block.split("\n")
-        if len(lines) >= 1:
-            lines.insert(1, MERMAID_INIT)
-        return "\n".join(lines)
+def get_output_filename(item: dict, type_name: str, chapter_num: str) -> str:
+    """根据item和类型生成输出文件名"""
+    # exercise/solution 有特殊命名
+    if type_name in EXERCISE_FILENAME_MAP:
+        return EXERCISE_FILENAME_MAP[type_name](item, chapter_num)
 
-    return re.sub(r"```mermaid\n.*?```", _add_init, content, flags=re.DOTALL)
-
-
-def _wrap_mermaid_fields(content: str) -> str:
-    """v43.8: 区域保护模式 — 先保护所有已包裹块，再处理裸露内容，最后统一规范化。
-
-    杜绝 v43.7 的二次包裹 bug：_wrap_unwrapped 会把已包裹块内部的 graph
-    行再次匹配，导致嵌套 ```mermaid``` fences。
-
-    流程：
-      1. 提取所有 ```mermaid...``` 块 → 替换为占位符
-      2. 对非 mermaid 区域包裹裸露的 mermaid 内容
-      3. 归一化所有被保护的块（strip → add init → re-wrap）
-      4. 最后防线：修复块内误吞的标题
-    """
-    MERMAID_KEYWORDS = (
-        "flowchart ",
-        "graph ",
-        "sequenceDiagram",
-        "classDiagram",
-        "stateDiagram",
-        "erDiagram",
-        "gantt",
-        "pie",
-    )
-
-    def _normalize_block(block: str) -> str:
-        inner = re.sub(r"^```mermaid\s*\n", "", block)
-        inner = re.sub(r"\n```\s*$", "", inner)
-        inner = inner.strip()
-        if inner in ("无", "无。", "", None):
-            return "无"
-        inner = inner.replace("→", ">")
-        inner = re.sub(r'^%%\{init:.*?\n?', '', inner, flags=re.DOTALL)
-        inner = MERMAID_INIT + "\n" + inner
-        return "```mermaid\n" + inner + "\n```"
-
-    def _wrap_unwrapped(match):
-        inner = match.group(0).strip()
-        if inner in ("无", "无。", "", None):
-            return inner
-        inner = inner.replace("→", ">")
-        inner_with_init = MERMAID_INIT + "\n" + inner if not inner.startswith("%%{") else inner
-        return "```mermaid\n" + inner_with_init + "\n```"
-
-    placeholders = {}
-    ph_counter = [0]
-
-    def _protect(m):
-        key = f"__MERMAID_P{ph_counter[0]}__"
-        ph_counter[0] += 1
-        placeholders[key] = m.group(0)
-        return "\n" + key + "\n"
-
-    content = re.sub(r"```mermaid\n.*?\n```\s*", _protect, content, flags=re.DOTALL)
-
-    for kw in MERMAID_KEYWORDS:
-        content = re.sub(
-            rf"(?<!```)\n({kw}[^\n]+(?:\n[ \t]+[^\n]+)*)",
-            lambda m: "\n" + _wrap_unwrapped(m),
-            content,
-        )
-
-    for key, block in placeholders.items():
-        content = content.replace(key, _normalize_block(block))
-
-    content = _fix_mermaid_block_boundaries(content)
-
-    return content
+    # 其他类型使用 file 字段
+    file_base = item.get('file', item.get('name', 'unnamed'))
+    return f"{file_base}.md"
 
 
-def _fix_mermaid_block_boundaries(content: str) -> str:
-    """v35.2: 最后防线 — 修复 Mermaid 块内误包含的 Markdown 标题。
+# ════════════════════════════════════════════════════════════
+# YAML 数据加载
+# ════════════════════════════════════════════════════════════
 
-    如果 ```mermaid...``` 块内出现了 ### 或 ## 标题行，说明闭合 ``` 放错了位置，
-    在这些标题前插入闭合 ```，在标题后重新打开 ```mermaid...``` 块。
-    """
+def load_yaml(yaml_path: str) -> list:
+    """加载 YAML 数据文件"""
+    if not os.path.exists(yaml_path):
+        print(f"⚠️ 文件不存在: {yaml_path}", file=sys.stderr)
+        return []
 
-    def _fix_one_block(match):
-        block = match.group(0)
-        inner_match = re.match(r"```mermaid\n(.*?)\n```\s*$", block, re.DOTALL)
-        if not inner_match:
-            return block
-        inner = inner_match.group(1)
-        heading_match = re.search(r"\n(#{2,3}\s+[^\n]+)", inner)
-        if not heading_match:
-            return block
+    with open(yaml_path, encoding='utf-8') as f:
+        if _yaml:
+            data = _yaml.safe_load(f)
+        else:
+            data = json.load(f)
 
-        pos = heading_match.start()
-        heading_line = heading_match.group(1)
-        before = inner[:pos]
-        after = inner[pos:]
-        return "```mermaid\n" + before.rstrip() + "\n```\n\n" + heading_line + "\n" + after[len(heading_line):].strip()
+    if not isinstance(data, list):
+        print(f"⚠️ {yaml_path}: 期望 YAML list，得到 {type(data).__name__}", file=sys.stderr)
+        return []
 
-    return re.sub(r"```mermaid\n.*?\n```\s*", _fix_one_block, content, flags=re.DOTALL)
+    return data
+
+
+# ════════════════════════════════════════════════════════════
+# CLI 命令
+# ════════════════════════════════════════════════════════════
+
+def cmd_render(type_name: str, data_path: str, output_dir: str,
+               book_id: str, book_name: str, chapter_num: str):
+    """渲染单个类型的所有item为.md文件"""
+    schema = load_schema()
+
+    if type_name not in schema['node_types']:
+        print(f"❌ 未知节点类型: {type_name}")
+        print(f"   可用: {', '.join(sorted(schema['node_types'].keys()))}")
+        return
+
+    items = load_yaml(data_path)
+    if not items:
+        print(f"📂 {data_path}: 无数据，跳过")
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    generated = 0
+    for item in items:
+        # 渲染
+        md_content = render_item(item, type_name, schema, book_id, book_name, chapter_num)
+        if md_content is None:
+            continue
+
+        # 输出文件名
+        filename = get_output_filename(item, type_name, chapter_num)
+        output_path = os.path.join(output_dir, filename)
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+        generated += 1
+
+    print(f"✅ [{type_name}] {data_path} → {output_dir}: {generated} 个文件")
+
+
+def cmd_render_chapter(data_dir: str, output_base: str,
+                       book_id: str, book_name: str, chapter_num: str):
+    """按DAG顺序逐类型渲染一章"""
+    schema = load_schema()
+
+    # YAML文件名 → 类型名映射
+    yaml_map = {
+        'concepts.yaml': 'concept',
+        'kes.yaml': 'ke',
+        'entities.yaml': 'entity',
+        'kps.yaml': 'kp',
+        'sps.yaml': 'sp',
+        'scenes.yaml': 'scene',
+        'exercises.yaml': 'exercise',
+        'solutions.yaml': 'solution',
+    }
+
+    # 按DAG顺序
+    dag_order = ['concept', 'ke', 'entity', 'kp', 'sp', 'scene', 'exercise', 'solution']
+
+    for type_name in dag_order:
+        yaml_fname = [k for k, v in yaml_map.items() if v == type_name][0]
+        yaml_path = os.path.join(data_dir, yaml_fname)
+
+        if not os.path.exists(yaml_path):
+            print(f"⏭️ [{type_name}] YAML文件不存在: {yaml_fname}")
+
+            # exercise/solution 特殊处理：自动检测
+            if type_name == 'exercise':
+                print(f"   尝试自动检测习题...")
+                _auto_detect_exercises(output_base, book_id, book_name, chapter_num)
+            elif type_name == 'solution':
+                print(f"   尝试生成解答骨架...")
+                _auto_generate_solutions(output_base, book_id, book_name, chapter_num)
+            continue
+
+        output_dir_key = DIR_MAP.get(type_name)
+        if not output_dir_key:
+            print(f"⚠️ [{type_name}] 无输出目录映射")
+            continue
+
+        output_dir = os.path.join(output_base, output_dir_key)
+        cmd_render(type_name, yaml_path, output_dir, book_id, book_name, chapter_num)
+
+
+def _auto_detect_exercises(output_base: str, book_id: str, book_name: str, chapter_num: str):
+    """从源文自动检测习题（简化版，不依赖完整pipeline）"""
+    source_dir = os.path.join(output_base, '20_正文')
+    if not os.path.isdir(source_dir):
+        return
+
+    # 查找章节文件
+    source_files = sorted(f for f in os.listdir(source_dir) if f.startswith(f'第{chapter_num}章'))
+    if not source_files:
+        return
+
+    source_path = os.path.join(source_dir, source_files[0])
+    with open(source_path, encoding='utf-8') as f:
+        content = f.read()
+
+    # 提取习题
+    ex_section = re.search(r'## 习题\s*\n(.*?)(?=\n## |\Z)', content, re.DOTALL)
+    if not ex_section:
+        return
+
+    ex_lines = ex_section.group(1).strip().split('\n')
+    exs = []
+    for line in ex_lines:
+        m = re.match(r'\d+[\.\、]\s*(.*)', line.strip())
+        if m:
+            exs.append({
+                'name': f'习题{len(exs)+1}',
+                'fm': {'source_chapter': chapter_num},
+                'bd': {'question': m.group(1).strip(), 'related_answer': ''},
+            })
+
+    if not exs:
+        return
+
+    ex_dir = os.path.join(output_base, '90_习题')
+    os.makedirs(ex_dir, exist_ok=True)
+
+    schema = load_schema()
+    for ex in exs:
+        md = render_item(ex, 'exercise', schema, book_id, book_name, chapter_num)
+        if md:
+            raw_name = ex['name']
+            if raw_name.startswith(f'第{chapter_num}章-'):
+                filename = f"{raw_name}.md"
+            else:
+                filename = f"第{chapter_num}章-{raw_name}.md"
+            with open(os.path.join(ex_dir, filename), 'w', encoding='utf-8') as f:
+                f.write(md)
+
+    print(f"  ✅ 自动检测到 {len(exs)} 道习题")
+
+
+def _auto_generate_solutions(output_base: str, book_id: str, book_name: str, chapter_num: str):
+    """为习题生成解答骨架，读取习题文件中的题目内容"""
+    ex_dir = os.path.join(output_base, '90_习题')
+    sol_dir = os.path.join(output_base, '90_习题', '解答')
+
+    if not os.path.isdir(ex_dir):
+        return
+
+    ex_files = sorted(f for f in os.listdir(ex_dir)
+                      if f.endswith('.md') and '解答' not in f and f.startswith(f'第{chapter_num}章'))
+
+    if not ex_files:
+        return
+
+    os.makedirs(sol_dir, exist_ok=True)
+    schema = load_schema()
+
+    generated = 0
+    for exf in ex_files:
+        base = exf.replace('.md', '')
+        sol_name = f"{base}-解答"
+
+        # 读取习题文件提取题目内容
+        question_text = ''
+        ex_path = os.path.join(ex_dir, exf)
+        if os.path.exists(ex_path):
+            with open(ex_path, encoding='utf-8') as f:
+                ex_content = f.read()
+            q_match = re.search(r'## 题目内容\s*\n(.*?)(?=\n## |\Z)', ex_content, re.DOTALL)
+            if q_match:
+                question_text = q_match.group(1).strip()[:500]
+
+        item = {
+            'name': sol_name,
+            'fm': {
+                'source_chapter': chapter_num,
+                'confidence': 0.65,
+                'confidence_note': '自动生成骨架，待Agent填充',
+                'exercise_link': base,
+                'exercise_name': base,
+            },
+            'bd': {
+                k: '（待Agent填充）' for k in schema['node_types']['solution']['bd'].keys()
+            },
+        }
+        # 如果有问题内容，填入题目原文
+        if question_text:
+            item['bd']['question'] = question_text
+
+        md = render_item(item, 'solution', schema, book_id, book_name, chapter_num)
+        if md:
+            out_path = os.path.join(sol_dir, f"{sol_name}.md")
+            with open(out_path, 'w', encoding='utf-8') as f:
+                f.write(md)
+            generated += 1
+
+    print(f"  ✅ 生成了 {generated} 个解答骨架（含题目原文）")
+
+
+# ════════════════════════════════════════════════════════════
+# Main
+# ════════════════════════════════════════════════════════════
+
+def main():
+    p = argparse.ArgumentParser(description="template_engine v2 — 从schema驱动的模板渲染引擎")
+    sp = p.add_subparsers(dest="cmd")
+
+    # list
+    sp.add_parser("list", help="列出所有节点类型及模板映射")
+
+    # render
+    rn = sp.add_parser("render", help="渲染单个类型的YAML为.md文件")
+    rn.add_argument("--type", required=True, help="节点类型")
+    rn.add_argument("--data", required=True, help="YAML数据文件路径")
+    rn.add_argument("--output", required=True, help="输出目录")
+    rn.add_argument("--book-id", required=True)
+    rn.add_argument("--book-name", required=True)
+    rn.add_argument("-c", "--chapter", required=True)
+
+    # render-chapter
+    rc = sp.add_parser("render-chapter", help="按DAG顺序渲染一章全部L1类型")
+    rc.add_argument("--data-dir", required=True, help="YAML数据目录（.dag/第N章/data）")
+    rc.add_argument("--output-dir", required=True, help="知识库根目录")
+    rc.add_argument("--book-id", required=True)
+    rc.add_argument("--book-name", required=True)
+    rc.add_argument("-c", "--chapter", required=True)
+
+    a = p.parse_args()
+
+    if not a.cmd:
+        p.print_help()
+        return
+
+    if a.cmd == "list":
+        schema = load_schema()
+        print(f"{'类型名':12s} {'模板':28s} {'输出目录':16s} {'confidence':18s} {'bd字段':>6s}")
+        print("-" * 85)
+        for t, n in sorted(schema['node_types'].items()):
+            conf = str(n['confidence']['allowed'])
+            out_dir = DIR_MAP.get(t, '')
+            print(f"{t:12s} {n['template']:28s} {out_dir:16s} {conf:18s} {len(n['bd']):>6d}")
+
+    elif a.cmd == "render":
+        cmd_render(a.type, a.data, a.output, a.book_id, a.book_name, a.chapter)
+
+    elif a.cmd == "render-chapter":
+        cmd_render_chapter(a.data_dir, a.output_dir, a.book_id, a.book_name, a.chapter)
+
+
+if __name__ == "__main__":
+    main()

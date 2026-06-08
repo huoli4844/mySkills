@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
 description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板自携带@prompt写作指导，yaml_writer.py pydantic校验，零对照表"
-version: "2.5"
+version: "2.6"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -63,7 +63,7 @@ python3 scripts/yaml_writer.py prompt --type kp --field theoretical_basis
 python3 scripts/yaml_writer.py skeleton --type concept
 ```
 
-**`self-instruct` 输出结构（字段工作台模式）：**
+**`self-instruct` 输出结构（字段工作台模式 v2.6）：**
 | 节 | 内容 |
 |---|------|
 | 章节源文 | 自动加载 20_正文/第N章.md，解析为按 `##`/`###` 标题分段的字典（50+节） |
@@ -72,7 +72,9 @@ python3 scripts/yaml_writer.py skeleton --type concept
 | 可选字段 | 同上，注明"有内容写否则填无" |
 | 常见错误提醒 | confidence范围、字段位置、mermaid格式、列表格式 |
 
-**关键设计——字段工作台（v2.5新增）：** 每字段并行展示三列信息——模板位置+@prompt（格式规格）、源文片段（内容原料）、schema约束（校验条件）。Agent 不需要自己翻源文找对应的字段内容——系统已经把源文按关键词匹配到每个字段，Agent 只需逐字段填空。@prompt 解决"格式怎么控制"，源文片段解决"内容从哪里来"，schema约束解决"校验什么条件"。
+**关键设计——字段工作台（v2.5+）：** 每字段并行展示三列信息——模板位置+@prompt（格式规格）、源文片段（内容原料）、schema约束（校验条件）。Agent 不需要自己翻源文找对应的字段内容——系统已经把源文按**语义级信号词匹配**到每个字段，Agent 只需逐字段填空。@prompt 解决"格式怎么控制"，源文片段解决"内容从哪里来"，schema约束解决"校验什么条件"。
+
+**源文匹配引擎（v2.6 新增，无 embedding 方案）：** 使用 9 类 350+ 条领域信号词 + 字段主/次信号画像 + 数字密度评分 + 公式行加分，纯静态规则实现语义级匹配。不依赖任何外部模型或 embedding 库。信号词覆盖 EMC 全领域常用单位（dBm/dBuV/pF/nH/μs）、定义模式（是指/指的是/即）、否定标记（不能/不要/注意）等。每字段通过 `_FIELD_SIGNAL_PROFILES` 配置主信号类型（如 `engineering_practices→number`）从而优先匹配含数值的句子。详见 `scripts/yaml_writer.py` 中 `_SIGNAL_WORDS`、`_FIELD_SIGNAL_PROFILES`、`_score_sentence()`。**关键教训：规则足够细就不需要 embedding——350 个词 + 9 类信号 + 双信号画像已经能实现足够的匹配准确率。**
 
 **设计意图：** 模板 @prompt 是通用写作指导（人工可控，改一次跨所有章节生效）。Agent 把 @prompt 当"原料"而非"指令"，结合当前章节源文自行形成一次性自指导提示词。这样 @prompt 成为人工控制输出质量的持久手段。
 
@@ -170,6 +172,7 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 10 | YAML 中存在 `\n`（字面反斜杠+n）而非真正的换行 → mermaid graph 渲染为一行 | YAML 中多行 graph 必须用 `|` block scalar：`core_concept_map: |-\n  graph TD\n    A[label] --> B[label2]`。`yaml.dump(..., default_flow_style=False)` 自动用块标量。 |
 | 11 | Mermaid 标签中的 `()` `,` 等特殊字符未用引号包裹 `A[label(内容)]` → 渲染报错 `Syntax error in graph` | 标签必须用 `A["label(内容)"]` 包裹。`scripts/validate_mermaid.py` 可批量检测。 |
 | 12 | Agent 把 graph 写在一行 `graph TD A-->B A-->C` 内 → 某些渲染器失败 | 必须用多行：每个节点/边一行。`scripts/validate_mermaid.py` 可检测。 |
+| 13 | 源文匹配用 embedding 模型——导致技能目录膨胀几百 MB，`self-instruct` 变慢 10 倍+ | **不需要 embedding。** 350 条领域信号词 + 9 类信号标签 + 主次信号画像 + 数字密度评分 足以实现语义级匹配。规则够细就不需要模型。见 `_SIGNAL_WORDS`、`_FIELD_SIGNAL_PROFILES`。 |
 
 ## Reference Index
 

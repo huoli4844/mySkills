@@ -393,12 +393,14 @@ def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
 
     # 2. 加载源文，解析为按标题分段的字典
     source_sections = {}  # {heading_text: content_text}
-    source_formulas = []  # [(line_num, formula)]
+    source_formulas = []
+    domain_signals = {}
     if book_dir and chapter_num:
         raw = _load_source_section(book_dir, chapter_num)
         if raw:
             source_sections = _parse_source_sections(raw)
             source_formulas = _extract_formulas(raw)
+            domain_signals = _extract_domain_signals(source_sections)
 
     # 3. 收集 schema 约束 + 匹配源文
     bd_schema = node['bd']
@@ -424,7 +426,7 @@ def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
         section_title = _find_section_title(tpl_content, bd_name)
 
         # 匹配源文片段
-        matched_snippets = _match_field_to_source(bd_name, section_title, source_sections, prompts.get(bd_name, ''))
+        matched_snippets = _match_field_to_source(bd_name, section_title, source_sections, prompts.get(bd_name, ''), domain_signals)
 
         # 公式检测
         formula_hint = ''
@@ -634,53 +636,19 @@ for field_name in list(_FIELD_KEYWORDS.keys()):
 
 # ── 语义级源文匹配引擎 ──
 
-# 信号词：指示特定类型内容的标记词（EMC领域全覆盖）
-# 每条信号词都可能出现在@prompt或源文中，用于句子的多维评分
-_SIGNAL_WORDS = {
+# 语言层信号词（领域无关，硬编码）
+# 这些是中文技术写作的通用模式，所有领域通用
+_LANG_SIGNALS = {
     'definition': [
-        '是指', '定义为', '称为', '定义为', '表示', '指',
-        '是…的', '所谓', '即', '指的是', '指的是',
+        '是指', '定义为', '称为', '表示', '指',
+        '所谓', '即', '指的是', '也就是',
         '定义', '概念', '含义', '术语', '释义',
         '就是', '就是指', '表示的是',
     ],
     'formula': [
         '$$', '公式', '方程', '等式', '表达式',
-        '关系式', '本构关系', '边界条件', '麦克斯韦',
-        'Maxwell', '旋度', '散度', '梯度',
-        '微分', '积分', '差分', '代数',
-        'FDTD', 'MoM', 'FEM', 'TLM', '数值分析',
-    ],
-    'number': [
-        # 单位
-        'dB', 'dBm', 'dBuV', 'dBuV/m', 'dBA', 'dBμV',
-        'Hz', 'kHz', 'MHz', 'GHz', 'THz',
-        'V', 'mV', 'μV', 'kV',
-        'A', 'mA', 'μA', 'kA',
-        'W', 'mW', 'μW', 'kW',
-        'Ω', 'mΩ', 'μΩ', 'kΩ',
-        'F', 'pF', 'nF', 'μF',
-        'H', 'nH', 'μH', 'mH',
-        'm', 'mm', 'cm', 'μm', 'nm',
-        's', 'ms', 'μs', 'ns', 'ps',
-        'V/m', 'A/m', 'T', 'mT', 'μT',
-        'Np', '°',
-        # 参数名
-        '频率', '功率', '电压', '电流', '阻抗',
-        '场强', '功率密度', '灵敏度', '限值',
-        '裕量', '电平', '幅度', '波长',
-        '步长', '网格', '分辨率',
-        # 数值模式
-        '\\d+',  # 任意数字 — 在代码中特殊处理
-    ],
-    'example': [
-        '例如', '如', '案例', '实例', '示例',
-        '如图', '如表', '如下', '见图',
-        '例如说', '举例', '举个例子',
-        '某', '以一个', '下面以',
-        '案例一', '案例二', '应用案例',
-        '实测', '试验', '测试案例',
-        '表13-', '图12-', '式12-',  # 图表引用
-        '场景', '应用背景', '实际工程',
+        '关系式', '本构关系', '边界条件',
+        '微分', '积分', '差分', '代数', '数值分析',
     ],
     'structure': [
         '①', '②', '③', '④', '⑤',
@@ -695,34 +663,21 @@ _SIGNAL_WORDS = {
     'negation': [
         '不要', '避免', '注意', '误区', '错误',
         '不能', '不得', '不可', '不应该',
-        '注意', '需要注意的是', '值得关注',
-        '误区', '常见误解', '容易混淆',
+        '需要注意的是', '值得关注',
+        '常见误解', '容易混淆',
         '不能认为', '不能简单', '并非',
-        '区别', '不同', '差异', 'vs', '对比',
+        '区别', '不同', '差异', '对比',
         '容易', '可能引起', '风险',
         '困难', '复杂度', '挑战',
-        '但是', '然而', '不过', '需要注意的是',
+        '但是', '然而', '不过',
     ],
     'evolution': [
-        '最早', '提出', '20世纪', '发展', 
-        '199', '200', '196', '197', '198',  # 年份
+        '最早', '提出', '20世纪', '发展',
+        '199', '200', '196', '197', '198',  # 年份前缀
         '自', '以来', '历经', '阶段',
         '历史', '演进', '演变', '过程',
         '传统', '早期', '以前', '最初',
         '近年来', '当前', '目前', '当今',
-        '趋势', '方向', '前景',
-        '未来', '下一步', '发展方向',
-    ],
-    'application': [
-        '应用', '场景', '实际', '工程',
-        '产品', '系统', '设计', '开发',
-        '测试', '诊断', '整改',
-        '解决', '实现', '完成',
-        '应用于', '适用于', '可用于',
-        '在…中', '在…方面',
-        '车载', '机载', '舰载', '星载',
-        '通信', '雷达', '天线', 'PCB',
-        '工业', '医疗', '汽车', '航空航天',
     ],
     'cause_effect': [
         '因为', '所以', '因此', '从而',
@@ -734,7 +689,71 @@ _SIGNAL_WORDS = {
         '结果', '后果', '效果',
         '提高', '降低', '增强', '抑制',
     ],
+    'application': [
+        '应用', '场景', '实际', '工程',
+        '产品', '系统', '设计', '开发',
+        '测试', '诊断', '整改',
+        '解决', '实现', '完成',
+        '应用于', '适用于', '可用于',
+        '在…中', '在…方面',
+    ],
 }
+
+
+def _extract_domain_signals(source_sections: dict) -> dict:
+    """从源文动态提取领域信号词（单位、专有名词、节标题术语）
+
+    每次 self-instruct 调用时自动执行，零外部配置。
+    """
+    import re as _re
+    from collections import Counter
+
+    all_text = '\n'.join(source_sections.values())
+    signals = {
+        'number': [],      # 单位词
+        'formula': [],     # 数值方法/公式相关专有名词
+        'application': [], # 应用领域词
+        'technical': [],   # 高频率技术术语
+    }
+
+    # 1. 提取单位词: 数字后的字母组合（如 dB, MHz, GHz, V/m, kg, N·m）
+    unit_pattern = _re.findall(r'(?<=\d)\s*[a-zA-Z/°μΩ×·][a-zA-Z/°μΩ0-9\-·]*(?:\^\{?\-?\d+\}?)?', all_text)
+    for u in unit_pattern:
+        u = u.strip()
+        if 1 <= len(u) <= 12 and not u.startswith(('http', 'www')):
+            signals['number'].append(u)
+
+    # 2. 提取节标题中的技术术语（3字以上中文词，出现在 ## 标题中）
+    for heading in source_sections:
+        # 提取"案例一 整车系统辐射干扰故障诊断"中的核心名词
+        terms = _re.findall(r'[\u4e00-\u9fff]{3,}', heading)
+        # 过滤通用词
+        heading_stop = {'基本', '内容', '方法', '系统', '分析', '设计', '技术',
+                        '案例', '诊断', '测试', '应用'}
+        for t in terms:
+            if t not in heading_stop:
+                signals['application'].append(t)
+
+    # 3. 提取高频技术词（>3次全文出现，3-8字中文词）
+    words = _re.findall(r'[\u4e00-\u9fff]{3,}', all_text)
+    word_freq = Counter(words)
+    technical_stop = {'因此', '可以', '其中', '本文', '进行', '通过', '同时',
+                      '需要', '主要', '如果', '由于', '已经', '这个', '但是',
+                      '不同', '较大', '本书', '章节', '如下', '基本', '所示',
+                      '一般', '一定', '还是', '本质', '功能', '情况', '方面',
+                      '不能', '不会', '能够', '应该', '可能', '具有', '直接',
+                      '这里', '就是', '分为', '包括', '采用', '按照', '根据',
+                      '用于', '具有', '以下', '以上', '之间', '之后', '之前',
+                      '从而', '进而', '因而', '本文', '本节', '这种', '这些'}
+    for word, count in word_freq.most_common(80):
+        if count >= 3 and len(word) <= 8 and word not in technical_stop:
+            signals['technical'].append(word)
+
+    # 去重
+    for k in signals:
+        signals[k] = list(set(signals[k]))
+
+    return signals
 
 # 字段 → 内容特征描述（自动匹配信号词的配置）
 _FIELD_SIGNAL_PROFILES = {
@@ -799,10 +818,14 @@ def _split_sentences(text: str) -> list:
     return sentences
 
 
-def _score_sentence(sentence: str, keywords: list, bd_name: str, prompt_text: str) -> float:
+def _score_sentence(sentence: str, keywords: list, bd_name: str, prompt_text: str,
+                    signal_words: dict = None) -> float:
     """对句子进行多维评分"""
     import re as _re
     score = 0.0
+
+    if signal_words is None:
+        signal_words = _LANG_SIGNALS  # fallback
 
     # 1. 关键词匹配（基础分）
     lower_sent = sentence.lower()
@@ -818,13 +841,13 @@ def _score_sentence(sentence: str, keywords: list, bd_name: str, prompt_text: st
     secondary_signal = profile.get('secondary', '')
 
     # 主信号
-    signal_words = _SIGNAL_WORDS.get(primary_signal, [])
-    signal_hits = sum(1 for sw in signal_words if sw in sentence)
+    signal_word_list = signal_words.get(primary_signal, [])
+    signal_hits = sum(1 for sw in signal_word_list if sw in sentence)
     score += signal_hits * 1.5
 
     # 次信号（权重减半）
     if secondary_signal:
-        sec_words = _SIGNAL_WORDS.get(secondary_signal, [])
+        sec_words = signal_words.get(secondary_signal, [])
         sec_hits = sum(1 for sw in sec_words if sw in sentence)
         score += sec_hits * 0.75
 
@@ -833,8 +856,8 @@ def _score_sentence(sentence: str, keywords: list, bd_name: str, prompt_text: st
         numbers = _re.findall(r'\d+[\.\d]*', sentence)
         num_hits = len(numbers)
         score += num_hits * 0.3
-        # 检测单位词
-        units = _SIGNAL_WORDS.get('number', [])
+        # 检测单位词（来自领域提取的 number 信号）
+        units = signal_words.get('number', [])
         unit_hits = sum(1 for u in units if u in sentence)
         score += unit_hits * 1.0
 
@@ -854,10 +877,20 @@ def _score_sentence(sentence: str, keywords: list, bd_name: str, prompt_text: st
 
 
 def _match_field_to_source(bd_name: str, section_title: str,
-                           source_sections: dict, prompt_text: str = '') -> list:
+                           source_sections: dict, prompt_text: str = '',
+                           domain_signals: dict = None) -> list:
     """语义级源文匹配：从 @prompt + 字段名 + 信号词 综合评分，返回最相关句子"""
     if not source_sections:
         return []
+
+    # 合并语言信号 + 领域信号（领域覆盖语言）
+    merged_signals = dict(_LANG_SIGNALS)
+    if domain_signals:
+        for cat, words in domain_signals.items():
+            if words:
+                existing = set(merged_signals.get(cat, []))
+                existing.update(words)
+                merged_signals[cat] = list(existing)
 
     # 1. 构建查询：字段名关键词 + @prompt 关键词 + 模板节标题关键词
     query_terms = set()
@@ -890,7 +923,7 @@ def _match_field_to_source(bd_name: str, section_title: str,
                 continue
             used_sentences.add(sent_key)
 
-            score = _score_sentence(sent, list(query_terms), bd_name, prompt_text)
+            score = _score_sentence(sent, list(query_terms), bd_name, prompt_text, merged_signals)
             if score > 0:
                 # 短片段优先（精确度更高）
                 snippet = sent[:300].replace('\n', ' ').strip()

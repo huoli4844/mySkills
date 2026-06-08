@@ -327,6 +327,10 @@ with open("path.yaml", "w") as f:
    ```bash
    python3.12 yaml_pre_validate.py --book-dir $BOOK_DIR -c $CH -v
    ```
+10. **公式来源必须精确**（v52.2）— `mathematical_model` 中每公式下方必须标注精确来源定位，**禁止**模糊文字如"来源：第N章正文"：
+    - 有公式编号：`*(来源：第N章 §X.X 式(2-XX))*`
+    - 无公式编号：`*(来源：第N章 §X.X 节标题)*`
+    - 格式用斜体 `*(...)*` 包裹，位于公式 $$...$$ 下方
 
 ### 常见错误表
 

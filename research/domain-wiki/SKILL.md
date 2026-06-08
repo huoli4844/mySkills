@@ -74,7 +74,8 @@ python3.12 split_book_to_chapters.py prepare \
 # 2. 初始化 pipeline
 python3.12 dag_controller.py pipeline init -w $BOOK_DIR --book-id 01_xxx -c 1
 
-# 3. 后续步骤与已分章流程相同
+# 3. Agent 写 YAML 到 .dag/第N章/data/ → 运行预校验 → pipeline auto
+python3.12 yaml_pre_validate.py --book-dir $BOOK_DIR -c N -v   # 检查源文公式是否遗漏
 python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 ```
 
@@ -124,6 +125,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | `pipeline batch -w $DIR --book-id XX --retry 3 --no-cache` | 禁用增量缓存，强制重建所有章节 |
 | `pipeline review -w $DIR --book-id XX -c N` | 内容深度 Agent 二次审核：生成 review_batch.json（A/B/C/D 分层） |
 | `yaml_pre_validate.py --chapter-dir .dag/第N章/data/` | Agent 写完 YAML 后秒级校验（含 v50.7 模板字段名 vs {{xxx}} 校验） |
+| `yaml_pre_validate.py --book-dir $DIR -c N -v` | 同上 + v52.2 **源文公式交叉校验**：读 `20_正文/第N章*.md` 扫描 `$$...$$`，对比 YAML 的 `mathematical_model` 是否遗漏 |
 | `yaml_auto_fill.py analyze` | 分析所有模板字段分类（meta/auto/derived/llm） |
 | `yaml_auto_fill.py skeleton -t kp -n "名称" -c 1` | 生成完整 YAML 骨架（所有字段预填"待补充"） |
 | `yaml_auto_fill.py fill -w $DIR -t kp -c 1 -o .dag/.../kps.yaml` | 机械填充 YAML（自动填 meta + 源文提取 + 派生计算） |

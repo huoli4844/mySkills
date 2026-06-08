@@ -35,6 +35,8 @@ from pipeline_extras import pipeline_fill_solutions, pipeline_fix, pipeline_revi
 
 log = get_logger(__name__)
 
+SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def main():
     p = argparse.ArgumentParser(description="DAG Controller v2.2")
@@ -57,7 +59,7 @@ def main():
     # pipeline
     pl = sp.add_parser("pipeline")
     pl.add_argument(
-        "action", choices=["init", "status", "next", "done", "check", "validate", "auto", "fill-solutions", "rollback", "batch", "insights", "fix", "review", "consistency", "build-all", "phase2-tasks"]
+        "action", choices=["init", "status", "next", "done", "check", "validate", "auto", "preflight", "fill-solutions", "rollback", "batch", "insights", "fix", "review", "consistency", "build-all", "phase2-tasks"]
     )
     pl.add_argument("phase", nargs="?")
     pl.add_argument("-w", "--wiki-root")
@@ -236,6 +238,22 @@ def main():
             pipeline_validate(a)
         elif a.action == "auto":
             pipeline_auto(a)
+        elif a.action == "preflight":
+            # v52.4: 预验证闸门 — 写入YAML后、pipeline auto前执行
+            wr = os.path.abspath(a.wiki_root) if a.wiki_root else os.path.abspath(".")
+            ch = str(getattr(a, "chapter", "0") or "0")
+            import importlib.util
+            sl_spec = importlib.util.spec_from_file_location(
+                "schema_loader",
+                os.path.join(SKILL_DIR, "schema_loader.py"),
+            )
+            if sl_spec and sl_spec.loader:
+                sl = importlib.util.module_from_spec(sl_spec)
+                sl_spec.loader.exec_module(sl)
+                _run_preflight(wr, ch, sl)
+            else:
+                log.warning("schema_loader.py 不可用，跳过 preflight（降级到普通 auto）")
+                pipeline_auto(a)
         elif a.action == "fill-solutions":
             pipeline_fill_solutions(a)
         elif a.action == "rollback":
@@ -398,6 +416,115 @@ def main():
                 log.info(f"汇总: 🔴 {s['critical']} / ⚠️ {s['warning']} / ℹ️ {s['info']}")
         except ImportError:
             raise PipelineError("graph", "需要 kb_graph.py（domain-book-wiki 技能）") from None
+
+
+# ============================================================
+# v52.4: Preflight — 写入 YAML 后的预验证闸门
+# ============================================================
+def _run_preflight(wr: str, ch: str, sl) -> None:
+    """对第N章所有 YAML data 文件执行预验证。发现问题时不阻断，输出完整清单。"""
+    import yaml as _yaml
+
+    data_dir = os.path.join(wr, ".dag", f"第{ch}章", "data")
+    if not os.path.isdir(data_dir):
+        log.warning(f"❌ data 目录不存在: {data_dir}")
+        log.warning("   请先写入 YAML 数据文件到该目录再运行 preflight")
+        return
+
+    phase_data_map = {
+        "concepts.yaml": ("concept", "核心概念"),
+        "kes.yaml": ("ke", "知识要素"),
+        "entities.yaml": ("entity", "实体"),
+        "kps.yaml": ("kp", "知识点"),
+        "sps.yaml": ("sp", "技能点"),
+        "scenes.yaml": ("scene", "应用场景"),
+        "exercises.yaml": ("exercise", "习题"),
+        "solutions.yaml": ("solution", "解答"),
+    }
+
+    total_issues = 0
+    total_items = 0
+
+    for fname, (type_name, cn_label) in sorted(phase_data_map.items()):
+        fpath = os.path.join(data_dir, fname)
+        issues: list[str] = []
+        items_count = 0
+
+        if not os.path.exists(fpath):
+            issues.append("❌ 文件不存在")
+        else:
+            fsize = os.path.getsize(fpath)
+            if fsize == 0:
+                issues.append("❌ 空文件")
+            else:
+                with open(fpath, encoding="utf-8") as f:
+                    try:
+                        data = _yaml.safe_load(f)
+                    except _yaml.YAMLError as e:
+                        issues.append(f"❌ YAML 语法错误: {e}")
+                        data = None
+
+                if data is None:
+                    issues.append("❌ 解析结果为 None")
+                elif not isinstance(data, list):
+                    issues.append(f"❌ 格式错误: 期望 YAML list，得到 {type(data).__name__}")
+                else:
+                    items_count = len(data)
+                    canonical = sl.get_placeholder_fields(type_name)
+                    canonical_set = set(canonical)
+                    for idx, item in enumerate(data):
+                        if not isinstance(item, dict):
+                            continue
+                        bd = item.get("bd", {})
+                        if not isinstance(bd, dict):
+                            issues.append(f"第{idx+1}项: bd 不是 dict")
+                            continue
+                        bd_fields = set(bd.keys())
+                        missing = canonical_set - bd_fields
+                        extra = bd_fields - canonical_set
+                        name = item.get("name", f"[{idx}]")
+                        if missing:
+                            mlist = list(sorted(missing))
+                            issues.append(f"⚠️ [{name}] 缺 {len(mlist)} 字段: {', '.join(mlist[:5])}")
+                        if extra:
+                            elist = list(sorted(extra))
+                            issues.append(f"⚠️ [{name}] 多余 {len(elist)} 字段: {', '.join(elist[:5])}")
+                        fm = item.get("fm", {})
+                        conf = fm.get("confidence", 0)
+                        if conf > 0.95 or conf < 0.5:
+                            issues.append(f"⚠️ [{name}] confidence={conf} 超出合理范围 [0.5, 0.95]")
+
+        total_items += items_count
+        n_issues = len(issues)
+        status = "✅" if n_issues == 0 else f"⚠️ {n_issues}项"
+        log.info(f"  {status} {fname:<18} ({cn_label}, {items_count}项)")
+
+        for iss in issues:
+            log.info(f"      {iss}")
+
+        total_issues += n_issues
+
+    # 习题-解答配对检查
+    log.info("")
+    ex_path = os.path.join(data_dir, "exercises.yaml")
+    sol_path = os.path.join(data_dir, "solutions.yaml")
+    if os.path.exists(ex_path) and os.path.exists(sol_path):
+        with open(ex_path) as f:
+            ex_data = _yaml.safe_load(f) or []
+        with open(sol_path) as f:
+            sol_data = _yaml.safe_load(f) or []
+        if len(ex_data) != len(sol_data):
+            log.info(f"  ⚠️ 习题({len(ex_data)}) ≠ 解答({len(sol_data)}) 数量不匹配")
+            total_issues += 1
+        else:
+            log.info(f"  ✅ 习题-解答配对: {len(ex_data)} = {len(sol_data)} ✓")
+
+    # 总结
+    log.info("")
+    if total_issues == 0:
+        log.info("🎉 Preflight 全部通过: %d 项数据，无问题", total_items)
+    else:
+        log.info("📋 Preflight 发现 %d 项问题（上述 ⚠️ 标记），请修复后运行 pipeline auto", total_issues)
 
 
 if __name__ == "__main__":

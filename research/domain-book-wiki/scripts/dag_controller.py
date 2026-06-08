@@ -424,6 +424,8 @@ def main():
 def _run_preflight(wr: str, ch: str, sl) -> None:
     """对第N章所有 YAML data 文件执行预验证。发现问题时不阻断，输出完整清单。"""
     import yaml as _yaml
+    import glob as _glob
+    import re as _re
 
     data_dir = os.path.join(wr, ".dag", f"第{ch}章", "data")
     if not os.path.isdir(data_dir):
@@ -444,6 +446,7 @@ def _run_preflight(wr: str, ch: str, sl) -> None:
 
     total_issues = 0
     total_items = 0
+    items_concept = 0  # v52.5: 追踪概念数用于覆盖度检查
 
     for fname, (type_name, cn_label) in sorted(phase_data_map.items()):
         fpath = os.path.join(data_dir, fname)
@@ -528,6 +531,9 @@ def _run_preflight(wr: str, ch: str, sl) -> None:
                                 issues.append(f"🎯 [{name}] fm 缺 bloom_level（建议设为 2-理解/3-应用 等）")
 
         total_items += items_count
+        # v52.5: 记录概念数用于覆盖度检查
+        if fname == "concepts.yaml":
+            items_concept = items_count
         n_issues = len(issues)
         status = "✅" if n_issues == 0 else f"⚠️ {n_issues}项"
         log.info(f"  {status} {fname:<18} ({cn_label}, {items_count}项)")
@@ -536,6 +542,38 @@ def _run_preflight(wr: str, ch: str, sl) -> None:
             log.info(f"      {iss}")
 
         total_issues += n_issues
+
+    # ── v52.5: 概念覆盖度检查 ──
+    concept_path = os.path.join(data_dir, "concepts.yaml")
+    if os.path.exists(concept_path) and items_concept > 0:
+        src_dir = os.path.join(wr, DIR.get("SOURCE", "20_正文"))
+        src_files = sorted(_glob.glob(os.path.join(src_dir, f"第{ch}章*.md")))
+        if src_files:
+            with open(src_files[0], encoding="utf-8") as _sf:
+                _src_text = _sf.read()
+            # 统计源文中的内容标题数（排除章标题/内容提要/思考题/小结/习题）
+            _heading_pattern = _re.compile(r"^#{2,3}\s+(.+)", _re.MULTILINE)
+            _section_headings = []
+            for _m in _heading_pattern.finditer(_src_text):
+                _t = _m.group(1).strip()
+                if not _re.match(r"^第\d+章\s", _t) and not any(
+                    _t.startswith(w) or _t.endswith(w) or _t == w
+                    for w in ["内容提要", "思考题", "小结", "习题"]
+                ):
+                    _section_headings.append(_t)
+            _heading_count = len(_section_headings)
+            if _heading_count >= 3 and items_concept < max(3, _heading_count // 3):
+                _ratio = items_concept / _heading_count * 100
+                log.info(
+                    f"  ⚠️ 概念覆盖度低: {items_concept}概念 vs {_heading_count}段标题 "
+                    f"({_ratio:.0f}%). 建议补充到至少{_heading_count // 3}个"
+                )
+                total_issues += 1
+            elif _heading_count >= 3:
+                log.info(
+                    f"  ✅ 概念覆盖度: {items_concept}概念 / {_heading_count}段标题 "
+                    f"({items_concept / _heading_count * 100:.0f}%)"
+                )
 
     # 习题-解答配对检查
     log.info("")

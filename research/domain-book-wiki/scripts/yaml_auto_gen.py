@@ -56,10 +56,132 @@ def load_source_text(wr: str, ch: str) -> str:
         return f.read()
 
 
+def _parse_source_headings(wr: str, ch: str) -> tuple[list[dict], int]:
+    """直接从源文解析标题结构（无需 TOC JSON 回退方案）。
+
+    返回: (containers, container_level)
+      containers 格式与 chapter_toc.json 兼容
+      container_level 是自适应检测到的容器层级
+    """
+    source = load_source_text(wr, ch)
+    lines = source.split("\n")
+    total_lines = len(lines)
+
+    # Step 1: 提取所有 ## / ### 标题及其行号
+    raw_headings = []
+    skip_keywords = ["内容提要", "思考题", "习题"]
+    # 单独过滤结尾关键字
+    skip_ends = ["小结"]
+    for i, line in enumerate(lines, start=1):
+        m = re.match(r"^(#{2,3})\s+(.+)", line)
+        if not m:
+            continue
+        title = m.group(2).strip()
+        # 清理标题中的转义伪影（如 5.3.\*1 → 5.3.*1）
+        title = title.replace("\\*", "*")
+        # 过滤非内容标题（开头匹配）
+        if any(title.startswith(w) for w in skip_keywords):
+            continue
+        # 过滤结尾关键字（如"3.4 小结"）
+        if any(title.endswith(w) for w in skip_ends):
+            continue
+        # 跳过章标题（如"第3章 屏蔽" — 它们是章节标题不是概念）
+        if re.match(r"^第\d+章\s", title):
+            continue
+        # 过滤纯编号条目（1. xxx, 2. xxx, 3、xxx — 它们是子条目不是独立标题）
+        if re.match(r"^\d[、．]", title) or re.match(r"^\d\. (?!\d)", title):
+            continue
+        raw_headings.append({"line": i, "title": title, "level": len(m.group(1))})
+
+    if not raw_headings:
+        return [], 3
+
+    # Step 1.5: 检测每个标题的编号深度
+    # 如 "3.1 屏蔽原理" → depth=2, "3.1.1 自屏蔽" → depth=3
+    for h in raw_headings:
+        parts = h["title"].split()
+        num_part = parts[0] if parts else ""
+        h["num_depth"] = len(num_part.split(".")) if re.match(r"^[\d.]+$", num_part) else 1
+        h["num_prefix"] = num_part  # 数字编号前缀
+
+    # Step 2: 计算每个标题的 line_end（同编号深度或更浅的下一个标题的前一行）
+    for idx, h in enumerate(raw_headings):
+        next_start = total_lines + 1
+        for j in range(idx + 1, len(raw_headings)):
+            # 跳到同深度或更浅深度的下一个标题（同级/父级跳转）
+            nj = raw_headings[j]
+            if nj["level"] == h["level"] and nj["num_depth"] <= h["num_depth"]:
+                next_start = nj["line"]
+                break
+        h["line_end"] = next_start - 1
+        h["span_lines"] = h["line_end"] - h["line"] + 1
+
+    # Step 3: 自适应检测容器层级
+    level_stats = {}
+    for h in raw_headings:
+        lv = h["level"]
+        if lv not in level_stats:
+            level_stats[lv] = {"count": 0, "total_lines": 0}
+        level_stats[lv]["count"] += 1
+        level_stats[lv]["total_lines"] += h["span_lines"]
+
+    for lv in level_stats:
+        cnt = level_stats[lv]["count"]
+        level_stats[lv]["avg_lines"] = (
+            round(level_stats[lv]["total_lines"] / cnt, 1) if cnt > 0 else 0
+        )
+
+    # 找最佳容器层：标题数 ≥ 2 且平均行数在 [20, 300] 的最深层
+    container_level = 3  # 默认
+    has_l3 = any(h["level"] == 3 for h in raw_headings)
+    for lv in sorted(level_stats.keys(), reverse=True):
+        s = level_stats[lv]
+        if s["count"] >= 2 and 20 <= s["avg_lines"] <= 300:
+            container_level = lv
+            break
+
+    # 兜底：没有 ### 标题时，只要 ## 标题 ≥ 3 个就用 Lv2 作为容器层
+    if not has_l3 and level_stats.get(2, {}).get("count", 0) >= 3:
+        container_level = 2
+
+    # Step 4: 构建容器（只取容器层的标题）
+    containers = []
+    seen_titles = set()
+    for h in raw_headings:
+        if h["level"] != container_level:
+            continue
+        title = h["title"]
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+
+        # 统计支撑材料
+        sl = max(0, h["line"] - 1)
+        el = min(total_lines, h["line_end"])
+        container_text = "\n".join(lines[sl:el])
+        support_count = 0
+        support_count += len(re.findall(r"\$\$.*?\$\$", container_text, re.DOTALL))
+        support_count += len(re.findall(r"!\[.*?\]\(.*?\)", container_text))
+
+        containers.append({
+            "title": title,
+            "level": container_level,
+            "line": h["line"],
+            "line_end": h["line_end"],
+            "span_lines": h["span_lines"],
+            "support_count": support_count,
+        })
+
+    return containers, container_level
+
+
 def extract_container_candidates(
     wr: str, ch: str, min_lines: int = 30
 ) -> list[dict[str, Any]]:
-    """从 chapter_toc.json 提取候选概念容器。
+    """从 chapter_toc.json 或源文标题提取候选概念容器。
+
+    优先读取 chapter_toc.json（pipeline auto 生成的带容器分段的 TOC）。
+    回退到直接从源文提取 ### 标题作为候选。
 
     返回每个候选容器:
       {
@@ -74,8 +196,16 @@ def extract_container_candidates(
         "is_concept": bool,        # 是否判定为核心概念
       }
     """
-    toc = load_chapter_toc(wr, ch)
-    containers = toc.get("containers", [])
+    # 优先尝试 TOC JSON，回退到直接解析源文标题
+    try:
+        toc = load_chapter_toc(wr, ch)
+        containers = toc.get("containers", [])
+        min_concept_level = toc.get("container_level", 3)  # 自适应容器层级
+        log.info(f"  📋 使用 chapter_toc.json 容器分段 (Lv{min_concept_level})")
+    except PipelineError:
+        containers, min_concept_level = _parse_source_headings(wr, ch)
+        log.info(f"  📋 chapter_toc.json 不存在，直接从源文 ### 标题提取候选 (Lv{min_concept_level})")
+
     source_text = load_source_text(wr, ch)
     source_lines = source_text.split("\n")
 
@@ -83,18 +213,17 @@ def extract_container_candidates(
     for c in containers:
         title = c.get("title", "")
         level = c.get("level", 2)
-        line_start = c.get("line_start", 0)
+        line_start = c.get("line", c.get("line_start", 0))
         line_end = c.get("line_end", 0)
 
         # 跳过非概念级容器 (level 1 = 章标题, level >= 4 = 太细)
-        if level < 2:
+        if level < 2 or level >= 4:
             continue
 
         # 计算行数
         if isinstance(line_start, int) and isinstance(line_end, int):
             line_count = max(0, line_end - line_start + 1)
         else:
-            # 从原始数据可能为 None
             line_count = 0
 
         # 提取容器内文本
@@ -105,24 +234,24 @@ def extract_container_candidates(
             container_text = "\n".join(source_lines[sl:el])
 
         # 统计支撑材料
-        support_count = 0
-        support_count += len(re.findall(r"\$\$.*?\$\$", container_text, re.DOTALL))
-        support_count += len(re.findall(r"!\[.*?\]\(.*?\)", container_text))
-        support_count += len(re.findall(r"图\s*\d+[-\\.]?\d*", container_text))
-        support_count += len(re.findall(r"表\s*\d+[-\\.]?\d*", container_text))
+        support_count = c.get("support_count", 0)
+        if not support_count:
+            support_count += len(re.findall(r"\$\$.*?\$\$", container_text, re.DOTALL))
+            support_count += len(re.findall(r"!\[.*?\]\(.*?\)", container_text))
+            support_count += len(re.findall(r"图\s*\d+[-\.]?\d*", container_text))
+            support_count += len(re.findall(r"表\s*\d+[-\.]?\d*", container_text))
 
         # 检查子结构
-        has_substructure = bool(
-            re.search(r"^#{3,5}\s", container_text, re.MULTILINE)
+        has_substructure = c.get("has_substructure", False) or (
+            bool(re.search(r"^#{3,5}\s", container_text, re.MULTILINE))
             and line_count >= 20
         )
 
-        # 三标准判断
+        # 三标准判断（调低阈值以覆盖更多候选供 Agent 判断）
         passes = (
-            line_count >= 50
-            and support_count >= 3
-            and has_substructure
-            and level >= 3  # 概念至少是 ### 级
+            line_count >= 5  # 最低行数（对单一 ## 级别的教材放宽到5行）
+            and support_count >= 1  # 最少支撑材料
+            and level == min_concept_level  # 容器层级（自适应：## 或 ###）
         )
 
         candidates.append({
@@ -209,7 +338,7 @@ def generate_yaml_skeleton(
         formula_refs = [f.strip()[:100] for f in formulas[:5]]
 
         # 提取图片引用
-        figure_refs = re.findall(r"图\s*(\d+[-\\.]?\d*)", ct)[:5]
+        figure_refs = re.findall(r"图\s*(\d+[-\.]?\d*)", ct)[:5]
 
         concept_entry = {
             "name": title,
@@ -297,12 +426,11 @@ def scan_all_chapters(wr: str) -> list[dict[str, Any]]:
 
         # 尝试提取候选
         candidates = []
-        if toc_exists:
-            try:
-                candidates = extract_container_candidates(wr, ch)
-            except Exception as e:
-                log.warning(f"容器候选提取失败: {e}")
-                pass
+        try:
+            candidates = extract_container_candidates(wr, ch)
+        except Exception as e:
+            log.warning(f"容器候选提取失败: {e}")
+            pass
 
         passed = [c for c in candidates if c.get("passes_filter")]
         failed = [c for c in candidates if not c.get("passes_filter")]

@@ -80,3 +80,5 @@ node_modules/
 .hub/
 .usage.json
 .usage.json.lock
+.idea/
+_p0_fix_plain.md

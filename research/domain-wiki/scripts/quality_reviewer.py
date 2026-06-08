@@ -51,12 +51,17 @@ from review_format import (  # noqa: E402
 # ════════════════════════════════════════════════════════════
 
 def load_yaml_list(path: str) -> list[dict]:
+    if not os.path.isfile(path):
+        return []
     try:
         import yaml
+    except ImportError:
+        return []
+    try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return data if isinstance(data, list) else []
-    except Exception:
+    except (yaml.YAMLError, OSError):
         return []
 
 

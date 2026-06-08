@@ -11,6 +11,51 @@ metadata:
 
 # Domain Wiki Builder (v3.0)
 
+## Anti-Bloat Maintenance Covenant
+
+每次修改本技能时，Agent 必须遵守以下守则，防止重蹈 domain-book-wiki 的覆辙：
+
+### 模块容量红线
+| 规则 | 阈值 | 违规处理 |
+|------|------|----------|
+| 单文件 ≤600行 | 超过即拆 | 提取为独立模块（见"模块分解模式"） |
+| 单函数 ≤80行 | 超过即拆 | 提取内部函数或拆分逻辑 |
+| 配置数据不混入引擎代码 | 发现即移 | 纯字典/列表 → 独文件（如 `review_field_depth.py`） |
+
+### 模块分解模式
+当一个文件超过 600 行时，按以下模式拆分：
+```
+原文件（多职责混杂）    → 拆分方向
+quality_reviewer.py     → 配置数据(.py) + 格式化(.py) + 引擎+CLI(.py)
+yaml_writer.py          → schema+校验(.py) + 信号词引擎(.py) + CLI入口(.py)
+pipeline_v2.py          → 编排器(.py) + review-fix(.py) + 索引构建(.py)
+```
+每层只能单向 import：`配置数据 ← 引擎 ← 格式化输出/CLI`。禁止逆向 import。
+
+### 死代码清理检查表
+每次提交前（或至少每 3 次迭代后）执行：
+```
+① grep -rln "script_name" scripts/      # 检查是否被任何 py 文件 import
+② grep -rn "script_name" SKILL.md      # 检查是否在技能文档中引用
+③ grep -rn "script_name" references/    # 检查是否在参考文档中引用
+④ 如果零引用 → git rm + 更新文档      # 确认删除
+```
+
+### 领域词审计
+每次新增 `_KEYWORDS` / `_LABELS` / `_TAGS` / 分类逻辑后执行：
+```
+grep -rn "EMC\|dB\|MHz\|GHz\|PCB\|FDTD" scripts/ --include="*.py"
+```
+零匹配才算通过。领域词只能出现在 `_extract_domain_signals()` 的运行时路径中。
+
+### 目录结构的三处事实源（需保持同步）
+| 事实源文件 | 定义的目录 | 用途 |
+|-----------|-----------|------|
+| `scripts/split_book_to_chapters.py` BOOK_DIRS | 物理目录结构（10-90_*） | `prepare` 命令创建目录 |
+| `scripts/review_field_depth.py` TYPE_YAML_MAP | 类型→输出目录映射 | 质量审查时读渲染文件 |
+| `scripts/yaml_signals.py` _output_dir() | 类型→输出目录映射（重复） | self-instruct 提示 |
+新增目录时必须在三处同步添加。`pipeline_v2.py` 不存目录映射，从 TYPE_YAML_MAP 动态获取。
+
 ## When to Use
 
 用户要求从教材构建结构化 Obsidian 知识库，包含核心概念、知识要素、知识点、技能点、应用场景、实体、习题和解答。支持整书全自动流程（Phase A → 质量门 → L2/L3/L4索引 → 状态持久化）。

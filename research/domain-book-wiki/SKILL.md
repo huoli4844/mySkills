@@ -21,6 +21,8 @@ metadata:
 
 **工程 vs 内容边界原则（v50.7）**：本技能的所有任务严格按以下原则分工：
 
+**根因分析原则（v52.1）**：当内容质量出现问题时，**必须回溯到数据处理链的源头修复**，绝不能在输出端修补。file2md 转换后的 20_正文/*.md 头部有 YAML frontmatter（--- {title, source, parser, sha256} ---）——这是元数据不是正文。如果 `_load_source_text` 不剥离它，脏数据就会进入 paragraph splitting 和 keyword scoring，最终不可逆地污染解答文件。**任何读取源文的函数必须在第一时间做前处理清理**，输出端擦除是错误方案。domain_words（领域术语集）同理——曾经硬编码在 `_detect_boilerplate` 中，换书必失效；正确方案是外置到 `config/knowledge_keywords.yaml`，无配置时降级为纯统计方法（跳过特异性检查）。
+
 | 归属 | 特征 | 由谁执行 | 典型任务 |
 |:-----|:-----|:---------|:---------|
 | 工程化/结构化 | 确定性输入→确定性输出，零语义理解 | Python 脚本 | 格式校验、路径/状态管理、模板渲染、Mermaid/LaTeX 语法检查、wikilink 断裂修复、构建编排、YAML schema 预检、管道状态推进 |
@@ -109,7 +111,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 52 | quality_score 不检测 wikilink 断裂 → 实际断裂率远高于评分显示的 errors 数（31.5% vs 表面 ~20%） | v50.4: 质量审计必须**独立运行** wikilink 检查——扫描所有 `[[ ]]`→提取目标文件名→交叉验证文件系统。修复采用 [wikilink-batch-fix.md](references/wikilink-batch-fix.md)：fuzzy-match 断裂目标→构建替换映射→Python 批量 `re.sub` 跨所有 .md 文件。EMC 实战：354→129 断裂（64%↓），225 处替换，104 文件。 |
 | 53 | 断裂 wikilink 手工逐个修复效率极低——121 个唯一断裂目标逐一手工映射和替换需 >30 分钟 | **v50.5**: `rules/wikilink.py` 新增 `auto_fix_wikilinks(wiki_root)` 函数——扫描全库→`get_close_matches` 模糊匹配→自动 `re.sub` 替换。支持 `dry_run` 预览模式。已对 EMC 知识库 121 目标 x 97 替换全部自动化。集成进质量审查体系：`content_check_rules.check_file_full()` 每次构建后自动调用 `check_wikilink_validity` → 发现断裂立即 `auto_fix_wikilinks` → 重新 build。 |
 | 54 | 全量跑 pytest 显示 336 "I/O operation on closed file" errors + 20 failures | **v51.0**: conftest.py `_reset_log_utils` fixture 中 `handler.flush()` 未捕获 `ValueError/OSError`——其他测试关闭的 logger handler 在 conftest 的 autouse fixture 中间接被 flush。修复：`try/except (ValueError, OSError): pass`。验证：441 passed, 0 failed, 0 errors。 |
-| 55 | 概念公式来自 Agent 视觉解读 WMF 图片，非正文文本提取，无自动化交叉验证 🔥 | 公式质量闸门仅检查 `$$` 存在性（PASS/FAIL），不验证公式内容是否正确。1,133 个 WMF 公式图片中 Agent 可能写错积分号/矢量符号/上下标。需配置 API key 后用 `formula-extract` 技能做 WMF→LaTeX OCR 全量比对，或人工逐条校验概念 `mathematical_model` 字段。详见 [wmf-formula-verification.md](references/wmf-formula-verification.md)。 |
+| 55 | `_detect_boilerplate()` 中硬编码 30+ 个 EMC 领域术语（电磁兼容/EMC/麦克斯韦/法拉第/屏蔽/滤波...）→ 换非 EMC 教材特异性检测全部失效 🔥 | **v52.0**: domain_words 外置到 `config/knowledge_keywords.yaml`，运行时从 config 加载领域词表。无配置文件时跳过特异性检查，仅保留长度（<60字）+模板词密度（>40%）两个通用维度。 |
 | 56 | `dag_utils.py` 已被删除但 10 个测试文件仍从中导入——新环境/CI 会 ImportError 全量崩溃 🔥 | ✅ **v50.7 已修复**：创建 `dag_utils.py` shim（从 `dag_state` + `dag_constants` re-export）。含 `DAG_ORDER`, `DIR`, `DAG_DEPENDS`, `PipelineError`, `_state_path`, `PipelineLock` 等全部 15 个符号。CI 已增加 import 烟雾测试。 |
 | 57 | 代码库散落 26 处 `sys.exit()`，非统一通过 `PipelineError` 传播——模块无法被其它代码安全调用 | 部分已修复（dag_controller.py 中 batch 失败已改为 `raise PipelineError`）。剩余 24 处多数在 `if __name__ == "__main__"` 的 CLI 入口，不阻塞程序化调用。API 调用场景（如 dag_controller 被 import）已保护。 |
 | 58 | `str | None` 语法需要 Python 3.10+（代码中 41 处使用） | 本技能已统一锁定 Python 3.12，无需降级。CI 中已验证 `python-version: ["3.12"]` |
@@ -171,4 +173,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [solution-content-quality.md](references/solution-content-quality.md) | **v51.7** — 解答内容增强设计：质量评分检测通用模板→章节标题回退关键词→源文段落匹配→差异化生成 |
 | [link-audit-design.md](references/link-audit-design.md) | **v52.0** — link_audit 替代 KGraph 设计文档：纯文本扫描入度/反向链路/跨章统计，无 SQLite 维护成本 |
 
-<!-- v52.0 — Last updated: 2026-06-07 — link_audit 替代 KGraph。441 测试全通。 -->
+<!-- v52.1 — Last updated: 2026-06-07 — 根因分析原则+domain_words外置。441 测试全通。 -->

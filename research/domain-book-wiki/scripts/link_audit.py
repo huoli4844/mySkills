@@ -27,6 +27,7 @@ TYPE_DIRS = {
     "entity": "80_实体",
     "exercise": "90_习题",
     "solution": "90_习题/解答",
+    "overview": "10_总揽",
 }
 
 
@@ -91,11 +92,13 @@ def check_orphan_nodes(wiki_root: str, min_nodes: int = 3) -> dict:
     for fname, fpath in files.items():
         content = _read_content(fpath)
         for target in _extract_wikilinks(content):
+            # 去除 ../ 相对路径前缀
+            t_clean = re.sub(r"^(\.\./)+", "", target)
             # 尝试匹配裸名 → 增加计数
-            if target in prefix_map:
-                incoming[prefix_map[target]] += 1
+            if t_clean in prefix_map:
+                incoming[prefix_map[t_clean]] += 1
 
-    orphans = [f for f in files if incoming.get(f, 0) == 0]
+    orphans = [f for f in files if incoming.get(f, 0) == 0 and not f.startswith("book_overview_")]
     pct = round(len(orphans) / len(files) * 100, 1) if files else 0.0
 
     if orphans:

@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
 description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板自携带@prompt写作指导，yaml_writer.py pydantic校验，零对照表"
-version: "2.6"
+version: "2.7"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -63,7 +63,7 @@ python3 scripts/yaml_writer.py prompt --type kp --field theoretical_basis
 python3 scripts/yaml_writer.py skeleton --type concept
 ```
 
-**`self-instruct` 输出结构（字段工作台模式 v2.6）：**
+**`self-instruct` 输出结构（字段工作台模式 v2.7+）：**
 | 节 | 内容 |
 |---|------|
 | 章节源文 | 自动加载 20_正文/第N章.md，解析为按 `##`/`###` 标题分段的字典（50+节） |
@@ -74,7 +74,19 @@ python3 scripts/yaml_writer.py skeleton --type concept
 
 **关键设计——字段工作台（v2.5+）：** 每字段并行展示三列信息——模板位置+@prompt（格式规格）、源文片段（内容原料）、schema约束（校验条件）。Agent 不需要自己翻源文找对应的字段内容——系统已经把源文按**语义级信号词匹配**到每个字段，Agent 只需逐字段填空。@prompt 解决"格式怎么控制"，源文片段解决"内容从哪里来"，schema约束解决"校验什么条件"。
 
-**源文匹配引擎（v2.6 新增，无 embedding 方案）：** 使用 9 类 350+ 条领域信号词 + 字段主/次信号画像 + 数字密度评分 + 公式行加分，纯静态规则实现语义级匹配。不依赖任何外部模型或 embedding 库。信号词覆盖 EMC 全领域常用单位（dBm/dBuV/pF/nH/μs）、定义模式（是指/指的是/即）、否定标记（不能/不要/注意）等。每字段通过 `_FIELD_SIGNAL_PROFILES` 配置主信号类型（如 `engineering_practices→number`）从而优先匹配含数值的句子。详见 `scripts/yaml_writer.py` 中 `_SIGNAL_WORDS`、`_FIELD_SIGNAL_PROFILES`、`_score_sentence()`。**关键教训：规则足够细就不需要 embedding——350 个词 + 9 类信号 + 双信号画像已经能实现足够的匹配准确率。**
+**源文匹配引擎（v2.7 重构：双层信号词体系，零领域绑定）：** 使用**双层信号词体系**——语言层 + 领域动态提取——实现语义级匹配。**不依赖任何 embedding 模型**（非必需），纯静态规则运行时自适应。
+
+**语言层（`_LANG_SIGNALS`，硬编码，领域无关）：** 中文技术写作的通用模式。9 类信号词（definition/formula/structure/negation/evolution/cause_effect/application），不含任何领域专有词。含"是指/指的是"（定义标记）、"不能/不要/误区"（否定标记）、"①步②骤③流程"（结构标记）、"导致/由于/为了"（因果标记）等。
+
+**领域层（`_extract_domain_signals()`，运行时从源文自动提取，零配置）：** 每次 self-instruct 调用时自动执行，通过三个路径提取：
+
+1. **单位词提取**：`\d+\s*[a-zA-Z/°μΩ...]+` 正则匹配数字后的字母组合（如 dBm、GHz、dBi、V/m、pF、nH、μs、ns）。不依赖任何硬编码列表——换本书自动提取该书的计量单位。
+2. **节标题术语提取**：从 `##`/`###` 标题提取 3 字以上核心名词，过滤通用词后作为 application 信号词。
+3. **高频技术词提取**：全文中文词频统计（>3 次，3-8 字），过滤停用词后作为 technical 信号词。
+
+**合并规则：** 语言层 + 领域层在 `_match_field_to_source()` 中合并，领域层同名类目覆盖语言层。每字段通过 `_FIELD_SIGNAL_PROFILES` 配置主/次信号类型（如 `engineering_practices→number(主)+example(次)`），评分时主信号 x1.5 + 次信号 x0.75 + 数字密度 + 公式行加分 + 长度惩罚。
+
+**关键教训：规则够细就不需要 embedding——语言层 9 类通用信号 + 领域层运行时自适应 + 主次信号画像，在 EMC 教材上实测匹配准确率足够（application_scenarios 从匹配"13.4 接口诊断法"改善为匹配"车内线缆串扰分析"）。换本机械/生物/金融教材，零配置即可自适应。**
 
 **设计意图：** 模板 @prompt 是通用写作指导（人工可控，改一次跨所有章节生效）。Agent 把 @prompt 当"原料"而非"指令"，结合当前章节源文自行形成一次性自指导提示词。这样 @prompt 成为人工控制输出质量的持久手段。
 
@@ -98,7 +110,9 @@ python3 scripts/yaml_writer.py skeleton --type concept
 
 ## Quickstart
 
-**写 YAML → 校验 → 渲染 → 验证图**（四步完成一章）：\n\n```bash\n# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）\npython3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path\n\n# 1b. Agent 基于自指导提示词写 YAML\npython3 scripts/yaml_writer.py write --type concept \\\n  --yaml-path .dag/第N章/data/concepts.yaml \\\n  --items '[...]'
+**写 YAML → 自指导 → 校验 → 渲染 → 验证图**（五步完成一章）：
+
+```bash\n# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）\npython3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path\n\n# 1b. Agent 基于自指导提示词写 YAML\npython3 scripts/yaml_writer.py write --type concept \\\n  --yaml-path .dag/第N章/data/concepts.yaml \\\n  --items '[...]'
 
 # 2. 全量校验
 python3 scripts/yaml_writer.py validate-dir --dir .dag/第N章/data/
@@ -172,7 +186,16 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 10 | YAML 中存在 `\n`（字面反斜杠+n）而非真正的换行 → mermaid graph 渲染为一行 | YAML 中多行 graph 必须用 `|` block scalar：`core_concept_map: |-\n  graph TD\n    A[label] --> B[label2]`。`yaml.dump(..., default_flow_style=False)` 自动用块标量。 |
 | 11 | Mermaid 标签中的 `()` `,` 等特殊字符未用引号包裹 `A[label(内容)]` → 渲染报错 `Syntax error in graph` | 标签必须用 `A["label(内容)"]` 包裹。`scripts/validate_mermaid.py` 可批量检测。 |
 | 12 | Agent 把 graph 写在一行 `graph TD A-->B A-->C` 内 → 某些渲染器失败 | 必须用多行：每个节点/边一行。`scripts/validate_mermaid.py` 可检测。 |
-| 13 | 源文匹配用 embedding 模型——导致技能目录膨胀几百 MB，`self-instruct` 变慢 10 倍+ | **不需要 embedding。** 350 条领域信号词 + 9 类信号标签 + 主次信号画像 + 数字密度评分 足以实现语义级匹配。规则够细就不需要模型。见 `_SIGNAL_WORDS`、`_FIELD_SIGNAL_PROFILES`。 |
+| 13 | 把领域专有词硬编码到信号词列表（signals 含 dBm/FDTD/PCB 等 EMC 术语）→换本机械/生物教材匹配全失效 | **两阶段信号词体系：** `_LANG_SIGNALS`（中文技术写作通用模式，领域无关）+ `_extract_domain_signals()`（运行时从源文自动提取单位词、节标题术语、高频技术词）。零硬编码领域词。详见 `yaml_writer.py` 中的 `_extract_domain_signals()`。 |
+
+## 领域自适应设计原则
+
+| 原则 | 说明 |
+|------|------|
+| **信号词不分领域硬编码** | `_LANG_SIGNALS` 只含中文技术写作通用模式（"是指/称为/导致/注意/①"），不含任何领域的专有词 |
+| **领域词从源文自动提取** | `_extract_domain_signals()` 通过 `\d+[unit]` 模式提取单位、节标题提取领域术语、高频词统计提取技术词 —— 换书零配置 |
+| **不需要 embedding** | 规则足够细 + 运行时自适应 = 语义级匹配。embedding 增加几百 MB 依赖和 10 倍+延迟，非必需 |
+| **`@prompt` 是原料不是指令** | Agent 把模板 `<!-- @prompt ... -->` 当作写作指导原料，结合当前章节源文自行形成一次性自指导提示词。人工改 @prompt 文字即可控制输出质量 |
 
 ## Reference Index
 

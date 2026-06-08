@@ -1,0 +1,64 @@
+# defaults.yaml — 技能全局默认配置
+#
+# v38.0: 从代码中外置，支持按书籍/领域覆盖。
+# 修改后无需改代码，重新运行即可生效。
+#
+# 覆盖方式：
+#   创建 configs/{book_id}_overrides.yaml，格式同此文件。
+#   仅覆盖需要修改的键，其余继承 defaults.yaml。
+
+# ── 内容深度阈值 ──────────────────────────────────────
+# 每类节点的最低内容标准
+content_depth_thresholds:
+  concept:
+    min_nonempty_secs: 12
+    min_body_chars: 1200
+    max_wu_ratio: 0.2
+  knowledge-element:
+    min_nonempty_secs: 8
+    min_body_chars: 1500
+    max_wu_ratio: 0.2
+  knowledge:
+    min_nonempty_secs: 16
+    min_body_chars: 1600
+    max_wu_ratio: 0.2
+  skill:
+    min_nonempty_secs: 14
+    min_body_chars: 1500
+    max_wu_ratio: 0.2
+  scenario:
+    min_nonempty_secs: 14
+    min_body_chars: 1800
+    max_wu_ratio: 0.2
+  exercise:
+    min_nonempty_secs: 2
+    min_body_chars: 200
+    max_wu_ratio: 0.3
+  solution:
+    min_nonempty_secs: 8
+    min_body_chars: 2000
+    max_wu_ratio: 0.3
+  entity:
+    min_nonempty_secs: 3
+    min_body_chars: 300
+    max_wu_ratio: 0.2
+
+# ── 标准子节数 ────────────────────────────────────────
+# 每类节点模板中 ### 子节的标准数量
+section_counts:
+  concept:
+    total_secs: 17
+  knowledge-element:
+    total_secs: 11
+  knowledge:
+    total_secs: 21
+  skill:
+    total_secs: 18
+  scenario:
+    total_secs: 17
+  entity:
+    total_secs: 5
+  exercise:
+    total_secs: 0
+  solution:
+    total_secs: 15

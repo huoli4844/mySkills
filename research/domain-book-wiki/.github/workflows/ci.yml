@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml pytest pytest-cov ruff mypy
+
+      - name: Lint with ruff
+        run: |
+          ruff check scripts/
+
+      - name: Smoke test — core module imports
+        run: |
+          cd scripts && python3.12 -c "
+          from dag_utils import DAG_ORDER, DIR, DAG_DEPENDS, PipelineError
+          from dag_state import _state_path, PipelineLock
+          from dag_constants import REQUIRED_BD_FIELDS, NODE_CONFIG
+          from workspace_paths import WorkspacePaths
+          from parse_utils import parse_frontmatter
+          from log_utils import get_logger
+          from schema import TemplateSchema
+          from config import load_config
+          from yaml_pre_validate import main as ypv_main
+          from yaml_auto_fill import main as yaf_main
+          print('All core module imports OK')
+          print(f'  DIR: {len(DIR)} keys, DAG_ORDER: {len(DAG_ORDER)} phases')
+          print(f'  REQUIRED_BD_FIELDS: {len(REQUIRED_BD_FIELDS)} types')
+          "
+
+      - name: Test with pytest (unit + coverage)
+        run: |
+          cd scripts && python -m pytest -q --tb=short -m "not integration" \
+            --cov=. --cov-report=term-missing --cov-fail-under=30
+
+      - name: Type check with mypy
+        run: |
+          cd scripts && python -m mypy --strict dag_constants.py dag_utils.py parse_utils.py log_utils.py workspace_paths.py \
+            --ignore-missing-imports 2>&1 || true

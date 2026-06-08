@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
 description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板自携带@prompt写作指导，yaml_writer.py pydantic校验，零对照表"
-version: "2.3"
+version: "2.4"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -22,8 +22,8 @@ metadata:
          ↓                              ↓
     pydantic 校验字段、confidence   读 schema+模板 → 填 {{xxx}} → 输出 40+ .md
          ↓
-    Agent 写 YAML 前先看 @prompt:
-    yaml_writer.py prompt --type concept
+    Agent 写 YAML 前先生成自指导提示词:
+    yaml_writer.py self-instruct --type concept -c N --book-dir .
 ```
 
 **核心文件**（仅 7 个脚本，已全面清洗）：
@@ -31,13 +31,13 @@ metadata:
 | 文件 | 职责 |
 |------|------|
 | `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine |
-| `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 |
+| `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 + self-instruct 自指导 |
 | `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 自动包裹 mermaid 图 → 剥离 @prompt 注释 |
+| `scripts/validate_mermaid.py` | 批量验证概念文件的 Mermaid 图语法（括号引用、单行图） |
 | `schemas/domain_book_schema.json` | 字段定义（类型/必填/constraints） |
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
 | `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
 | `scripts/link_audit.py` | wikilink 审核 |
-| `scripts/validate_mermaid.py` | 批量验证概念文件的 Mermaid 图语法 |
 
 ## 核心设计原则
 
@@ -50,11 +50,29 @@ metadata:
 
 改了模板就等于改了所有。新增一个字段只需在模板中写 `{{new_field}}` 加一行 `<!-- @prompt ... -->`。不需要改 schema.json、不需要维护 template-yaml-field-map.md、不需要单独写提示词文档。
 
-**Agent 写 YAML 的正确工作流：**
+**Agent 写 YAML 的正确工作流（三选一）：**
 ```bash
-yaml_writer.py prompt --type concept           # 看全部字段要求
-yaml_writer.py prompt --type kp --field theoretical_basis  # 只看一个字段
+# A（推荐）：生成自指导提示词 — @prompt + schema约束 + 源文上下文
+python3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path
+
+# B：只看模板中的 @prompt 写作指导
+python3 scripts/yaml_writer.py prompt --type concept
+python3 scripts/yaml_writer.py prompt --type kp --field theoretical_basis
+
+# C：生成YAML骨架，只写值不写字段名
+python3 scripts/yaml_writer.py skeleton --type concept
 ```
+
+**`self-instruct` 输出结构：**
+| 节 | 内容 |
+|---|------|
+| 章节源文 | `--book-dir` 指定时自动加载 20_正文/第N章.md 前 3000 字 |
+| 必填字段 | 每字段标注：模板所在节标题 + @prompt + schema约束 |
+| 可选字段 | 同上，注明"有内容写否则填无" |
+| 自动填充字段 | 引擎处理，Agent不需要写 |
+| 常见错误提醒 | confidence范围、字段位置、mermaid格式 |
+
+**设计意图：** 模板 @prompt 是通用写作指导（人工可控，改一次跨所有章节生效）。Agent 把 @prompt 当"原料"而非"指令"，结合当前章节源文自行形成一次性自指导提示词。这样 @prompt 成为人工控制输出质量的持久手段。
 
 **template_engine.py 渲染时**自动剥离 `<!-- @prompt ... -->`，零泄漏到输出。
 
@@ -72,11 +90,13 @@ yaml_writer.py prompt --type kp --field theoretical_basis  # 只看一个字段
 
 ## Quickstart
 
-**写 YAML → 校验 → 渲染**（三步完成一章）：
+**写 YAML → 校验 → 渲染 → 验证图**（四步完成一章）：
 
 ```bash
-# 1. Agent 写 YAML（先用 prompt 看写作要求）
-python3 scripts/yaml_writer.py prompt --type concept
+# 1. Agent 看写作指导 + 源文上下文，形成自指导提示词
+python3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path/to/book
+
+# 1b. Agent 基于提示词写 YAML
 python3 scripts/yaml_writer.py write --type concept --yaml-path .dag/第N章/data/concepts.yaml --items '[...]'
 
 # 2. 全量校验
@@ -87,9 +107,9 @@ python3 scripts/pipeline_v2.py phase-a \
   --book-dir /path/to/book \
   -c N \
   --book-id 01_书ID \
-  --book-name 书名
+  --book-name "书名"
 
-# 4. 验证输出的Mermaid图语法（排查括号未引用、单行图等）
+# 4. 验证输出的 Mermaid 图语法
 python3 scripts/validate_mermaid.py --book-dir /path/to/book
 ```
 
@@ -148,13 +168,17 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 7 | `confidence` 值超出允许范围（如 exercise 写 0.85 但只允许 0.65） | schema.json 每类型有 `confidence.allowed` 枚举。`yaml_writer.py write` 在校验阶段直接 reject |
 | 8 | 换书：章节文件名、关键词、教材描述全硬编码 | `config/book_info.yaml` 和 `config/knowledge_keywords.yaml` 外置配置。 |
 | 9 | 核心概念图的 `core_concept_map` 不含 ` ```mermaid ` fence → Obsidian 把 graph TD 当普通文字渲染，不显示图 | **引擎层防护**：`template_engine.py._auto_wrap_mermaid()` 自动检测 raw `graph TD/LR/flowchart/sequenceDiagram` 等 mermaid 语法并包裹代码块。**Agent 写 YAML 时的预防**：`core_concept_map` 只需写 `graph TD\n  A[label] --> B[label2]` 内容本身，不需要加 `` ```mermaid `` fence（引擎会加）。纯文字描述（如"接地是EMC四大技术之一"）不会被引擎转换，需重写为 graph 格式。 |
-| 10 | YAML 中存在 `\n`（字面反斜杠+n）而非真正的换行 → mermaid graph 渲染为一行 `graph TD\n  A-->B` | YAML 中多行 graph 必须用 `|` block scalar：`core_concept_map: |-\n  graph TD\n    A[label] --> B[label2]`。不能用双引号 + `\n` 转义——会被 yaml.safe_load 解析为字面 `\n` 字符串而非换行。 |
+| 10 | YAML 中存在 `\n`（字面反斜杠+n）而非真正的换行 → mermaid graph 渲染为一行 | YAML 中多行 graph 必须用 `|` block scalar：`core_concept_map: |-\n  graph TD\n    A[label] --> B[label2]`。`yaml.dump(..., default_flow_style=False)` 自动用块标量。 |
+| 11 | Mermaid 标签中的 `()` `,` 等特殊字符未用引号包裹 `A[label(内容)]` → 渲染报错 `Syntax error in graph` | 标签必须用 `A["label(内容)"]` 包裹。`scripts/validate_mermaid.py` 可批量检测。 |
+| 12 | Agent 把 graph 写在一行 `graph TD A-->B A-->C` 内 → 某些渲染器失败 | 必须用多行：每个节点/边一行。`scripts/validate_mermaid.py` 可检测。 |
 
 ## Reference Index
 
 | 需要时加载 | 内容 |
 |:-----------|:------|
-| [template-prompt-convention.md](references/template-prompt-convention.md) | **v2.2** — `@prompt` 写作指导约定：格式/原则/Agent 使用方式/重要性排序 |
+| [mermaid-graph-troubleshooting.md](references/mermaid-graph-troubleshooting.md) | Mermaid核心概念图语法问题调试指南（括号引用/单行图/YAML块标量） |
+| [yaml-multiline-escaping.md](references/yaml-multiline-escaping.md) | YAML 多行转义问题：`\n` 字面量污染排查方案 |
+| [template-prompt-convention.md](references/template-prompt-convention.md) | @prompt 写作指导约定：格式/原则/Agent 使用方式 |
 | [template-yaml-field-map.md](references/template-yaml-field-map.md) | 模板-YAML 字段映射表（8种类型的 bd 字段详细说明） |
 | [golden-kp-example.md](references/golden-kp-example.md) | KP YAML 金标范例 |
 | [golden-sp-example.md](references/golden-sp-example.md) | SP YAML 金标范例 |
@@ -162,6 +186,4 @@ python3 scripts/split_book_to_chapters.py prepare \
 | [chapter-data-generation.md](references/chapter-data-generation.md) | Agent 写 YAML 指南 |
 | [yaml-generation-guide.md](references/yaml-generation-guide.md) | YAML 数据格式规范 |
 | [quality-gate-architecture.md](references/quality-gate-architecture.md) | 质量门架构 |
-| [batch-analysis-pattern.md](references/batch-analysis-pattern.md) | 批量分析→修复→验证工作模式 |
 | [link-audit-design.md](references/link-audit-design.md) | wikilink 审计设计 |
-| [mermaid-graph-troubleshooting.md](references/mermaid-graph-troubleshooting.md) | Mermaid核心概念图语法问题调试指南（括号引用/单行图/YAML块标量） |

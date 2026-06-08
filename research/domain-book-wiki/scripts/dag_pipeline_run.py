@@ -49,6 +49,7 @@ from script_runner import (
     run_mermaid_check,
     run_script,
 )
+from workspace_paths import WorkspacePaths
 
 log = get_logger(__name__)
 
@@ -585,6 +586,33 @@ def pipeline_validate(args: PipelineArgs) -> dict[str, Any]:
 
 
 
+def _check_l1_yaml_completeness(wr: str, ch: str) -> tuple[bool, list[str]]:
+    """v52.5: 检查6个L1内容YAML数据文件是否全部存在。
+
+    这6个文件是概念→知识要素→实体→知识点→技能点→应用场景的数据源。
+    exercises.yaml 和 solutions.yaml 不在此列（它们走自动检测/骨架回退机制）。
+
+    Returns:
+        (True, []) 全部存在
+        (False, [缺失文件列表]) 有不存在的文件
+    """
+    _required = [
+        "concepts.yaml",
+        "kes.yaml",
+        "entities.yaml",
+        "kps.yaml",
+        "sps.yaml",
+        "scenes.yaml",
+    ]
+    data_dir = WorkspacePaths(wr).data_dir(ch)
+    if not os.path.isdir(data_dir):
+        return False, [f"目录不存在: {data_dir}"]
+    missing = [f for f in _required if not os.path.isfile(os.path.join(data_dir, f))]
+    if missing:
+        return False, missing
+    return True, []
+
+
 def pipeline_auto(args: PipelineArgs) -> None:
     """自动执行全部 pipeline 阶段（从当前或指定阶段开始，顺序推进）
 
@@ -602,6 +630,19 @@ def pipeline_auto(args: PipelineArgs) -> None:
     l1_only = getattr(args, "l1_only", False)
     dry_run = getattr(args, "dry_run", False)
     started = start_phase is None
+
+    # ── v52.5: YAML 完整性闸门 — 6个L1数据文件必须全部存在 ──
+    _yaml_complete, _yaml_missing = _check_l1_yaml_completeness(wr, ch)
+    if not _yaml_complete:
+        log.error("═" * 50)
+        log.error("❌ YAML 数据文件不完整，pipeline auto 拒绝执行")
+        log.error("   以下 %d 个必备文件缺失:", len(_yaml_missing))
+        for _mf in _yaml_missing:
+            log.error(f"      📄 {_mf}")
+        log.error("   请先写入缺失的 YAML 数据文件到 .dag/第%s章/data/ 后重试", ch)
+        log.error("   使用以下命令快速检查: dag_controller.py pipeline preflight -w %s -c %s", wr, ch)
+        log.error("═" * 50)
+        return
 
     # L1 内容阶段 → build_kb_files.py 类型映射
     KB_TYPE_MAP = {

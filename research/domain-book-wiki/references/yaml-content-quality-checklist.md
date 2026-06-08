@@ -77,6 +77,16 @@ graph TD
 
 `derivation_diagram: "无"` 对于纯描述性内容可以接受，但对于"结构选择""设计方法"类 KP 应提供 Mermaid。
 
+### 6. 字段名速查 (v52.4a 新增)
+
+| YAML 中写错的字段 | 模板期望字段 | 补救方法 |
+|:-----------------|:------------|:---------|
+| `scene_description` | `scenario_description` | preflight 报"多余"，替换为正确名 |
+| `core_operation` (在KP中) | 只在 SP 模板存在 | 从 KP 的 bd 中移除 |
+| `knowledge_context` | `knowledge_context_diagram` | 重命名 |
+| `question_text` | `question` | 替换 |
+| `answer_text` | `principle_steps` + `characteristics` + ...(共19个) | 完全替换 |
+
 ## 概念文件必查项
 
 ### 公式字段必须 `$$` 包裹
@@ -85,10 +95,6 @@ graph TD
 - 源文有公式 → 用 `$$...$$` 格式写入（即使只一句）
 - 源文无公式 → 写 `无`
 
-### figure_references / formula_references
-
-v7.0 模板已移除这两个字段。不要在 YAML bd 中包含它们 → preflight 会报告"多余"。
-
 ## 质量检查速查命令
 
 ```bash
@@ -96,7 +102,7 @@ v7.0 模板已移除这两个字段。不要在 YAML bd 中包含它们 → pref
 for f in 50_知识点/第8章*.md; do
   content=$(cat "$f")
   tb=$(echo "$content" | grep -A1 "### 1. 理论基础" | tail -1)
-  wl=$(echo "$content" | grep -oP '\[\[\K[^\]]+' | wc -l)
+  wl=$(echo "$content" | grep -oP '\[\K[^\]]+' | wc -l)
   echo "$f: tb_len=${#tb} wl=$wl"
 done
 
@@ -111,7 +117,10 @@ grep -l 'bloom_level: 无' 50_知识点/*.md
 
 | 日期 | 问题 | 修复状态 |
 |:-----|:-----|:---------|
-| 2026-06-08 | 第8章4个KP bloom_level="无" | 未修复 |
-| 2026-06-08 | 第8章4个KP理论基础<150字 | 未修复 |
-| 2026-06-08 | 第8章4个KP无wikilink | 未修复 |
-| 2026-06-08 | 第8章反射式滤波器公式纯文本 | 未修复 |
+| 2026-06-08 | 第8章4个KP bloom_level="无" | **已修复** (第2轮YAML修复) |
+| 2026-06-08 | 第8章4个KP理论基础<150字 | **已修复** (第2轮YAML: 172~195字) |
+| 2026-06-08 | 第8章4个KP无wikilink | **已修复** (第2轮YAML: 3~6个/篇) |
+| 2026-06-08 | 第8章反射式滤波器公式纯文本 | **已修复** (第2轮YAML: 5个$$块) |
+| 2026-06-08 | preflight新增4项内容质量检测 | **已修复** (📐公式/📖深度/🔗wikilink/🎯bloom) |
+| 2026-06-08 | 第9章scene_description错名 | **已修复** (应为scenario_description) |
+| 2026-06-08 | 第9章core_operation误入KP | **已修复** (该字段仅SP有) |

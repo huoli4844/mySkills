@@ -135,7 +135,22 @@ pipeline preflight 保障**格式正确性**（字段名、confidence、文件�
 
 **原因**: 内容深度是语义级质量，不可通过文件结构和字段名模式匹配自动检查。
 
-**缓解措施**: 写 YAML 时参照 `references/yaml-content-quality-checklist.md` 逐一核查。已知缺陷追踪表在该文件中维护。
+| 2026-06-08 | preflight新增4项内容质量检测 | 已修复 (📐公式/📖深度/🔗wikilink/🎯bloom) |
+
+## 已知字段名速查陷阱
+
+preflight 报告"多余字段"时，往往不是字段多余而是字段名写错了。常见错误对照：
+
+| YAML 中写错的字段 | 模板期望的字段名 | 适用文件 |
+|:-----------------|:----------------|:---------|
+| `scene_description` | `scenario_description` | scenes.yaml |
+| `scene_type` | `scenario_type` | scenes.yaml |
+| `answer_text` | `principle_steps` + `characteristics` + ...(共19个) | solutions.yaml |
+| `question_text` | `question` | exercises.yaml |
+| `knowledge_context` | `knowledge_context_diagram` | scenes.yaml |
+| `core_operation`（在KP中） | 该字段仅属于SP，不属于KP | kps.yaml |
+
+修复方法：`schema_loader.py extract <type> --yaml` 生成骨架 → 对照骨架修正字段名。
 
 ## 快速调试
 

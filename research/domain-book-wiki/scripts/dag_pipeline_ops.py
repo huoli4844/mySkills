@@ -155,6 +155,22 @@ def pipeline_init(args: PipelineArgs) -> None:
         log.info("常见问题: bd 是字符串而不是字典（应为 YAML dict）")
         raise PipelineError("init", f"{schema_errors} 个 YAML 文件 schema 校验失败")
 
+    # ── v52.5: Phase 0.25 — YAML 完整性检查（6个L1必备文件）──
+    _required_l1 = ["concepts.yaml", "kes.yaml", "entities.yaml",
+                     "kps.yaml", "sps.yaml", "scenes.yaml"]
+    _missing_l1 = []
+    for _rf in _required_l1:
+        if not os.path.isfile(os.path.join(data_dir, _rf)):
+            _missing_l1.append(_rf)
+    if _missing_l1:
+        log.warning("⚠️  L1 YAML 数据文件不完整，缺少以下 %d 个文件:", len(_missing_l1))
+        for _mf in _missing_l1:
+            log.warning(f"      📄 {_mf}")
+        log.warning("   注意: pipeline auto 将拒绝执行，直到全部 6 个 L1 文件就绪")
+        log.warning("   习题(exercises.yaml)和解答(solutions.yaml)可通过自动检测生成，非强制")
+    else:
+        log.success("✅ 所有 6 个 L1 YAML 数据文件均已就绪")
+
     # ── Phase 0.5: YAML 内容预校验（秒级快速检查）──
     if yaml_dirs_to_check:
         log.info("\n🔍 Phase 0.5: YAML 内容预校验 (yaml_pre_validate)...")

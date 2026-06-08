@@ -37,6 +37,7 @@ metadata:
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
 | `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
 | `scripts/link_audit.py` | wikilink 审核 |
+| `scripts/validate_mermaid.py` | 批量验证概念文件的 Mermaid 图语法 |
 
 ## 核心设计原则
 
@@ -85,8 +86,11 @@ python3 scripts/yaml_writer.py validate-dir --dir .dag/第N章/data/
 python3 scripts/pipeline_v2.py phase-a \
   --book-dir /path/to/book \
   -c N \
-  --book-id "01_书ID" \
-  --book-name "书名"
+  --book-id 01_书ID \
+  --book-name 书名
+
+# 4. 验证输出的Mermaid图语法（排查括号未引用、单行图等）
+python3 scripts/validate_mermaid.py --book-dir /path/to/book
 ```
 
 **整书预处理**（已有整书 MD 时）：
@@ -160,3 +164,4 @@ python3 scripts/split_book_to_chapters.py prepare \
 | [quality-gate-architecture.md](references/quality-gate-architecture.md) | 质量门架构 |
 | [batch-analysis-pattern.md](references/batch-analysis-pattern.md) | 批量分析→修复→验证工作模式 |
 | [link-audit-design.md](references/link-audit-design.md) | wikilink 审计设计 |
+| [mermaid-graph-troubleshooting.md](references/mermaid-graph-troubleshooting.md) | Mermaid核心概念图语法问题调试指南（括号引用/单行图/YAML块标量） |

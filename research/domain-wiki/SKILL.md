@@ -1,19 +1,20 @@
 ---
-name: domain-book-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：file2md 预处理 → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown 页面 → pipeline batch 一键全自动构建整本书。v52.0: 全面消除硬编码（domain_words config驱..."
-version: "52.0"
+name: domain-wiki
+description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.1: 新增 split_book_to_chapters.py 整书预处理）"
+version: "52.1"
 author: Hermes Agent
 license: MIT
 metadata:
   category: research
+
   related_skills: [source-prepare, file2md]
 ---
 
-# Domain Book Wiki Builder
+# Domain Wiki Builder
 
 ## When to Use
 
-用户要求从教材（.doc/.docx/.pdf）构建结构化 Obsidian 知识库，包含核心概念、知识要素、知识点、技能点、应用场景、习题和解答。
+用户要求从教材（.doc/.docx/.pdf/md）构建结构化 Obsidian 知识库，包含核心概念、知识要素、知识点、技能点、应用场景、习题和解答。
 
 ## Design
 
@@ -22,6 +23,8 @@ metadata:
 **工程 vs 内容边界原则（v50.7）**：本技能的所有任务严格按以下原则分工：
 
 **根因分析原则（v52.1）**：当内容质量出现问题时，**必须回溯到数据处理链的源头修复**，绝不能在输出端修补。file2md 转换后的 20_正文/*.md 头部有 YAML frontmatter（--- {title, source, parser, sha256} ---）——这是元数据不是正文。如果 `_load_source_text` 不剥离它，脏数据就会进入 paragraph splitting 和 keyword scoring，最终不可逆地污染解答文件。**任何读取源文的函数必须在第一时间做前处理清理**，输出端擦除是错误方案。domain_words（领域术语集）同理——曾经硬编码在 `_detect_boilerplate` 中，换书必失效；正确方案是外置到 `config/knowledge_keywords.yaml`，无配置时降级为纯统计方法（跳过特异性检查）。
+
+**raw/ 目录只读原则（v52.1）**：`raw/` 目录存放源文件原始转换产物，**只读不写**。书籍的知识库工作目录必须平行于 `raw/` 创建于领域目录下（如 `电磁兼容领域/书籍名/`），并包含完整骨架（10_总揽/20_正文/30_核心概念/40_知识要素/50_知识点/60_技能点/70_应用场景/80_实体/90_习题/90_习题/解答）。`split_book_to_chapters.py prepare` 自动完成目录创建、图片复制和章节拆分，禁止手动在 `raw/` 下修改或写入任何文件。详见 [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md)。
 
 | 归属 | 特征 | 由谁执行 | 典型任务 |
 |:-----|:-----|:---------|:---------|
@@ -45,8 +48,10 @@ metadata:
 
 ## Quickstart
 
+### 已分章（file2md 输出已有独立章节文件）
+
 ```bash
-# 1. 源文件转换
+# 1. 源文件转换（已有独立章节文件时跳过）
 python3.12 ~/.hermes/skills/mlops/file2md/scripts/file2md.py "教材.docx" -o "$TMPDIR/output/"
 cp "$TMPDIR/output/第N章"*.md "$BOOK_DIR/20_正文/"
 
@@ -55,6 +60,56 @@ python3.12 dag_controller.py pipeline init -w $BOOK_DIR --book-id 01_xxx -c 1
 
 # 3. Agent 写 YAML 到 .dag/第N章/data/ → pipeline auto 自动推进
 python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
+```
+
+### 整书 MD 输入（raw 目录下的整本书 .md 文件）
+
+```bash
+# 1. 准备书籍目录结构 + 复制图片 + 拆分章节（一步完成）
+python3.12 split_book_to_chapters.py prepare \
+  --raw-dir /path/to/raw/书籍名/ \
+  -w $BOOK_DIR \
+  --split
+
+# 2. 初始化 pipeline
+python3.12 dag_controller.py pipeline init -w $BOOK_DIR --book-id 01_xxx -c 1
+
+# 3. 后续步骤与已分章流程相同
+python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
+```
+
+## Directory Structure
+
+书籍知识库的标准目录结构（`split_book_to_chapters.py prepare` 自动创建）：
+
+```
+电磁兼容知识库/
+├── raw/                                    # 原始文件（只读）
+│   └── 工程电磁兼容第3版_路宏敏/
+│       ├── 工程电磁兼容第3版_路宏敏.md     # 整书 md
+│       └── images/                          # 原书图片
+├── 电磁兼容领域/                           # domain_dir
+│   └── 工程电磁兼容第3版_路宏敏/           # book_dir (= wr)
+│       ├── 10_总揽/                        # L2 单书总揽
+│       ├── 20_正文/                        # L1 源文件（按章拆分）
+│       │   ├── images/                     # 图片副本
+│       │   ├── 第1章 绪论.md
+│       │   └── 第2章 电磁兼容基本概念.md
+│       ├── 30_核心概念/                    # L1 核心概念
+│       ├── 40_知识要素/                    # L1 知识要素
+│       ├── 50_知识点/                      # L1 知识点
+│       ├── 60_技能点/                      # L1 技能点
+│       ├── 70_应用场景/                    # L1 应用场景
+│       ├── 80_实体/                        # L1 实体
+│       ├── 90_习题/                        # L1 习题
+│       │   └── 解答/                       # 习题解答
+│       └── .dag/                           # pipeline 数据
+│           ├── 第1章/
+│           │   ├── chapter_toc.json
+│           │   └── data/                   # YAML 数据文件
+│           └── 第2章/
+└── 领域总控/                               # L3（自动创建）
+└── 知识库总控/                             # L4（自动创建）
 ```
 
 ## Key Commands
@@ -77,7 +132,9 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | `增强内容` `enhance_solution_content(wiki_root, chapter)` | **v51.4** — 解答内容增强：检测通用模板文字→从题目关键词匹配源文相关段落→差异化生成。关键词映射从 `config/knowledge_keywords.yaml` 加载（领域无关，换书换文件）。 |
 | `知识链接审计` `link_audit.run_link_audit(wiki_root, auto_fix=True)` | **v52.0** — 替代 KGraph（1551行→266行）。纯文本扫描：孤立节点检测（入度=0）、反向链接补全（A→B 但 B↛A）、跨章引用统计（→L2枢纽节点）。集成到 pipeline auto scene→l2_indices 之间自动运行。 |
 | 外部配置 `config/book_info.yaml` | **v51.5** — 书籍总揽描述模板。`domain`、`book_template`、`chapter_descriptions` 三字段。`{book_name}`/`{domain}`/`{chapter_count}` 自动替换。`.dag/book_info.yaml` 可覆盖技能默认配置。 |
-| 外部配置 `config/knowledge_keywords.yaml` | **v51.5** — 领域知识关键词映射 + 领域术语集。`domain`+`keyword_maps` 字典（题目关键词→源文搜索词列表）。换领域只需改此文件。 |
+|| 外部配置 `config/knowledge_keywords.yaml` | **v51.5** — 领域知识关键词映射 + 领域术语集。`domain`+`keyword_maps` 字典（题目关键词→源文搜索词列表）。换领域只需改此文件。 |
+|| `split_book_to_chapters.py prepare --raw-dir raw/书/ -w $BOOK_DIR --split` | **vN** — 整书预处理：创建标准目录结构（10_总揽~90_习题）→ 复制图片 → 拆分章节。一步生成全部骨架。 |
+|| `split_book_to_chapters.py split <整书.md> -w $BOOK_DIR` | **vN** — 仅拆分章节（目录和图片已就绪时）。自动消除 TOC 重复。 |
 
 ## Pitfalls 速查
 
@@ -134,7 +191,11 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 76 | 解答文件 `question` 显示为"第N章习题N"占位符（从 solutions.yaml 直接读） | **v51.4**: `build_kb_files.py` 在构建 solution 时检测 `question` 是否匹配 `第\\d+章习题\\d+` 模式。若是，从对应章节的 `exercises.yaml` 自动查找同名的 exercise 条目，拉取其真实 `question` 文本。第2章 16个解答自动修复。 |
 | 77 | 解答文件内容全是通用模板文字（"该习题考查教材第X章核心内容"等）— 无实际教学价值 🔥 | **v51.4**: `post_build_fix.py` 新增 `enhance_solution_content()`。检测11种通用模板文字模式 → 从题目提取关键词 → 从 external `config/knowledge_keywords.yaml` 加载领域映射扩写 → 在源文中匹配最相关段落 → 按节类型差异化生成。自动集成到 pipeline run_phase_auto_fix()。 |\n| 78 | 换一本书所有代码都要改——章节文件名映射、关键词映射、教材描述、路径全部硬编码绑定到电磁兼容教材 🔥 | **v51.5**: 全面外置化——(1) 章节文件名改为 `discover_chapters()` 从 `20_正文/` 自动发现；(2) 关键词映射外置 `config/knowledge_keywords.yaml`（领域+version+keyword_maps）；(3) 50行教材描述外置 `config/book_info.yaml`（含 `{domain}` 模板化）；(4) 目录层级 `01_领域/01_资料库` 改为 `DIR["DOMAIN_DIR"]/DIR["LIBRARY_DIR"]`。换书流程：改 `config/` 目录下的 YAML 文件即可，Python 代码不动。 |\n| 79 | `enhance_solution_content` 解答增强函数内置了 EMC 领域硬编码的 fallback 文字 | **v51.5**: "电磁兼容领域的基础理论" → "本领域的基础理论"。所有领域特定文字从 `config/` 加载，加载失败时降级为通用占位符。 |\n| 80 | `post_build_fix.run_phase_auto_fix` 中 `files_touched` 计数器在非 exercises/solutions 阶段不递增——只记录了修复次数但没记录文件数，导致 test_fix_ke_files 断言失败 | **v51.5**: 将 `if content != original:` 移出 `if phase in ("exercises", "solutions"):` 条件块，所有阶段共享文件变动计数。 |
 | 85 | 内容质量问题绝不能在输出端修补——YAML frontmatter 在 `_load_source_text` 阶段就应剥离，等进入 paragraph splitting 再擦已经晚了 🔥 | **核心原则**: 任何读取源文的函数必须在第一时间剥离 file2md 的 YAML frontmatter（`--- {title, source, parser, sha256} ---`）。脏数据一旦进入下游（paragraph splitting、keyword scoring）会不可逆地污染产出。 |
-| 86 | 知识图谱 KGraph（1551 行）从未被 pipeline 调用——SQLite 图数据库不提供语义判断能力 | **v52.0**: 废弃 KGraph，`link_audit.py`（266 行）替代。纯文本扫描 `[[wikilink]]` 即可完成入度统计/反向链路/跨章分析。 |
+|| 86 | 知识图谱 KGraph（1551 行）从未被 pipeline 调用——SQLite 图数据库不提供语义判断能力 | **v52.0**: 废弃 KGraph，`link_audit.py`（266 行）替代。纯文本扫描 `[[wikilink]]` 即可完成入度统计/反向链路/跨章分析。 |
+|| 87 | 整书 MD 中有目录(TOC)和正文两套章节标题，split_book_to_chapters 误将 TOC 版当正文输出 | **vN**: `discover_chapter_ranges` 按章节号去重，只保留最后出现（正文版）的分段。已验证：工程电磁兼容第3版 26→13 章节。 |
+|| 88 | 章节标题使用混合格式（`# 第N章` vs `## 第N章`，空格分布不一致），grep 模式 `^## 第` 或 `^# 第` 单独均不全匹配 | **vN**: `CHAPTER_PATTERN` 使用 `^(#{1,2})\s*(第\s*\d+\s*章\s*...)`，兼容单#和双#，同时自动折叠空格。 |
+|| 89 | 章节文件名包含 TOC 页码（如 `第9章 EMC 标准简介……215.md`）导致 discover_chapters 匹配失败 | **vN**: `normalize_filename` 中对 `……\s*\d+\s*$` 做 strip。正则 `第(\d+)章\s.*\.md$` 要求文件名无多余尾部。 |
+|| 90 | 输出目录在 `raw/` 下（raw 是只读源文件区） | **vN**: 整书预处理必须输出到平行于 `raw/` 的领域目录下。`split_book_to_chapters.py prepare` 默认在 `-w` 指定的 `book_dir` 下操作。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -172,5 +233,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [engineering-improvement-roadmap.md](references/engineering-improvement-roadmap.md) | **v51.0** — 系统性改善路线图：dag_utils 符号映射、sys.exit 精确分布、mypy 13 个死模块名、CI 空白、4 批次含工时估算的改善路线图 |
 | [solution-content-quality.md](references/solution-content-quality.md) | **v51.7** — 解答内容增强设计：质量评分检测通用模板→章节标题回退关键词→源文段落匹配→差异化生成 |
 | [link-audit-design.md](references/link-audit-design.md) | **v52.0** — link_audit 替代 KGraph 设计文档：纯文本扫描入度/反向链路/跨章统计，无 SQLite 维护成本 |
-
-<!-- v52.1 — 根因分析原则+domain_words外置+link_audit替代KGraph。441 测试全通。 -->
+| [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md) | **v52.1** — 整书 MD 预处理工作流：目录创建 + 图片复制 + 章节拆分（TOC 去重/标题格式兼容/文件名标准化） |

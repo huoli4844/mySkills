@@ -54,7 +54,7 @@ tags: {{tags}}
 
 ### 3. 分类与学科归属
 
-<!-- @prompt domain: 学科领域。格式："电磁兼容/子领域"。classification: 分类名称，如"部件级EMC问题"。 -->
+<!-- @prompt domain: 学科领域。格式："大领域/子领域"。classification: 分类名称，用于归类同类实体。 -->
 - **学科领域**：{{domain}}
 - **分类**：{{classification}}
 
@@ -92,7 +92,7 @@ tags: {{tags}}
 
 ### 5. 技术分类
 
-<!-- @prompt 技术分类名称。如"印制电路板EMC设计技术"。 -->
+<!-- @prompt 技术分类名称。如"分类名称"，按该领域标准术语填写。 -->
 {{tech_classification}}
 
 ## 三、应用与关联

@@ -7,15 +7,15 @@
 用法:
   # 渲染单个类型
   python3 template_engine.py render --type concept \\
-    --data .dag/第4章/data/concepts.yaml \\
+    --data .dag/第N章/data/concepts.yaml \\
     --output 30_核心概念 \\
-    --book-id 01_工程电磁兼容 --book-name "工程电磁兼容第3版_路宏敏" -c 4
+    --book-id 01_书籍ID --book-name "书籍名称" -c N
 
   # 按顺序渲染一个章节的全部L1类型（concept→ke→entity→kp→sp→scene→exercise→solution）
   python3 template_engine.py render-chapter \\
-    --data-dir .dag/第4章/data \\
+    --data-dir .dag/第N章/data \\
     --output-dir . \\
-    --book-id 01_工程电磁兼容 --book-name "工程电磁兼容第3版_路宏敏" -c 4
+    --book-id 01_书籍ID --book-name "书籍名称" -c N
 
 设计原则：
   - 不读取任何`.py`中的字段定义，全部从 schema.json + 模板 .md 驱动

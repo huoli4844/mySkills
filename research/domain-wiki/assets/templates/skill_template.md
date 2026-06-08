@@ -32,7 +32,7 @@ tags: {{tags}}
 {{bloom_level_description}}
 - **技能目标**：<!-- @prompt ≥3条。格式：'能…(场景/条件)'。 -->
 {{skill_objectives}}
-- **所属领域**：<!-- @prompt 学科领域。格式：'电磁兼容/子领域'。 -->
+- **所属领域**：<!-- @prompt 学科领域。格式：'大领域/子领域'。 -->
 {{domain}}
 
 ### 2. 学习递进链

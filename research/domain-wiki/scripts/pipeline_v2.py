@@ -17,14 +17,14 @@
   # Phase A: 渲染一章的L1内容
   python3 pipeline_v2.py phase-a \\
     --book-dir /path/to/book \\
-    -c 4 \\
-    --book-id 01_工程电磁兼容 \\
-    --book-name "工程电磁兼容第3版_路宏敏"
+    -c N \\
+    --book-id 01_书籍ID \\
+    --book-name "书籍名称"
 
   # 查看状态
   python3 pipeline_v2.py status \\
     --book-dir /path/to/book \\
-    -c 4
+    -c N
 
   # Phase B: Agent评估Phase A结果并决定KP/SP/Scene
   python3 pipeline_v2.py phase-b \\

@@ -573,7 +573,7 @@ _TEMPLATE_SECTION_KEYWORDS = {
     '精确释义': ['是指', '定义', '含义', '释义'],
     '核心概念图谱': ['图', '结构', '概念', '关系'],
     '图谱解析': ['图', '所示', '如下'],
-    '数学模型': ['公式', '方程', '$$', '式', '模型', 'Maxwell', '麦克斯韦'],
+    '数学模型': ['公式', '方程', '$$', '式', '模型'],
     '工作原理': ['原理', '构成', '要素', '组成', '结构', '包括'],
     '关键参数': ['参数', '指标', '系数'],
     '物理含义特征': ['特征', '特性', '含义', '特点', '性质'],
@@ -935,7 +935,7 @@ def _match_field_to_source(bd_name: str, section_title: str,
             if '$$' in content:
                 # 提取公式附近文本
                 for line in content.split('\n'):
-                    if '$$' in line or any(kw in line for kw in ['公式', '方程', '模型', 'Maxwell']):
+                    if '$$' in line or any(kw in line for kw in ['公式', '方程', '模型']):
                         snippet = line[:200].replace('\n', ' ').strip()
                         if len(snippet) > 10:
                             score = 10.0  # 公式行高优先级

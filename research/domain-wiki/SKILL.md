@@ -125,7 +125,8 @@ python3 scripts/pipeline_v2.py phase-a \
   --book-name "书名"
 
 # 4. 验证输出的 Mermaid 图语法
-python3 scripts/validate_mermaid.py --book-dir /path/to/book
+`python3 scripts/validate_mermaid.py --book-dir /path/to/book`
+`bash scripts/verify_domain_agnostic.sh`
 ```
 
 **整书预处理**（已有整书 MD 时）：
@@ -187,12 +188,13 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 11 | Mermaid 标签中的 `()` `,` 等特殊字符未用引号包裹 `A[label(内容)]` → 渲染报错 `Syntax error in graph` | 标签必须用 `A["label(内容)"]` 包裹。`scripts/validate_mermaid.py` 可批量检测。 |
 | 12 | Agent 把 graph 写在一行 `graph TD A-->B A-->C` 内 → 某些渲染器失败 | 必须用多行：每个节点/边一行。`scripts/validate_mermaid.py` 可检测。 |
 | 13 | 把领域专有词硬编码到信号词列表（signals 含 dBm/FDTD/PCB 等 EMC 术语）→换本机械/生物教材匹配全失效 | **两阶段信号词体系：** `_LANG_SIGNALS`（中文技术写作通用模式，领域无关）+ `_extract_domain_signals()`（运行时从源文自动提取单位词、节标题术语、高频技术词）。零硬编码领域词。详见 `yaml_writer.py` 中的 `_extract_domain_signals()`。 |
+| 14 | 只在 `_LANG_SIGNALS` 做了领域净化，但漏了 `_TEMPLATE_SECTION_KEYWORDS`、`_FIELD_KEYWORDS` 等其他静态关键字映射——这些也把 `dB`、`电平`、`限值` 等 EMC 术语硬编码了进去，产生相同的领域偏置 | **全面审计所有静态列表：** 任何以 `_KEYWORDS`、`_LABELS`、`_TAGS` 命名的模块级常量都可能泄漏领域词。修改后运行 `grep -n 'dB\|kHz\|MHz\|GHz\|V/m\|A/m' scripts/*.py` 和 `grep -nE '[a-zA-Z]{2,3}/(m|s|Hz|V)' scripts/*.py` 验证零匹配。领域词只能出现在 `_extract_domain_signals()` 的运行时提取路径中。每次在 scripts/ 中新增字符串列表必须审计是否含领域专有词。 |
 
 ## 领域自适应设计原则
 
 | 原则 | 说明 |
 |------|------|
-| **信号词不分领域硬编码** | `_LANG_SIGNALS` 只含中文技术写作通用模式（"是指/称为/导致/注意/①"），不含任何领域的专有词 |
+| **所有静态字符串列表不分领域硬编码** | 不仅 `_LANG_SIGNALS`，`_TEMPLATE_SECTION_KEYWORDS`、`_FIELD_KEYWORDS`、`_FIELD_TO_KEYWORDS` 等所有模块级关键字映射也不含领域专有词（如 dB/电平/限值/PCB/FDTD）。此类词只通过 `_extract_domain_signals()` 在运行时从源文自动提取。新增任何 `_*KEYWORDS` 或 `_*LABELS` 常量后必须 grep 验证零领域词。 |
 | **领域词从源文自动提取** | `_extract_domain_signals()` 通过 `\d+[unit]` 模式提取单位、节标题提取领域术语、高频词统计提取技术词 —— 换书零配置 |
 | **不需要 embedding** | 规则足够细 + 运行时自适应 = 语义级匹配。embedding 增加几百 MB 依赖和 10 倍+延迟，非必需 |
 | **`@prompt` 是原料不是指令** | Agent 把模板 `<!-- @prompt ... -->` 当作写作指导原料，结合当前章节源文自行形成一次性自指导提示词。人工改 @prompt 文字即可控制输出质量 |

@@ -345,6 +345,35 @@ def check_source_from_format(items: list[dict], node_type: str) -> list[dict]:
     return errors
 
 
+# v52.2: bd字段覆盖率校验 — 确保SP/Scene等节点类型有足够bd字段
+_MIN_BD_FIELDS = {
+    "concept": 25,     # 模板33字段,≥25(76%)
+    "knowledge-element": 14,  # 模板19字段,≥14(74%)
+    "entity": 13,      # 模板17字段,≥13(76%)
+    "knowledge": 32,   # 模板42字段,≥32(76%)
+    "skill": 20,       # 模板32字段,≥20(63%)  SP工程性强,部分衍生字段可空
+    "scenario": 14,    # 模板28字段,≥14(50%)  Scene同理
+    "exercise": 4,
+    "solution": 14,
+}
+
+def check_bd_coverage(items: list[dict], node_type: str) -> list[dict]:
+    if node_type not in _MIN_BD_FIELDS:
+        return []
+    min_required = _MIN_BD_FIELDS[node_type]
+    errors = []
+    for i, item in enumerate(items):
+        bd = item.get("bd", {})
+        filled = sum(1 for v in bd.values() if v and str(v).strip() not in ("", "无", "none", "None"))
+        if filled < min_required:
+            errors.append({
+                "item": i, "field": "bd",
+                "message": f"'{item.get('name','')}' bd仅{filled}个有内容(需≥{min_required})，{len(bd)-filled}个空/无",
+                "severity": "warning",
+            })
+    return errors
+
+
 def check_template_field_names(items: list[dict], node_type: str) -> list[dict]:
     """v50.7: 检查 YAML bd 字段名是否与模板 {{xxx}} 占位符匹配。
 
@@ -480,6 +509,8 @@ def validate_file(yaml_path: str, wr: str | None = None, ch: str = "") -> dict[s
     # v52.2: 源文公式交叉校验（需 wr+ch）
     if wr and ch:
         all_results.extend(check_source_mathematical_model(items, node_type, wr, ch))
+    # v52.2: bd字段覆盖率校验 — 防止大量模板字段未填
+    all_results.extend(check_bd_coverage(items, node_type))
     # v50.7: 模板字段名校验 — Agent 自创字段名 vs 模板 {{xxx}}
     all_results.extend(check_template_field_names(items, node_type))
 

@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.3: 新增 template-yaml-field-map.md 字段映射表和内容深度要求）"
-version: "52.3"
+description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.4: _strip_wu_sections三遍扫描(空节/全无表格/列表无)+bd覆盖率预校验+源文公式交叉验证"
+version: "52.4"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -26,10 +26,18 @@ metadata:
 
 **raw/ 目录只读原则（v52.1）**：`raw/` 目录存放源文件原始转换产物，**只读不写**。书籍的知识库工作目录必须平行于 `raw/` 创建于领域目录下（如 `电磁兼容领域/书籍名/`），并包含完整骨架（10_总揽/20_正文/30_核心概念/40_知识要素/50_知识点/60_技能点/70_应用场景/80_实体/90_习题/90_习题/解答）。`split_book_to_chapters.py prepare` 自动完成目录创建、图片复制和章节拆分，禁止手动在 `raw/` 下修改或写入任何文件。详见 [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md)。
 
-**\"无\"消除策略（v52.3）**：生成文件中出现"无"说明模板字段未填或未覆盖。采用三层防线消除：
+**"无"消除策略（v52.4）**：生成文件中出现"无"说明模板字段未填或未覆盖。采用三层防线消除：
   1. **内容填充**：Agent 写 YAML 时必须填充至少 70-88% 的模板 bd 字段，对照 [template-yaml-field-map.md](references/template-yaml-field-map.md) 逐字段检查。
   2. **预校验拦截**：`yaml_pre_validate.check_bd_coverage` 在 Phase 0.5 检查每类型字段覆盖率，低于阈值报警（concept≥25, KE≥14, entity≥13, KP≥32, SP≥20, Scene≥14, solution≥14）。
-  3. **渲染级删除**：`_strip_wu_sections` 在文件输出前删除内容为"无"的节段（##/###/#### 级标题+内容），剩余"无"仅来自 FrontMatter（如 `bloom_level: 无`），不影响内容可读性。
+  3. **渲染级删除（三遍扫描）**：`_strip_wu_sections` 在文件输出前执行：
+     - Pass1: 删除 `##/###/####` 标题后紧接"无"的整节
+     - Pass2: 删除 `##/###/####` 标题后全为"无"单元格的表格节（如能力要求表）
+     - Pass3: 压缩多余空行
+     剩余"无"仅来自 FrontMatter（如 `bloom_level: 无`）和列表/表格内格式，不影响内容可读性。
+
+**重要**：`_strip_wu_sections` 必须在 `template_writers.assemble_md` 和 `template_assembler._assemble_one` 两处调用。如果后续新增模板输出路径（如 `index_assembler.py` 的 `fill_template` 调用点），必须同步添加 `_strip_wu_sections` 调用。已知缺口：`index_assembler.py` 中的 4 处 `fill_template` 调用点尚未添加（影响范围：L2/L3/L4 索引页面，非内容节点）。
+
+**重复技能注意**：本技能目录为 `research/domain-wiki/`，另有一个旧副本 `research/domain-book-wiki/` 仍存在于磁盘和 git 跟踪中。如果修改 git 跟踪设置，应考虑删除旧副本或统一为一个目录。
 
 | 归属 | 特征 | 由谁执行 | 典型任务 |
 |:-----|:-----|:---------|:---------|
@@ -211,7 +219,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 || 96 | 模板拆分时 template_assembler.py 的 CLI 入口被移到 template_writers.py 但未加 `__main__` 回调。`_auto_detect_and_build_exercises` 调用 `template_assembler.py` 执行了 0 行代码，习题永不被生成 🔥 | **v52.2**: 在 template_assembler.py 末尾添加 `if __name__ == "__main__": _tw_main()` 回调。修复 3 处调用点。 |
 || 97 | 概念有源文公式但 `mathematical_model` 填"无"（如电磁干扰三要素的 S·C·R 模型, SE=R+A+B 公式） | **v52.2**: 写 YAML 前必须扫描源文 `$$...$$` 公式,有则提取。技能参考 yaml-generation-guide.md 新增"数学模型的强制要求"节。 |
 || 98 | SP/Scene 被跳过：sps.yaml/scenes.yaml 为空 → pipeline 标记为 done(0 文件) → 知识库缺失工程应用内容 | **v52.2**: 每章必须≥1 SP + ≥1 Scene。绪论章也有 SP(术语辨析)和 Scene(EMC评估)。写入 sps.yaml 后再重建。 |
-|| 99 | 模板字段未填导致"无"充斥输出文件（SP 17个无/Scene 12个无/KP 15个无） | **v52.3**: 1)修改 template_writers.assemble_md 和 _assemble_one 启用 _strip_wu_sections（原禁用）；2)扩展 regex 支持 ## 级标题和空白行；3)新增 check_bd_coverage 预校验。 |
+|| 99 | 模板字段未填导致"无"充斥输出文件（SP 17个无/Scene 12个无/KP 15个无） | **v52.5**: 1) template_assembler._assemble_one: auto-complete bd 所有缺失的模板占位符再 fill; 2) template_writers.assemble_md: 同上; 3) _strip_wu_sections 三遍扫描删除空节. |
 
  完整 80+ 条陷阱清单 →
 

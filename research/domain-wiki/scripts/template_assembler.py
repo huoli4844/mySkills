@@ -255,6 +255,18 @@ def _assemble_one(config, template, item, kwargs, idx):
     all_vars.update(bd)
     all_vars.update(item)
 
+    # v52.5: Auto-complete bd with ALL template placeholder fields
+    #   Prevents builder from implicitly filling missing fields with "无".
+    #   Agent-filled fields keep values. Missing fields get explicit "无" in bd.
+    all_placeholders = set(re.findall(r'\{\{(\w+)\}\}', template))
+    fm_keys = {'name','file','book_id','book_name','chapter_num','confidence','confidence_note',
+               'source_chapter','source_from','entity_type','aliases','tags','type','type_tag',
+               'template_version','cssclass','quality_key'}
+    content_placeholders = all_placeholders - fm_keys - set(all_vars.keys())
+    for ph in content_placeholders:
+        bd[ph] = "无"
+        all_vars[ph] = "无"
+
     output = fill_template(template, all_vars)
 
     # v52.2: 删除内容为"无"的空节（避免"无"充斥输出）

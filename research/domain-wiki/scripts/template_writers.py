@@ -104,6 +104,20 @@ def assemble_md(
 
     body = fill_template(parsed["body_template"], body_replacements)
 
+    # v52.5: Auto-complete body_replacements with ALL template placeholder fields
+    #   (safety net: prevents implicit "无" when build_kb_files misses fields)
+    body_template_text = parsed["body_template"]
+    import re as _re
+    all_placeholders = set(_re.findall(r'\{\{(\w+)\}\}', body_template_text))
+    fm_keys = {'name','file','book_id','book_name','chapter_num','confidence','confidence_note',
+               'source_chapter','source_from','entity_type','aliases','tags','type','type_tag',
+               'template_version','cssclass','quality_key'}
+    missing = all_placeholders - fm_keys - set(body_replacements.keys())
+    for ph in missing:
+        body_replacements[ph] = "无"
+    if missing:
+        body = fill_template(parsed["body_template"], body_replacements)
+
     full_md = front_matter_text + body + "\n"
 
     check_placeholders(full_md, filename)

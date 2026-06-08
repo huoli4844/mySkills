@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
-"""quality_reviewer.py — 质量审查引擎
+"""quality_reviewer.py — 质量审查引擎（v2.0 Agent可消费输出）
 
 三阶检查体系：
   T1: 结构完整性 — YAML存在/fm字段/无{{xxx}}残留/无@prompt泄漏
   T2: 内容深度 — bd字段填充率/最小长度/空白检测
   T3: 交叉验证 — wikilink完整性/跨类型引用/图质量
 
+输出模式：
+  - chapter: 人类可读文本 (默认) 或 --json (Agent可消费JSON)
+  - book: 同上
+  - fix-manifest: 产生结构化修复清单，供pipeline auto-fix使用
+
 用法:
-  # 单章审查
-  python3 quality_reviewer.py chapter \\
-    --book-dir /path --book-id 01_书ID -c 3
+  # 单章审查（人类可读）
+  python3 quality_reviewer.py chapter --book-dir /path --book-id 01_ID -c 3
 
-  # 全书审查
-  python3 quality_reviewer.py book \\
-    --book-dir /path --book-id 01_书ID
+  # 单章审查（Agent可消费JSON）
+  python3 quality_reviewer.py chapter --book-dir /path --book-id 01_ID -c 3 --json
 
-  # 审查+阈值阻断（低于分数设状态为failed）
-  python3 quality_reviewer.py chapter \\
-    --book-dir /path --book-id 01_书ID -c 3 \\
-    --threshold 0.6 --state-dir /path/.dag
+  # 全书审查JSON
+  python3 quality_reviewer.py book --book-dir /path --book-id 01_ID --json
+
+  # 生成修复清单
+  python3 quality_reviewer.py fix-manifest --book-dir /path --book-id 01_ID -c 3
+
+  # 审查并阻断（低于阈值exit 1）
+  python3 quality_reviewer.py chapter --book-dir /path --book-id 01_ID -c 3 --threshold 0.5
 """
 
 from __future__ import annotations
@@ -37,7 +44,6 @@ SKILL_DIR = os.path.dirname(SCRIPT_DIR)
 
 SCHEMA_PATH = os.path.join(SKILL_DIR, "schemas", "domain_book_schema.json")
 TEMPLATES_DIR = os.path.join(SKILL_DIR, "assets", "templates")
-INDEX_DIR = os.path.join(SKILL_DIR, ".dag", "index_data")
 
 # ── 类型映射 ──
 TYPE_YAML_MAP: dict[str, dict[str, str]] = {
@@ -135,7 +141,6 @@ FIELD_DEPTH: dict[str, dict[str, int]] = {
 # ════════════════════════════════════════════════════════════
 
 def load_yaml_list(path: str) -> list[dict]:
-    """加载 YAML 文件为列表"""
     try:
         import yaml
         with open(path, encoding="utf-8") as f:
@@ -148,7 +153,6 @@ def load_yaml_list(path: str) -> list[dict]:
 
 
 def parse_frontmatter(content: str) -> dict:
-    """解析 YAML frontmatter"""
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
     if not m:
         return {}
@@ -158,14 +162,6 @@ def parse_frontmatter(content: str) -> dict:
             k, v = line.split(":", 1)
             fm[k.strip()] = v.strip().strip('"').strip("'")
     return fm
-
-
-def read_file_lines(path: str) -> list[str]:
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.readlines()
-    except Exception:
-        return []
 
 
 def read_file_content(path: str) -> str:
@@ -193,16 +189,14 @@ def check_structure(yaml_data: list[dict], rendered_dir: str, ptype: str) -> lis
         bd = item.get("bd", {})
         file_path = os.path.join(rendered_dir, f"{item.get('file', name)}.md")
 
-        # 顶层字段检查（name/file 在顶层，非 fm 内部）
         if not item.get("name", ""):
             issues.append({
                 "file": name, "tier": "T1", "severity": "error",
                 "category": "yaml_no_name",
                 "message": "YAML缺少顶层 name 字段", "type": ptype,
             })
-            continue  # 跳过后续检查
+            continue
 
-        # FM 必填字段（fm 内部）
         for f in FM_REQUIRED:
             if f not in fm or not str(fm.get(f, "")).strip():
                 issues.append({
@@ -211,7 +205,6 @@ def check_structure(yaml_data: list[dict], rendered_dir: str, ptype: str) -> lis
                     "message": f"FM缺字段'{f}'", "type": ptype,
                 })
 
-        # {{xxx}} 残留（渲染输出中）
         if os.path.isfile(file_path):
             rendered = read_file_content(file_path)
             leftovers = re.findall(r"\{\{[a-z_]+\|\|?[^}]*\}\}", rendered)
@@ -219,11 +212,10 @@ def check_structure(yaml_data: list[dict], rendered_dir: str, ptype: str) -> lis
                 issues.append({
                     "file": name, "tier": "T1", "severity": "error",
                     "category": "placeholder_residue",
-                    "message": f"{{{{xxx}}}}残留:{','.join(leftovers[:3])}",
+                    "message": f"{{xxx}}残留:{','.join(leftovers[:3])}",
                     "type": ptype,
                 })
 
-            # @prompt 泄漏
             if "<!-- @prompt" in rendered or "<!--@prompt" in rendered:
                 issues.append({
                     "file": name, "tier": "T1", "severity": "error",
@@ -232,13 +224,11 @@ def check_structure(yaml_data: list[dict], rendered_dir: str, ptype: str) -> lis
                     "type": ptype,
                 })
 
-            # Mermaid 标签语法（概念/KE/KP必检）
             if ptype in ("concept", "ke", "kp") and "```mermaid" in rendered:
                 mermaid_blocks = re.findall(r"```mermaid\n(.*?)```", rendered, re.DOTALL)
                 for mb in mermaid_blocks:
                     for line in mb.strip().split("\n"):
-                        if "[" in line and "]" in line and '("' not in line and '["' not in line:
-                            # 节点名可能没引号，但包含(的必须检查
+                        if "[" in line and "]" in line and '(' not in line and '["' not in line:
                             if "(" in line and "'" not in line and '"' not in line.split("[")[1][:5]:
                                 issues.append({
                                     "file": name, "tier": "T1", "severity": "warning",
@@ -247,12 +237,10 @@ def check_structure(yaml_data: list[dict], rendered_dir: str, ptype: str) -> lis
                                     "type": ptype,
                                 })
 
-        # bd 字段对齐 — YAML bd vs 模板 {{xxx}}
         if bd:
             bd_keys = set(bd.keys())
-            tmpl_used = {f.replace("name", "") for f in tpl_fields
+            tpl_used = {f.replace("name", "") for f in tpl_fields
                          if f in bd_keys or f in ("name",)}
-            # 检查 bd 中有但模板不用的字段（可能浪费，不阻断）
             extra = bd_keys - tpl_fields - fm.keys()
             if extra:
                 issues.append({
@@ -279,13 +267,11 @@ def check_depth(yaml_data: list[dict], ptype: str) -> list[dict]:
         bd = item.get("bd", {})
         fm = item.get("fm", {})
 
-        # 检查每个 bd 字段
         for field, content in bd.items():
             if not isinstance(content, str):
                 continue
 
             stripped = content.strip()
-            # 空字段
             if not stripped or stripped in ("无", "（无）", "暂无", "待补充"):
                 if field in depth_cfg:
                     issues.append({
@@ -296,7 +282,6 @@ def check_depth(yaml_data: list[dict], ptype: str) -> list[dict]:
                     })
                 continue
 
-            # 字段深度不足
             min_len = depth_cfg.get(field, 0)
             if min_len > 0 and len(stripped) < min_len:
                 issues.append({
@@ -306,9 +291,7 @@ def check_depth(yaml_data: list[dict], ptype: str) -> list[dict]:
                     "type": ptype,
                 })
 
-        # 特殊字段检查
         if ptype == "concept":
-            # 必须有 mermaid
             if "core_concept_map" in bd:
                 ccm = bd["core_concept_map"].strip()
                 if not ccm.startswith("graph") and len(ccm) < 30:
@@ -320,7 +303,6 @@ def check_depth(yaml_data: list[dict], ptype: str) -> list[dict]:
                     })
 
         if ptype in ("kp", "sp"):
-            # Bloom 层级
             bloom = fm.get("bloom_level", "").strip()
             if not bloom:
                 issues.append({
@@ -331,7 +313,6 @@ def check_depth(yaml_data: list[dict], ptype: str) -> list[dict]:
                 })
 
         if ptype == "ke":
-            # 英文术语
             eng = bd.get("term_english", "").strip()
             if not eng:
                 issues.append({
@@ -360,10 +341,7 @@ def check_depth(yaml_data: list[dict], ptype: str) -> list[dict]:
 
 def check_cross_references(book_dir: str, yaml_by_type: dict[str, list],
                            kg_data: dict | None = None) -> list[dict]:
-    """T3 交叉验证检查"""
     issues = []
-
-    # Nodename ↔ filename 映射
     name_to_file = {}
     for ptype, ydata in yaml_by_type.items():
         for item in ydata:
@@ -378,7 +356,6 @@ def check_cross_references(book_dir: str, yaml_by_type: dict[str, list],
             text = str(bd)
             fm = item.get("fm", {})
 
-            # wikilink 指向的有效性（粗略检查）
             links = re.findall(r"\[\[([^\]|]+)", text)
             for link in links:
                 clean = link.split("#")[0].strip()
@@ -386,14 +363,8 @@ def check_cross_references(book_dir: str, yaml_by_type: dict[str, list],
                     clean = clean[3:]
                 if "/" in clean:
                     clean = clean.split("/")[-1]
-                # 检查节点是否存在
                 if clean and clean not in name_to_file and clean != name:
-                    # 可能是跨书引用，无法在本域验证
                     pass
-
-            # 章节一致性（概念/KE/KP 的 chapter_num 必须匹配）
-            if ptype in ("concept", "ke", "kp", "entity", "sp", "scene"):
-                pass  # source 上下文检查先跳过
 
     return issues
 
@@ -403,7 +374,6 @@ def check_cross_references(book_dir: str, yaml_by_type: dict[str, list],
 # ════════════════════════════════════════════════════════════
 
 def score_issues(issues: list[dict]) -> dict:
-    """将 issues 转换为评分"""
     if not issues:
         return {"score": 1.0, "error": 0, "warning": 0, "info": 0}
 
@@ -411,13 +381,9 @@ def score_issues(issues: list[dict]) -> dict:
     warnings = [i for i in issues if i["severity"] == "warning"]
     infos = [i for i in issues if i["severity"] == "info"]
 
-    # 分数 = 1.0 - (errors/dim * 0.2 + warnings/dim * 0.08)
-    # 用文件数归一化
-    # 从 all_issues 中提取唯一文件名推断项目数
     files = set(i.get("file", "") for i in issues)
     n_files = max(len(files), 1)
 
-    # 归一化惩罚: 平均每文件错误数
     errs_per_file = len(errors) / n_files
     warns_per_file = len(warnings) / n_files
 
@@ -430,9 +396,6 @@ def score_issues(issues: list[dict]) -> dict:
         "warning": len(warnings),
         "info": len(infos),
         "total": len(issues),
-        "errors": errors[:20],      # 截断避免过大
-        "warnings": warnings[:20],
-        "infos": infos[:10],
     }
 
 
@@ -442,43 +405,47 @@ def score_issues(issues: list[dict]) -> dict:
 
 def review_type(yaml_path: str, rendered_dir: str, ptype: str,
                 book_dir: str = "") -> dict:
-    """审查单一类型的完整质量"""
     yaml_data = load_yaml_list(yaml_path)
     if not yaml_data:
-        # 文件可能存在但为空
         if os.path.isfile(yaml_path) and os.path.getsize(yaml_path) > 10:
-            yaml_data = []  # 空列表也算存在
+            yaml_data = []
         else:
             return {
                 "type": ptype,
                 "score": 0.0,
-                "error": 1,
-                "warning": 0,
-                "info": 0,
-                "total": 1,
+                "error": 1, "warning": 0, "info": 0, "total": 1,
                 "items": 0,
                 "detail": [{"file": "N/A", "tier": "T1", "severity": "error",
                             "category": "yaml_missing", "message": "YAML文件不存在或为空"}],
-                "errors": [],
-                "warnings": [],
-                "infos": [],
+                "file_scores": {},
             }
 
     all_issues: list[dict] = []
+    all_issues.extend(check_structure(yaml_data, rendered_dir, ptype))
+    all_issues.extend(check_depth(yaml_data, ptype))
 
-    # T1: 结构
-    t1 = check_structure(yaml_data, rendered_dir, ptype)
-    all_issues.extend(t1)
-
-    # T2: 深度
-    t2 = check_depth(yaml_data, ptype)
-    all_issues.extend(t2)
-
-    # 评分
     scored = score_issues(all_issues)
     scored["type"] = ptype
     scored["items"] = len(yaml_data)
     scored["detail"] = all_issues[:50]
+
+    # ── 按文件评分（Agent修复用）──
+    file_scores: dict[str, dict] = {}
+    for item in yaml_data:
+        name = item.get("name", "?")
+        file_issues = [i for i in all_issues if i.get("file") == name]
+        fs = score_issues(file_issues)
+        file_scores[name] = {
+            "score": fs["score"],
+            "error": fs["error"],
+            "warning": fs["warning"],
+            "info": fs["info"],
+            "issues": [i for i in file_issues[:10]],
+            "yaml_path": yaml_path,
+            "rendered_path": os.path.join(rendered_dir, f"{item.get('file', name)}.md"),
+            "type": ptype,
+        }
+    scored["file_scores"] = file_scores
 
     return scored
 
@@ -489,7 +456,6 @@ def review_type(yaml_path: str, rendered_dir: str, ptype: str,
 
 def review_chapter(book_dir: str, book_id: str, chapter: str,
                    with_kg: bool = True) -> dict:
-    """审查单个章节"""
     data_dir = os.path.join(book_dir, ".dag", f"第{chapter}章", "data")
     if not os.path.isdir(data_dir):
         return {"chapter": chapter, "score": 0.0, "error": 1,
@@ -505,7 +471,6 @@ def review_chapter(book_dir: str, book_id: str, chapter: str,
         type_scores[ptype] = result
         all_issues.extend(result.get("detail", []))
 
-    # T3: 交叉验证
     yaml_by_type = {}
     for ptype in TYPE_YAML_MAP:
         yaml_path = os.path.join(data_dir, TYPE_YAML_MAP[ptype]["yaml"])
@@ -514,26 +479,19 @@ def review_chapter(book_dir: str, book_id: str, chapter: str,
     t3 = check_cross_references(book_dir, yaml_by_type)
     all_issues.extend(t3)
 
-    # 加权总分
     scorable = [v for v in type_scores.values() if v["items"] > 0]
-    if scorable:
-        avg_score = round(sum(v["score"] for v in scorable) / len(scorable), 2)
-    else:
-        avg_score = 0.0
-
-    scored = score_issues(all_issues)
-    # 覆盖为加权平均
-    scored["score"] = avg_score
+    avg_score = round(sum(v["score"] for v in scorable) / len(scorable), 2) if scorable else 0.0
 
     return {
         "chapter": chapter,
         "book_id": book_id,
         "score": avg_score,
         "type_scores": type_scores,
-        "summary": scored,
+        "summary": score_issues(all_issues),
         "items": sum(v.get("items", 0) for v in type_scores.values()),
         "types_present": [t for t, v in type_scores.items() if v["items"] > 0],
         "all_issues": all_issues[:100],
+        "data_dir": data_dir,
     }
 
 
@@ -542,9 +500,7 @@ def review_chapter(book_dir: str, book_id: str, chapter: str,
 # ════════════════════════════════════════════════════════════
 
 def review_book(book_dir: str, book_id: str) -> dict:
-    """审查全书所有章节"""
     from pathlib import Path
-
     dag_dir = os.path.join(book_dir, ".dag")
     chapters = set()
     for f in Path(dag_dir).glob(f"{book_id}_ch*.json"):
@@ -552,8 +508,6 @@ def review_book(book_dir: str, book_id: str) -> dict:
         ch = stem.replace(f"{book_id}_ch", "") if f"{book_id}_ch" in stem else ""
         if ch and ch.isdigit():
             chapters.add(ch)
-
-    # 作为回退：扫描 data 目录
     for d in sorted(os.listdir(dag_dir)):
         if d.startswith("第") and d.endswith("章"):
             ch = d[1:-1]
@@ -577,15 +531,11 @@ def review_book(book_dir: str, book_id: str) -> dict:
             if ts.get("items", 0) > 0:
                 type_aggregate[ptype].append(ts.get("score", 0.0))
 
-    # 全书评分
     chapter_scores = [r["score"] for r in chapter_reviews if r["score"] > 0]
     avg = round(sum(chapter_scores) / len(chapter_scores), 2) if chapter_scores else 0.0
 
-    # 各类型平均
-    type_averages = {
-        t: round(sum(scores) / len(scores), 2)
-        for t, scores in type_aggregate.items()
-    }
+    type_averages = {t: round(sum(scores) / len(scores), 2)
+                     for t, scores in type_aggregate.items()}
 
     return {
         "book_dir": book_dir,
@@ -598,12 +548,12 @@ def review_book(book_dir: str, book_id: str) -> dict:
         "total_items": sum(r.get("items", 0) for r in chapter_reviews),
         "total_issues_count": len(total_issues),
         "chapter_details": [
-            {
-                "chapter": r["chapter"],
-                "score": r["score"],
-                "items": r.get("items", 0),
-                "types": r.get("types_present", []),
-                "summary": r.get("summary", {}) if isinstance(r.get("summary"), dict) else {},
+            {"chapter": r["chapter"], "score": r["score"],
+             "items": r.get("items", 0),
+             "types": r.get("types_present", []),
+             "summary": r.get("summary", {}) if isinstance(r.get("summary"), dict) else {},
+             "type_scores": {t: {"score": ts["score"], "items": ts["items"]}
+                            for t, ts in r.get("type_scores", {}).items() if ts.get("items", 0) > 0},
             }
             for r in chapter_reviews
         ],
@@ -611,11 +561,10 @@ def review_book(book_dir: str, book_id: str) -> dict:
 
 
 # ════════════════════════════════════════════════════════════
-# Report 格式化输出
+# Report 格式化输出（人类可读）
 # ════════════════════════════════════════════════════════════
 
 def format_report(result: dict, verbose: bool = False) -> str:
-    """格式化为可读报告"""
     lines = []
     is_chapter = "chapter" in result and "book_dir" not in result
 
@@ -625,14 +574,12 @@ def format_report(result: dict, verbose: bool = False) -> str:
         lines.append(f"总分: {result['score']:.0%}  |  "
                      f"共 {result.get('items', 0)} 个文件 |  "
                      f"类型: {', '.join(result.get('types_present', []))}")
-
         s = result.get("summary", {})
         lines.append(f"🔴 Error: {s.get('error', 0)}  |  "
                      f"⚠️ Warning: {s.get('warning', 0)}  |  "
                      f"ℹ️ Info: {s.get('info', 0)}")
         lines.append("")
 
-        # 各类型评分
         lines.append("按类型评分:")
         for ptype, ts in sorted(result.get("type_scores", {}).items()):
             items = ts.get("items", 0)
@@ -642,28 +589,23 @@ def format_report(result: dict, verbose: bool = False) -> str:
                 lines.append(f"  {ptype:12s}  [{bar}] {score:.0%}  ({items}项)")
         lines.append("")
 
-        # 具体问题（截断前15条）
         all_issues = result.get("all_issues", [])
         if all_issues:
             errors = [i for i in all_issues if i["severity"] == "error"]
             warnings = [i for i in all_issues if i["severity"] == "warning"]
-
             if errors:
                 lines.append(f"🔴 错误 ({len(errors)} 条):")
                 for e in errors[:10]:
                     lines.append(f"  [{e['category']}] {e['file']}: {e['message']}")
                 if len(errors) > 10:
                     lines.append(f"  ... 还有 {len(errors)-10} 条")
-
             if warnings:
                 lines.append(f"\n⚠️ 警告 ({len(warnings)} 条):")
                 for w in warnings[:10]:
                     lines.append(f"  [{w['category']}] {w['file']}: {w['message']}")
                 if len(warnings) > 10:
                     lines.append(f"  ... 还有 {len(warnings)-10} 条")
-
     else:
-        # 全书报告
         lines.append(f"📋 全书质量审查报告 — {result.get('book_id', '?')}")
         lines.append("=" * 60)
         lines.append(f"总分: {result['score']:.0%}  |  "
@@ -671,21 +613,17 @@ def format_report(result: dict, verbose: bool = False) -> str:
                      f"{result.get('total_items', 0)} 个文件 |  "
                      f"{result.get('total_issues_count', 0)} 个问题")
         lines.append("")
-
-        # 按章节
         lines.append("按章节评分:")
         ch_scores = result.get("chapter_scores", {})
         for ch in sorted(ch_scores.keys(), key=int):
             sc = ch_scores[ch]
             bar = "█" * int(sc * 10) + "░" * (10 - int(sc * 10))
             lines.append(f"  第{ch}章  [{bar}] {sc:.0%}")
-
         lines.append("")
         lines.append("按类型平均:")
         for t, sc in sorted(result.get("type_scores", {}).items()):
             bar = "█" * int(sc * 10) + "░" * (10 - int(sc * 10))
             lines.append(f"  {t:12s}  [{bar}] {sc:.0%}")
-
         if verbose:
             lines.append("")
             lines.append("详细章节:")
@@ -699,17 +637,194 @@ def format_report(result: dict, verbose: bool = False) -> str:
 
 
 # ════════════════════════════════════════════════════════════
+# Agent可消费格式 — JSON 输出 (用于格式章节报告)
+# ════════════════════════════════════════════════════════════
+
+def build_json_output(result: dict, threshold: float = 0.8) -> dict[str, Any]:
+    """构建Agent可消费的JSON输出（章节或全书级别）
+
+    关键字段：
+      - fix_manifest: 需要修复的文件清单，每项包含：
+        - file/type/yaml_path/source_path
+        - fields_to_fix: [{field, severity, current_len, target_len, issue}]
+    """
+    is_chapter = "chapter" in result and "book_dir" not in result
+
+    out: dict[str, Any] = {
+        "timestamp": datetime.now().isoformat(),
+        "agent_instructions": (
+            "此JSON由quality_reviewer生成，供Agent消费。\n"
+            "fix_manifest列出需要修复的文件和具体字段。\n"
+            "修复流程: 读取YAML → 读取源文 → 委托子Agent修复 → 重新渲染 → 重新审查"
+        ),
+    }
+
+    if is_chapter:
+        out["scope"] = "chapter"
+        out["chapter"] = result["chapter"]
+        out["book_id"] = result.get("book_id", "")
+        out["score"] = result["score"]
+        out["items"] = result.get("items", 0)
+        out["summary"] = result.get("summary", {})
+        out["types_present"] = result.get("types_present", [])
+        out["type_scores"] = {
+            t: {"score": ts["score"], "items": ts["items"]}
+            for t, ts in result.get("type_scores", {}).items()
+            if ts.get("items", 0) > 0
+        }
+        out["fix_manifest"] = build_fix_manifest(result, threshold)
+        out["data_dir"] = result.get("data_dir", "")
+    else:
+        out["scope"] = "book"
+        out["book_id"] = result.get("book_id", "")
+        out["book_dir"] = result.get("book_dir", "")
+        out["score"] = result["score"]
+        out["chapters"] = result.get("chapters", 0)
+        out["total_items"] = result.get("total_items", 0)
+        out["total_issues"] = result.get("total_issues_count", 0)
+        out["type_scores"] = result.get("type_scores", {})
+        out["chapter_scores"] = result.get("chapter_scores", {})
+        out["chapter_details"] = result.get("chapter_details", [])
+
+        # 全书 fix_manifest = 各章 fix_manifest 的聚合
+        all_fixes = []
+        for cd in result.get("chapter_details", []):
+            chapter = cd["chapter"]
+            # 检查该章的type_scores决定哪些类型需要修复
+            for ptype, ts in cd.get("type_scores", {}).items():
+                if ts.get("score", 1.0) < 0.8:
+                    all_fixes.append({
+                        "chapter": chapter,
+                        "type": ptype,
+                        "score": ts["score"],
+                        "items": ts.get("items", 0),
+                        "action": "review_and_fix_type",
+                    })
+        out["fix_manifest"] = all_fixes
+
+    return out
+
+
+def build_fix_manifest(result: dict, threshold: float = 0.8) -> list[dict]:
+    """为章节报告生成修复清单 — 文件级别的精确修复指令"""
+    manifest = []
+    chapter = result.get("chapter", "?")
+    book_dir = result.get("data_dir", "").replace(
+        f"/.dag/第{chapter}章/data", "").replace(
+        f"\\.dag\\第{chapter}章\\data", "")
+    if not book_dir:
+        # 尝试从 data_dir 提取
+        dd = result.get("data_dir", "")
+        for prefix in ["/.dag/", "\\.dag\\"]:
+            idx = dd.find(prefix)
+            if idx > 0:
+                book_dir = dd[:idx]
+                break
+
+    src_dir = os.path.join(book_dir, "20_正文") if book_dir else ""
+
+    for ptype, ts in result.get("type_scores", {}).items():
+        if ts.get("items", 0) == 0:
+            continue
+
+        file_scores = ts.get("file_scores", {})
+        for fname, fs in file_scores.items():
+            if fs.get("score", 1.0) >= threshold:
+                continue
+
+            fields = []
+            for issue in fs.get("issues", []):
+                if issue["severity"] == "info":
+                    continue
+                field_match = re.match(r"字段'(\w+)'", issue.get("message", ""))
+                field = field_match.group(1) if field_match else ""
+                len_match = re.search(r"仅(\d+)字\(<(\d+)\)", issue.get("message", ""))
+                current_len = int(len_match.group(1)) if len_match else 0
+                target_len = int(len_match.group(2)) if len_match else 0
+
+                if field:
+                    fields.append({
+                        "field": field,
+                        "severity": issue["severity"],
+                        "category": issue["category"],
+                        "current_len": current_len,
+                        "target_len": target_len,
+                        "action": "enrich" if issue["category"] == "field_too_short" else "fill",
+                    })
+                else:
+                    fields.append({
+                        "field": issue.get("category", "unknown"),
+                        "severity": issue["severity"],
+                        "category": issue["category"],
+                        "action": "fix_structure",
+                    })
+
+            if fields:
+                manifest.append({
+                    "file": fname,
+                    "type": ptype,
+                    "chapter": chapter,
+                    "score": fs["score"],
+                    "yaml_path": fs.get("yaml_path", ""),
+                    "rendered_path": fs.get("rendered_path", ""),
+                    "source_dir": src_dir,
+                    "fields_to_fix": fields,
+                })
+
+    return manifest
+
+
+# ════════════════════════════════════════════════════════════
+# Fix Manifest 指令输出 — 供Agent直接消费
+# ════════════════════════════════════════════════════════════
+
+def print_fix_instructions(result: dict, threshold: float = 0.8):
+    """输出Agent可执行的修复指令
+
+    格式:
+      FIX_FILE: <path>
+      FIX_TYPE: <type>
+      FIX_FIELDS: <field1>,<field2>
+      FIX_SOURCE: <source_path>
+      FIX_CURRENT: <current_content_hint>
+      ---
+    """
+    manifest = build_fix_manifest(result, threshold)
+    if not manifest:
+        print("✅ 无需修复: 所有文件质量达标")
+        return
+
+    print(f"🛠️  需要修复 {len(manifest)} 个文件")
+    print()
+    for item in manifest:
+        fields_str = ",".join(
+            f"{f['field']}({f['action']}:{f.get('current_len', 0)}→{f.get('target_len', 0)})"
+            for f in item["fields_to_fix"] if f.get("current_len", 0) > 0
+        )
+        missing_str = ",".join(
+            f"{f['field']}({f['action']})"
+            for f in item["fields_to_fix"] if f.get("current_len", 0) == 0
+        )
+
+        print(f"FIX_FILE:{item['yaml_path']}")
+        print(f"FIX_TYPE:{item['type']}")
+        print(f"FIX_NAME:{item['file']}")
+        if fields_str:
+            print(f"FIX_FIELDS:{fields_str}")
+        if missing_str:
+            print(f"FIX_MISSING:{missing_str}")
+        print(f"FIX_SCORE:{item['score']}")
+        print(f"FIX_SOURCE_DIR:{item['source_dir']}")
+        print("---")
+
+
+# ════════════════════════════════════════════════════════════
 # Pipeline 集成 — 审查并阻断
 # ════════════════════════════════════════════════════════════
 
 def check_and_block(book_dir: str, book_id: str, chapter: str,
                     threshold: float = 0.5,
                     set_state_failed: bool = False) -> tuple[bool, dict]:
-    """审查章节并决定是否阻断
-
-    Returns:
-        (passed, result) — passed=False 表示质量不达标
-    """
     result = review_chapter(book_dir, book_id, chapter, with_kg=False)
     score = result.get("score", 0.0)
 
@@ -734,51 +849,123 @@ def check_and_block(book_dir: str, book_id: str, chapter: str,
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(description="质量审查引擎")
+    p = argparse.ArgumentParser(description="质量审查引擎 v2.0 (Agent可消费)")
     sp = p.add_subparsers(dest="cmd", required=True)
 
+    # ── chapter ──
     ch = sp.add_parser("chapter", help="审查单章")
     ch.add_argument("--book-dir", required=True)
     ch.add_argument("--book-id", required=True)
     ch.add_argument("-c", "--chapter", required=True)
     ch.add_argument("--threshold", type=float, default=0.5,
-                    help="质量阈值(默认0.5)，低于此阻断")
-    ch.add_argument("--state-dir", help="状态目录(设置后低于阈值标记为failed)")
+                    help="质量阈值(默认0.5)，低于此退出码1")
+    ch.add_argument("--fix-threshold", type=float, default=0.8,
+                    help="修复阈值(默认0.8)，低于此的文件列进修复清单")
+    ch.add_argument("--state-dir", help="状态目录")
     ch.add_argument("-v", "--verbose", action="store_true")
+    ch.add_argument("--json", action="store_true",
+                    help="输出Agent可消费的JSON格式(默认人类可读)")
 
+    # ── book ──
     bk = sp.add_parser("book", help="审查全书")
     bk.add_argument("--book-dir", required=True)
     bk.add_argument("--book-id", required=True)
     bk.add_argument("-v", "--verbose", action="store_true")
+    bk.add_argument("--json", action="store_true",
+                    help="输出Agent可消费的JSON格式")
+
+    # ── fix-manifest ──
+    fm = sp.add_parser("fix-manifest", help="生成修复指令清单 (Agent消费)")
+    fm.add_argument("--book-dir", required=True)
+    fm.add_argument("--book-id", required=True)
+    fm.add_argument("-c", "--chapter", required=True)
+    fm.add_argument("--threshold", type=float, default=0.8,
+                    help="修复阈值(默认0.8)，低于此的文件列进修复清单")
+    fm.add_argument("--output", help="修复清单输出路径(默认输出到stdout)")
+    fm.add_argument("--json", action="store_true",
+                    help="以JSON格式输出修复清单")
 
     a = p.parse_args()
 
     if a.cmd == "chapter":
         result = review_chapter(a.book_dir, a.book_id, a.chapter)
-        print(format_report(result, verbose=a.verbose))
         score = result.get("score", 0.0)
+
+        if a.json:
+            # Agent可消费JSON输出
+            fix_thr = getattr(a, 'fix_threshold', 0.8)
+            json_out = build_json_output(result, fix_thr)
+            print(json.dumps(json_out, ensure_ascii=False, indent=2))
+        else:
+            # 人类可读
+            print(format_report(result, verbose=a.verbose))
+
         if score < a.threshold:
-            print(f"\n❌ 质量不达标: {score:.0%} < {a.threshold:.0%}")
+            print(f"\n❌ 质量不达标: {score:.0%} < {a.threshold:.0%}", file=sys.stderr)
             if a.state_dir:
-                # 标记为 failed
                 try:
                     sys.path.insert(0, SCRIPT_DIR)
                     from dag_state import ChapterState
                     state = ChapterState(a.book_dir, a.book_id, a.chapter)
                     state.set_status("quality_review", "failed")
                     state.save()
-                    print(f"  状态已标记为 failed")
                 except Exception:
                     pass
             sys.exit(1)
         else:
-            print(f"\n✅ 质量达标: {score:.0%} ≥ {a.threshold:.0%}")
+            print(f"\n✅ 质量达标: {score:.0%} ≥ {a.threshold:.0%}", file=sys.stderr)
             sys.exit(0)
 
     elif a.cmd == "book":
         result = review_book(a.book_dir, a.book_id)
-        print(format_report(result, verbose=a.verbose))
+        if a.json:
+            json_out = build_json_output(result)
+            print(json.dumps(json_out, ensure_ascii=False, indent=2))
+        else:
+            print(format_report(result, verbose=a.verbose))
         sys.exit(0)
+
+    elif a.cmd == "fix-manifest":
+        result = review_chapter(a.book_dir, a.book_id, a.chapter)
+        thr = getattr(a, 'threshold', 0.8)
+        if a.output:
+            with open(a.output, "w", encoding="utf-8") as f:
+                if a.json:
+                    json.dump(build_json_output(result, thr), f,
+                              ensure_ascii=False, indent=2)
+                else:
+                    f.write(build_manifest_text(result, thr))
+            print(f"📄 修复清单已写入: {a.output}")
+        else:
+            if a.json:
+                print(json.dumps(build_json_output(result, thr),
+                                  ensure_ascii=False, indent=2))
+            else:
+                print_fix_instructions(result, thr)
+        sys.exit(0)
+
+
+def build_manifest_text(result: dict, threshold: float = 0.8) -> str:
+    """构建修复清单文本"""
+    from io import StringIO
+    buf = StringIO()
+    manifest = build_fix_manifest(result, threshold)
+    buf.write(f"📋 修复清单 — 第{result.get('chapter', '?')}章\n")
+    buf.write(f"总分: {result.get('score', 0):.0%}\n")
+    buf.write(f"需修复: {len(manifest)} 个文件\n\n")
+    for item in manifest:
+        buf.write(f"## {item['file']} ({item['type']})\n")
+        buf.write(f"评分: {item['score']:.0%}\n")
+        buf.write(f"YAML: {item['yaml_path']}\n")
+        buf.write(f"源文: {item['source_dir']}\n")
+        for f in item["fields_to_fix"]:
+            action_icon = "🖊️" if f.get("action") == "enrich" else "📝" if f.get("action") == "fill" else "🔧"
+            if f.get("current_len", 0) > 0:
+                buf.write(f"  {action_icon} {f['field']}: {f['current_len']}→{f['target_len']}字\n")
+            else:
+                buf.write(f"  {action_icon} {f['field']}: 空 → 需填充\n")
+        buf.write("\n")
+    return buf.getvalue()
 
 
 if __name__ == "__main__":

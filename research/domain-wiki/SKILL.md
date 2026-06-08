@@ -1,6 +1,6 @@
 ---
 name: domain-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板自携带@prompt写作指导，yaml_writer.py pydantic校验，零对照表"
+description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板@prompt + dag_state状态管理 + KG索引 + 测试套件"
 version: "3.0"
 author: Hermes Agent
 license: MIT
@@ -9,13 +9,13 @@ metadata:
   related_skills: [source-prepare, file2md]
 ---
 
-# Domain Wiki Builder (v2)
+# Domain Wiki Builder (v3.0)
 
 ## When to Use
 
-用户要求从教材构建结构化 Obsidian 知识库，包含核心概念、知识要素、知识点、技能点、应用场景、实体、习题和解答。
+用户要求从教材构建结构化 Obsidian 知识库，包含核心概念、知识要素、知识点、技能点、应用场景、实体、习题和解答。支持整书全自动流程（Phase A → 质量门 → L2/L3/L4索引 → 状态持久化）。
 
-## v2 Pipeline 概览
+## v3 Pipeline 概览
 
 ```
 写 YAML → yaml_writer.py validate → pipeline_v2.py phase-a
@@ -26,13 +26,18 @@ metadata:
     yaml_writer.py self-instruct --type concept -c N --book-dir .
 ```
 
-## 核心文件（仅 9 个脚本 + 1 验证脚本，已全面清洗）
+## 核心文件（16 个脚本 + 1 验证脚本 + 1 测试套））
 
 | 文件 | 职责 |
 |------|------|
-| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门(Mermaid+wikilink)。4子命令：phase-a, phase-b, quality-gate, status |
+| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门(Mermaid+wikilink) → 状态持久化。8子命令：phase-a, phase-b, quality-gate, status, build-indices, run, overview |
 | `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 + self-instruct 自指导 |
 | `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 自动包裹 mermaid 图 → 剥离 @prompt 注释 |
+| `scripts/kg_builder.py` | 知识图谱引擎。从 .md frontmatter→nodes, wikilinks→edges, SQLite 存库。支持 build/query/search/trace/quality_check。接受 str 或 list[str] book_dir（领域级跨书扫描）。构造需 wiki_root(DB存放) + book_dir(扫描目录) 两个参数 |
+| `scripts/graph_analytics.py` | 图分析函数集。build_graph_section() 产出 8+ 板块：知识链连通率、节点连接性、图质量摘要、核心节点排名、Mermaid全景、章节分布、学习路径、待修复项 |
+| `scripts/index_builder.py` | L2 索引构建器（知识图谱驱动）。4步流程：构建 KGraph → 图分析 → 生成索引 YAML → 渲染到 10_总揽/。`--skip-kg` 跳过KG构建回退到文件扫描。被 pipeline_v2.py build-indices 子命令触发 |
+| `scripts/dag_state.py` | 状态管理器。ChapterState 支持 12 阶段追踪、依赖检查、断点续传(--resume)。phase_status_summary() 全书总览表。PipelineError 统一异常 |
+| `scripts/l3_l4_builder.py` | L3(领域总控)+L4(知识库总控) 索引构建。跨书/跨领域扫描，集成 KGraph。输出 领域总控/domain_overview.md + 知识库总控/kb_overview.md |
 | `scripts/validate_mermaid.py` | 批量验证概念文件的 Mermaid 图语法（括号引用、单行图） |
 | `scripts/wikilink_fixer.py` | 非对称链接自动补全（A→B 则 B 追加 ←A，解决 373+ 对不对称） |
 | `scripts/wikilink_deep_fixer.py` | 基于章节归属的出链=0节点智能补链（同章概念→KE→实体互联） |
@@ -40,7 +45,9 @@ metadata:
 | `schemas/domain_book_schema.json` | 字段定义（类型/必填/constraints） |
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
 | `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
-| `scripts/link_audit.py` | wikilink 审核（孤立节点/非对称链接检测，手动工具） |
+| `tests/test_core.py -v` | 12 个测试（状态管理/KG构建/pipeline CLI） |
+| `scripts/quality_reviewer.py` | 质量审查引擎。三阶检查(T1结构/T2深度/T3交叉引用)，评分归一化(0-1)，--threshold 设阻断线。引出 pipeline_v2.py review 子命令 |
+
 
 ## 核心设计原则
 
@@ -136,10 +143,45 @@ python3 scripts/pipeline_v2.py phase-a \
   -c N \
   --book-id 01_书ID \
   --book-name "书名"
-
-# 全书质量门（可选，批量检查所有已渲染章节）
+**全书质量门**（可选，批量检查所有已渲染章节）：
+```bash
 python3 scripts/pipeline_v2.py quality-gate --book-dir /path/to/book
 ```
+
+**质量审查**（T1结构完整性 + T2内容深度检查，可设阈值阻断）：
+```bash
+# 全书审查（输出章节+类型评分表）
+python3 scripts/pipeline_v2.py review \\
+  --book-dir /path/to/book --book-id 01_书ID
+
+# 单章审查（含具体问题列表）
+python3 scripts/pipeline_v2.py review \\
+  --book-dir /path/to/book --book-id 01_书ID -c 3 -v
+
+# 设定阈值（低于则exit 1，可用作CI门禁）
+python3 scripts/pipeline_v2.py review \\
+  --book-dir /path/to/book --book-id 01_书ID -c 3 --threshold 0.3
+
+**运行测试套件**（12个测试覆盖核心模块）：
+```bash
+python3 tests/test_core.py -v
+# 预期: 12/12 tests passed
+# 覆盖: dag_state(6) + KGraph(4) + pipeline CLI(2)
+```
+
+**自动按序处理**（从当前状态自动识别下一个待处理阶段并执行，支持断点续传）：
+```bash
+# 自动处理所有待处理阶段
+python3 scripts/pipeline_v2.py run \
+  --book-dir /path/to/book -c N \
+  --book-id 01_书ID --book-name "书名"
+
+# 查看全书状态总览
+python3 scripts/pipeline_v2.py overview \
+  --book-dir /path/to/book --book-id 01_书ID
+```
+
+**状态管理**：每章自动创建状态文件 `.dag/书籍ID_chN.json`，12 阶段追踪（chapter_toc→concepts→ke→entities→kp→sp→scene→exercises→solutions→l2_indices→l3_indices→l4_indices），支持断点续传：`phase-a --resume` 跳过已完成阶段。
 
 **整书预处理**（已有整书 MD 时）：
 ```bash
@@ -147,6 +189,44 @@ python3 scripts/split_book_to_chapters.py prepare \
   --raw-dir /path/to/raw/书籍名/ \
   -w $BOOK_DIR --split
 ```
+**构建 L2/L3/L4 索引**（全量Phase A完成后执行）：
+
+```bash
+# 一键L2索引（KG驱动）
+python3 scripts/pipeline_v2.py build-indices \
+  --book-dir /path/to/book \
+  --book-id 01_书ID \
+  --book-name "书名"
+
+# L3 领域总控
+python3 scripts/l3_l4_builder.py l3 \
+  --book-dir /path/to/book \
+  --book-id 01_书ID --book-name "书名"
+
+# L4 知识库总控  
+python3 scripts/l3_l4_builder.py l4 \
+  --book-dir /path/to/book --book-id 01_书ID
+
+# 跳过KG（仅文件扫描）
+python3 scripts/index_builder.py /path/to/book \
+  --book-id 01_书ID --book-name "书名" --skip-kg
+```
+
+**索引产出**：`10_总揽/` 目录下 5 个索引文件：
+| 文件 | 内容 | 数据源 |
+|------|------|--------|
+| `book_overview.md` | 总览（连通率、Mermaid、Top10、章节分布、学习路径、4类索引表、质量项） | KG + 文件扫描 |
+| `concept_index.md` | 概念索引（按分类+章节） | 文件扫描 |
+| `knowledge_index.md` | 知识点索引（按Bloom层级+章节） | 文件扫描 |
+| `skill_index.md` | 技能点索引（按章节） | 文件扫描 |
+| `scenario_index.md` | 应用场景索引（按章节） | 文件扫描 |
+
+**知识图谱引擎注意事项**：
+- `KGraph(wiki_root, book_dir)` — wiki_root 为知识库根目录（存 DB 用），book_dir 为书籍工作目录（扫 .md 用）
+- book_dir 接受 str（单书）或 list[str]（多书/领域级/全库级扫描）
+- KG 按 book_dir 范围构建，所有节点自动从该书籍的 30_核心概念/ 等目录扫描
+- 空 confidence 值会被解析为 0.0，不会导致构建失败
+- L3/L4 构建时 KGraph 传入所有书籍目录列表实现跨书分析
 
 ## YAML 数据规范
 
@@ -194,7 +274,7 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 5 | Agent 写的 `theoretical_basis` 太短（<150字）被拦截 | schema 中有 `min_chars` 约束。写之前用 `yaml_writer.py prompt --type kp --field theoretical_basis` 看要求 |
 | 6 | 内容质量的根因不是 prompt 不够细，而是源文不在上下文。prompt 只能解决"格式"，解决不了"深度" | Agent 写 YAML 前必须精读源文对应段落。prompt 命令只是锦上添花，不是雪中送炭。 |
 | 7 | `confidence` 值超出允许范围（如 exercise 写 0.85 但只允许 0.65） | schema.json 每类型有 `confidence.allowed` 枚举。`yaml_writer.py write` 在校验阶段直接 reject |
-|| 8 | 换书：章节文件名、关键词、教材描述全硬编码 | 所有领域信息已在 `_extract_domain_signals()` 中运行时自动提取。章节文件名通过 `get_source_path()` 自动发现（`f.startswith(f"第{chapter}章")`）。不再需要外部配置。详见 `scripts/verify_domain_agnostic.sh`。 |
+| 8 | 换书：章节文件名、关键词、教材描述全硬编码 | 所有领域信息已在 `_extract_domain_signals()` 中运行时自动提取。章节文件名通过 `get_source_path()` 自动发现（`f.startswith(f"第{chapter}章")`）。不再需要外部配置。详见 `scripts/verify_domain_agnostic.sh`。 |
 | 9 | 核心概念图的 `core_concept_map` 不含 ` ```mermaid ` fence → Obsidian 把 graph TD 当普通文字渲染，不显示图 | **引擎层防护**：`template_engine.py._auto_wrap_mermaid()` 自动检测 raw `graph TD/LR/flowchart/sequenceDiagram` 等 mermaid 语法并包裹代码块。**Agent 写 YAML 时的预防**：`core_concept_map` 只需写 `graph TD\n  A[label] --> B[label2]` 内容本身，不需要加 `` ```mermaid `` fence（引擎会加）。纯文字描述（如"接地是EMC四大技术之一"）不会被引擎转换，需重写为 graph 格式。 |
 | 10 | YAML 中存在 `\n`（字面反斜杠+n）而非真正的换行 → mermaid graph 渲染为一行 | YAML 中多行 graph 必须用 `|` block scalar：`core_concept_map: |-\n  graph TD\n    A[label] --> B[label2]`。`yaml.dump(..., default_flow_style=False)` 自动用块标量。 |
 | 11 | Mermaid 标签中的 `()` `,` 等特殊字符未用引号包裹 `A[label(内容)]` → 渲染报错 `Syntax error in graph` | 标签必须用 `A["label(内容)"]` 包裹。`scripts/validate_mermaid.py` 可批量检测。 |
@@ -206,6 +286,14 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 17 | Phase A 渲染完成后不跑 wikilink 修复 → 概念/KE/实体之间约 60-80% 只有出链无人链，知识图谱呈单向森林状 | Phase A 渲染后必须顺序执行：`wikilink_deep_fixer.py`（同章关联）→ `wikilink_fixer.py`（反向补全）。实测可将孤立率从 84% 降至 13%，非对称链接 399→0。 |
 | 18 | 质量检查（Mermaid验证、wikilink修复）作为事后人工步骤 → 被遗忘，用户反馈后才补救 | **质量门必须集成到 pipeline 中，不能作为可选的手动步骤。** `pipeline_v2.py phase-a` 的 Step 3 自动完成：Mermaid验证 → 同章wikilink关联 → 反向链接补全。新增 `quality-gate` 子命令用于全书批检。任何新 Agent 在修改 pipeline 时不得移除 Step 3。 |
 | 19 | 多次修改后技能目录积累死脚本、过时配置文件和 reference 文档 → 技能膨胀、后续 Agent 困惑、用户需要额外清理 | **每次提交前执行清理：** ① `grep -rl "dead_script_name" scripts/` 确认无引用后删除 ② 删除后运行 `grep -rn "dead_name" skill_dir/` 确保无断裂引用 ③ 清理不再被 pipeline 读取的 config/ 目录和 references/ 中引用已删除脚本的过时文档 ④ 更新 SKILL.md 的 Reference Index 避免断裂链接 ⑤ `scripts/verify_domain_agnostic.sh` 确保仍在维护。参考 patterns: dead-code-cleanup。 |
+| 20 | **构建索引时不使用知识图谱** → book_overview.md 只有简单的列表和统计，无连通率、图质量、核心节点排名、Mermaid全景、学习路径等关键数据 | **索引构建必须集成知识图谱。** `index_builder.py` 的默认流程：构建 KGraph（从所有 .md 文件）→ `graph_analytics.build_graph_section()` 获取 8+ 图分析板块 → 生成含 KG 数据的索引 YAML → 渲染到 `10_总揽/`。`--skip-kg` 仅作为调试回退，不应在生成环境中使用。`pipeline_v2.py build-indices` 子命令自动执行全部流程。 |
+| 21 | `KGraph(wiki_root)` **只传 wiki_root 不传 book_dir** → `_scan_all_md_files()` 在 wiki_root 下找 `30_核心概念/` 等目录，但在嵌套布局中这些目录在 `domain/book/` 下，结果为 0 节点 | **KGraph 必须同时接收 wiki_root 和 book_dir 两个参数：** `KGraph(wiki_root, book_dir=book_dir)`。wiki_root = 知识库根目录（存 SQLite DB 用，`{wiki_root}/.dag/knowledge_graph.db`），book_dir = 书籍工作目录（扫 .md 文件用）。 |
+| 22 | **Mermaid 图中同名节点在不同类型下重复定义**（如概念和实体都有名称为 "IEC 61000系列标准" 的节点，但 mermaid_safe() 映射为相同标识符）→ Mermaid 渲染报 duplicate node ID 错误 | `graph_analytics.py` 中 `all_nodes` 字典初始化后，每类节点渲染前必须检查 `name not in all_nodes`，只对未出现的名称添加行。在 `build_graph_section()` 中添加 `and name not in all_nodes` 条件。 |
+| 23 | **Mermaid 边中源节点和目标节点名称相同但ID不同**（不同概念节点同名但在不同目录下创建了不同文件，通过 wikilink 相互连接）→ Mermaid 渲染出 `A -.-> A` 自环 | `graph_analytics.py` 中输出 Mermaid edge 时跳过 `src == tgt` 的情况。在 `build_graph_section()` 的输出循环中添加 `and src != tgt` 条件。 |
+| 24 | **`confidence` 字段在 frontmatter 中为空字符串**（如 `confidence: ""`）→ `float()` 抛出 `could not convert string to float: ''`，KG 构建失败 | `kg_builder.py` 中的 `_process_file()` 在调用 `float(fm.get("confidence", 0))` 前先校验：`float(fm.get("confidence", 0) or 0)` + `try/except (ValueError, TypeError)` 兜底。 |
+| 25 | **构建中途中止（如网络中断）→ 所有已完成的阶段信息丢失，需重头再来** → 浪费时间 | **使用状态管理 dag_state.py。** `pipeline_v2.py phase-a --resume` 跳过已完成阶段。`pipeline_v2.py run` 自动检测下一个待处理阶段。状态文件存储在 `.dag/书籍ID_chN.json`。每次成功完成阶段后自动 `state.save()`。 |
+| 26 | **只构建了 L2 索引（book_overview/concept_index 等），未构建 L3/L4（领域总控/知识库总控）** → 索引体系不完整 | Phase A 全部完成后，调用 `l3_l4_builder.py all`（L3+L4一次完成）或 `pipeline_v2.py run` 自动推进。L3 产出 `领域总控/domain_overview.md`（跨书），L4 产出 `知识库总控/kb_overview.md`（跨领域）。 |
+| 27 | **模板自身有重复节标题**（如 `## 学习目标` 和 `### 学习目标`）→ 渲染后出现视觉冗余 | 新增或修改模板后，先肉眼审查：每个 `##` 和 `###` 节标题是否在同一层级内唯一。`## 学习目标` 下不应再有 `### 学习目标`。通过第3章实测发现并修复。 |
 
 ## 领域自适应设计原则
 
@@ -229,3 +317,4 @@ python3 scripts/split_book_to_chapters.py prepare \
 || [golden-sp-example.md](references/golden-sp-example.md) | SP YAML 金标范例 |
 || [golden-scene-example.md](references/golden-scene-example.md) | Scene YAML 金标范例 |
 || [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
+|| [quality-review-metrics.md](references/quality-review-metrics.md) | 质量审查评分体系：T1/T2/T3检查项、评分公式、CLI用法 |

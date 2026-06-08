@@ -31,9 +31,11 @@ PHASES: list[dict[str, Any]] = [
     {"name": "scene",        "index": 6,  "deps": ["kp", "sp"]},
     {"name": "exercises",    "index": 7,  "deps": ["scene"]},
     {"name": "solutions",    "index": 8,  "deps": ["exercises"]},
-    {"name": "l2_indices",   "index": 9,  "deps": ["concepts", "ke", "entities", "kp", "sp", "scene", "exercises", "solutions"]},
-    {"name": "l3_indices",   "index": 10, "deps": ["l2_indices"]},
-    {"name": "l4_indices",   "index": 11, "deps": ["l3_indices"]},
+    {"name": "quality_review", "index": 9, "deps": ["concepts", "ke", "entities", "kp", "sp", "scene", "exercises", "solutions"]},
+    {"name": "auto_fix",     "index": 10, "deps": ["quality_review"]},
+    {"name": "l2_indices",   "index": 11, "deps": ["concepts", "ke", "entities", "kp", "sp", "scene", "exercises", "solutions"]},
+    {"name": "l3_indices",   "index": 12, "deps": ["l2_indices"]},
+    {"name": "l4_indices",   "index": 13, "deps": ["l3_indices"]},
 ]
 
 PHASE_NAMES = [p["name"] for p in PHASES]

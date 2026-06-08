@@ -43,6 +43,8 @@ import os
 import re
 import subprocess
 import sys
+from collections import defaultdict
+from datetime import datetime
 from typing import Optional
 
 try:
@@ -117,6 +119,8 @@ PHASE_A_STEPS = {
     "scene": "应用场景",
     "exercises": "习题",
     "solutions": "解答",
+    "quality_review": "质量审查",
+    "auto_fix": "自动修复",
 }
 
 
@@ -232,19 +236,51 @@ def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str,
     else:
         print(f"\n✅ Phase A 完成 (有质量警告): 第{chapter}章")
 
-    # 质量门已通过，运行结构完整性检查（T1）
+    # 质量门已通过，运行结构完整性检查（T1）+ 审查
     print("\n" + "=" * 60)
-    print("Phase A Step 4: 质量审查 (T1结构完整性)")
+    print("Phase A Step 4: 质量审查 + 修复指令生成")
     print("=" * 60)
-    qr = run_script(QUALITY_REVIEWER, [
-        "chapter", "--book-dir", book_dir, "--book-id", book_id,
-        "-c", chapter, "--threshold", "0.3",
-    ])
-    if qr:
+
+    # 使用 --json 运行质量审查
+    python = sys.executable
+    qr = subprocess.run(
+        [python, QUALITY_REVIEWER, "chapter",
+         "--book-dir", book_dir, "--book-id", book_id,
+         "-c", chapter, "--json", "--threshold", "0.3",
+         "--fix-threshold", "0.8"],
+        capture_output=True, text=True
+    )
+
+    if qr.returncode == 0:
         print("  ✅ 质量审查通过")
-    else:
+        if qr.stdout:
+            try:
+                jr = json.loads(qr.stdout)
+                print(f"  📊 评分: {jr.get('score', 0):.0%}")
+            except Exception:
+                pass
+    elif qr.returncode == 1:
+        # 低于阈值但继续（非阻断）
         print("  ⚠️  质量审查发现异常（可接受）")
-        # 不阻断，仅警告
+        if qr.stdout:
+            try:
+                jr = json.loads(qr.stdout)
+                score = jr.get("score", 0)
+                print(f"  📊 评分: {score:.0%}")
+                manifest = jr.get("fix_manifest", [])
+                if manifest:
+                    print(f"  🛠️  {len(manifest)}个文件需修复:")
+                    type_counts = defaultdict(int)
+                    for item in manifest:
+                        type_counts[item["type"]] += 1
+                    for t, c in sorted(type_counts.items()):
+                        print(f"    {t}: {c}项")
+                    print("  💡 运行: pipeline_v2.py review-fix ...")
+            except Exception:
+                pass
+    else:
+        print(f"  ⚠️  审查异常: {qr.returncode}")
+        print(qr.stderr[:300] if qr.stderr else "")
 
     return True
 
@@ -276,6 +312,37 @@ def cmd_run(book_dir: str, chapter: str, book_id: str, book_name: str):
             if next_phase in PHASE_A_STEPS:
                 # Phase A 一次性完成所有 L1 阶段
                 success = phase_a(book_dir, chapter, book_id, book_name, resume=True)
+            elif next_phase == "quality_review":
+                # 质量审查 — 输出Agent可消费的修复清单
+                print("\n" + "=" * 60)
+                print("质量审查 Phase: 审查+生成修复指令")
+                print("=" * 60)
+                fixed = review_and_fix(book_dir, book_id, chapter, threshold=0.8)
+                if fixed:
+                    state.set_status("quality_review", "done")
+                    state.set_status("auto_fix", "done")  # 无需修复
+                    state.save()
+                    success = True
+                else:
+                    # 需要修复 — 不阻断run流程，但标记auto_fix为pending
+                    state.set_status("quality_review", "done")
+                    state.save()
+                    # run继续，auto_fix将作为下一阶段处理
+                    success = True  # 继续
+            elif next_phase == "auto_fix":
+                print("\n" + "=" * 60)
+                print("Auto-Fix Phase: 需要Agent介入修复")
+                print("=" * 60)
+                print("  ⏳ 质量审查发现文件低于阈值。")
+                print("  📋 请解读上一步quality_review的FIX指令，")
+                print("  委托子Agent修复YAML后运行: ")
+                print(f"  pipeline_v2.py review-fix --book-dir {book_dir} "
+                      f"--book-id {book_id} -c {chapter} --re-render --apply")
+                print()
+                # 输出AGENT_FIX指令
+                state.set_status("auto_fix", "pending")
+                state.save()
+                success = True  # 不阻断，等待Agent操作
             elif next_phase == "l2_indices":
                 success = build_indices(book_dir, book_id, book_name)
                 if success:
@@ -381,6 +448,224 @@ def quality_gate(book_dir: str):
 
 
 # ════════════════════════════════════════════════════════════
+# Review & Fix — Agent驱动的修复流程
+# ════════════════════════════════════════════════════════════
+
+def review_and_fix(book_dir: str, book_id: str, chapter: str,
+                   threshold: float = 0.8,
+                   re_render: bool = False) -> bool:
+    """审查章节质量，输出Agent可消费的修复指令
+
+    流程:
+      1. 运行 quality_reviewer chapter --json 获取结构化审查结果
+      2. 解析JSON: 识别分数低于threshold的文件和具体字段
+      3. 输出FIX指令 (Agent读取后委托子Agent修复)
+      4. 如果 --re-render: 重新渲染模板并重新审查
+
+    Returns:
+      True = 质量达标（无需修复）或修复后达标
+      False = 需要修复
+      (exit code 2 = 需要修复)
+    """
+    print("=" * 60)
+    print(f"📋 Review & Fix: 第{chapter}章")
+    print("=" * 60)
+
+    # Step 1: 运行审查并输出JSON
+    print("\n▶ Step 1: 质量审查...")
+    python = sys.executable
+    r = subprocess.run(
+        [python, QUALITY_REVIEWER, "chapter",
+         "--book-dir", book_dir, "--book-id", book_id, "-c", chapter,
+         "--json", "--threshold", "0.01",
+         "--fix-threshold", str(threshold)],  # 低exit阈值 + 高修复阈值
+        capture_output=True, text=True
+    )
+
+    # 总是解析JSON检查fix_manifest（不论exit code）
+    try:
+        review_json = json.loads(r.stdout)
+    except (json.JSONDecodeError, ValueError):
+        print("  ❌ 无法解析审查结果JSON")
+        print(r.stdout[:1000])
+        return False
+
+    score = review_json.get("score", 0.0)
+    fix_manifest = review_json.get("fix_manifest", [])
+    type_scores = review_json.get("type_scores", {})
+
+    print(f"\n  📊 评分: {score:.0%}  (阈值: {threshold:.0%})")
+
+    if not fix_manifest:
+        print("  ✅ 无修复需求")
+        return True
+
+    print(f"\n  🛠️  需修复 {len(fix_manifest)} 个文件")
+
+    # Step 2: 输出Agent可消费的FIX指令
+    print("\n▶ Step 2: 生成修复指令...")
+
+    # 按类型分组统计
+    type_fix_count: dict[str, int] = defaultdict(int)
+    for item in fix_manifest:
+        type_fix_count[item["type"]] += 1
+
+    print(f"\n  按类型统计需修复:")
+    data_dir = review_json.get("data_dir", os.path.join(book_dir, ".dag", f"第{chapter}章", "data"))
+    src_dir = os.path.join(book_dir, "20_正文")
+
+    for ptype, ts in sorted(type_scores.items()):
+        count = type_fix_count.get(ptype, 0)
+        score_val = ts.get("score", 1.0)
+        status = "✅" if score_val >= threshold else "🛠️"
+        print(f"    {status} {ptype:12s} 评分{score_val:.0%} 需修{count}项")
+
+    print(f"\n  📁 数据目录: {data_dir}")
+    print(f"  📁 源文目录: {src_dir}")
+
+    # Step 3: 输出详细FIX指令
+    print("\n▶ Step 3: 详细修复指令（Agent消费）")
+    print("-" * 60)
+
+    for item in fix_manifest:
+        print(f"\n  FIX_FILE: {item['yaml_path']}")
+        print(f"  FIX_TYPE: {item['type']}")
+        print(f"  FIX_NAME: {item['file']}")
+        print(f"  FIX_SCORE: {item['score']}")
+
+        enrich_fields = [f for f in item["fields_to_fix"]
+                        if f.get("action") in ("enrich",)]
+        fill_fields = [f for f in item["fields_to_fix"]
+                      if f.get("action") == "fill"]
+        struct_fixes = [f for f in item["fields_to_fix"]
+                       if f.get("action") == "fix_structure"]
+
+        if enrich_fields:
+            ef_str = "; ".join(
+                f"{f['field']}: {f['current_len']}→{f['target_len']}字"
+                for f in enrich_fields
+            )
+            print(f"  FIX_ENRICH: {ef_str}")
+        if fill_fields:
+            ff_str = "; ".join(f["field"] for f in fill_fields)
+            print(f"  FIX_FILL: {ff_str} (空字段)")
+        if struct_fixes:
+            sf_str = "; ".join(
+                f"{f['field']}({f.get('category','')})"
+                for f in struct_fixes
+            )
+            print(f"  FIX_STRUCTURE: {sf_str}")
+
+        print(f"  FIX_SOURCE_DIR: {src_dir}")
+        print(f"  ---")
+
+    # 输出聚合修复指令（便于Agent批量处理）
+    print("\n  📋 聚合修复指令:")
+    print(f"  AGENT_FIX: book_dir={book_dir} book_id={book_id} "
+          f"chapter={chapter} threshold={threshold}")
+    print(f"  AGENT_FIX_TYPES: {', '.join(f'{t}({c})' for t, c in sorted(type_fix_count.items()))}")
+    print(f"  AGENT_FIX_COUNT: {len(fix_manifest)}")
+
+    # Step 4: 如果 re_render，则重新渲染
+    if re_render:
+        print("\n▶ Step 4: 重新渲染（需Agent先完成修复）...")
+        print("  ⏳ 请先运行: pipeline_v2.py review-fix --apply-fixes ...")
+        print("  或手动委托子Agent修复YAML后重新渲染")
+
+    print(f"\n  📊 审查完成: 评分{score:.0%} (阈值{threshold:.0%})")
+    print(f"  🔧 需要修复 {len(fix_manifest)} 个文件")
+    print(f"  💡 建议: 解读上述FIX指令 → 委托子Agent修复 → "
+          f"重新渲染(pipeline_v2.py phase-a)")
+
+    return False  # 需要修复
+
+
+def apply_fixes_and_rerender(book_dir: str, book_id: str, chapter: str,
+                              fix_manifest_json: str = ""):
+    """Agent修复后：重新渲染 + 重新审查
+
+    用法（在Agent完成YAML修复后）:
+      python3 pipeline_v2.py review-fix --book-dir ... \\
+        --book-id ... -c 3 --re-render --apply
+    """
+    data_dir = os.path.join(book_dir, ".dag", f"第{chapter}章", "data")
+
+    print("=" * 60)
+    print(f"📋 Agent修复确认: 第{chapter}章")
+    print("=" * 60)
+
+    # 检查YAML是否有改动
+    print("\n▶ 检查YAML文件时间...")
+    yaml_files = sorted(f for f in os.listdir(data_dir) if f.endswith('.yaml'))
+    for yf in yaml_files:
+        yp = os.path.join(data_dir, yf)
+        mtime = os.path.getmtime(yp)
+        print(f"  {yf}: {datetime.fromtimestamp(mtime).strftime('%H:%M:%S')}")
+
+    # 重新渲染
+    print("\n▶ 重新渲染模板...")
+    python = sys.executable
+
+    # 获取书名
+    book_name = "?"
+    state_path = os.path.join(book_dir, ".dag", f"{book_id}_ch{chapter}.json")
+    if os.path.isfile(state_path):
+        try:
+            with open(state_path) as f:
+                sd = json.load(f)
+            book_name = sd.get("book_name", "?")
+        except Exception:
+            pass
+
+    ok = run_script(TEMPLATE_ENGINE, [
+        'render-chapter',
+        '--data-dir', data_dir,
+        '--output-dir', book_dir,
+        '--book-id', book_id,
+        '--book-name', book_name,
+        '-c', chapter,
+    ])
+    if not ok:
+        print("  ❌ 重新渲染失败")
+        return False
+    print("  ✅ 重新渲染完成")
+
+    # 重新运行质量门
+    print("\n▶ 重新运行质量门...")
+    run_script(VALIDATE_MERMAID, ['--book-dir', book_dir])
+    run_script(WIKILINK_DEEP_FIXER, [book_dir])
+    run_script(WIKILINK_FIXER, [book_dir])
+
+    # 重新审查
+    print("\n▶ 重新审查...")
+    r = subprocess.run(
+        [python, QUALITY_REVIEWER, "chapter",
+         "--book-dir", book_dir, "--book-id", book_id,
+         "-c", chapter, "--json"],
+        capture_output=True, text=True
+    )
+    if r.stdout:
+        try:
+            result = json.loads(r.stdout)
+            score = result.get("score", 0.0)
+            print(f"  📊 修复后评分: {score:.0%}")
+            type_scores = result.get("type_scores", {})
+            for ptype, ts in sorted(type_scores.items()):
+                if ts.get("items", 0) > 0:
+                    print(f"    {ptype:12s}: {ts['score']:.0%}")
+            if r.returncode == 0:
+                print("  ✅ 修复后质量达标")
+            else:
+                print(f"  ⚠️ 修复后仍低于阈值 ({score:.0%})")
+                print("  需继续修复")
+        except Exception:
+            print(f"  无法解析JSON: {r.stdout[:500]}")
+
+    print(f"\n✅ 修复确认完成")
+    return True
+
+
+# ════════════════════════════════════════════════════════════
 # Phase B
 # ════════════════════════════════════════════════════════════
 
@@ -479,6 +764,23 @@ def main():
     rv.add_argument("-c", "--chapter", help="指定章节(默认审查全书)")
     rv.add_argument("--threshold", type=float, default=0.5)
     rv.add_argument("-v", "--verbose", action="store_true")
+    rv.add_argument("--json", action="store_true",
+                    help="输出JSON格式（Agent可消费）")
+    rv.add_argument("--fix-threshold", type=float, default=0.8,
+                    help="修复阈值(默认0.8)")
+
+    # review-fix
+    rf = sp.add_parser("review-fix", help="审查+修复指令（Agent驱动）")
+    rf.add_argument("--book-dir", required=True)
+    rf.add_argument("--book-id", required=True)
+    rf.add_argument("-c", "--chapter", required=True)
+    rf.add_argument("--threshold", type=float, default=0.8,
+                    help="修复阈值(默认0.8)")
+    rf.add_argument("--re-render", action="store_true",
+                    help="在Agent修复后重新渲染")
+    rf.add_argument("--apply", action="store_true",
+                    help="(与--re-render搭配) 确认Agent已修复，重新渲染+审查")
+    rf.add_argument("--output", help="修复清单输出路径")
 
     a = p.parse_args()
 
@@ -506,16 +808,60 @@ def main():
             print(phase_status_summary(a.book_dir, a.book_id))
         elif a.cmd == "review":
             if a.chapter:
-                r = run_script(QUALITY_REVIEWER, [
-                    "chapter", "--book-dir", a.book_dir, "--book-id", a.book_id,
-                    "-c", a.chapter, "--threshold", str(a.threshold),
-                ] + (["-v"] if a.verbose else []))
+                args = ["chapter", "--book-dir", a.book_dir, "--book-id", a.book_id,
+                        "-c", a.chapter, "--threshold", str(a.threshold)]
+                if a.json:
+                    args.append("--json")
+                    args.extend(["--fix-threshold", str(a.fix_threshold)])
+                if a.verbose:
+                    args.append("-v")
+                r = run_script(QUALITY_REVIEWER, args)
                 sys.exit(0 if r else 1)
             else:
-                r = run_script(QUALITY_REVIEWER, [
-                    "book", "--book-dir", a.book_dir, "--book-id", a.book_id,
-                ] + (["-v"] if a.verbose else []))
+                args = ["book", "--book-dir", a.book_dir, "--book-id", a.book_id]
+                if a.json:
+                    args.append("--json")
+                if a.verbose:
+                    args.append("-v")
+                r = run_script(QUALITY_REVIEWER, args)
                 sys.exit(0 if r else 1)
+        elif a.cmd == "review-fix":
+            if a.re_render and a.apply:
+                # Agent已修复，重新渲染+审查
+                success = apply_fixes_and_rerender(a.book_dir, a.book_id, a.chapter)
+                sys.exit(0 if success else 1)
+            elif a.re_render:
+                # 正常 review-fix 流程
+                success = review_and_fix(a.book_dir, a.book_id, a.chapter,
+                                        threshold=a.threshold)
+                print(f"\n{'✅' if success else '🛠️'} Review-Fix 完成")
+                print(f"  评分低于 {a.threshold:.0%} 的文件列在FIX指令中")
+                print(f"  修复后运行: pipeline_v2.py review-fix "
+                      f"--book-dir {a.book_dir} --book-id {a.book_id} "
+                      f"-c {a.chapter} --re-render --apply")
+                sys.exit(0 if success else 2)
+            else:
+                # 仅输出修复清单
+                result, success = False, False
+                if a.output:
+                    # 保存修复清单到文件
+                    r = subprocess.run(
+                        [sys.executable, QUALITY_REVIEWER, "fix-manifest",
+                         "--book-dir", a.book_dir, "--book-id", a.book_id,
+                         "-c", a.chapter, "--threshold", str(a.threshold),
+                         "--json", "--output", a.output],
+                        capture_output=True, text=True)
+                    if r.returncode == 0:
+                        print(f"  📄 修复清单已写入: {a.output}")
+                        success = True
+                    else:
+                        print(f"  ❌ 生成修复清单失败: {r.stderr}")
+                        success = False
+                else:
+                    # 直接输出FIX指令到stdout
+                    success = review_and_fix(a.book_dir, a.book_id, a.chapter,
+                                            threshold=a.threshold)
+                sys.exit(0 if success else 2)
     except PipelineError as e:
         print(f"\n❌ Pipeline错误: {e}")
         sys.exit(1)

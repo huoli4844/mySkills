@@ -330,6 +330,21 @@ def check_source_mathematical_model(items: list[dict], node_type: str, wr: str |
     return errors
 
 
+# v52.2: 检查 source_from 不应包含"第N章 "前缀（模板自动添加"第{{source_chapter}}章 "）
+def check_source_from_format(items: list[dict], node_type: str) -> list[dict]:
+    errors = []
+    for i, item in enumerate(items):
+        fm = item.get("fm", {})
+        sf = fm.get("source_from", "")
+        if re.match(r'^第\d+章\s', sf):
+            errors.append({
+                "item": i, "field": "fm.source_from",
+                "message": f"source_from 含冗余'第N章 '前缀(值='{sf[:40]}')，模板会额外添加导致重复",
+                "severity": "warning",
+            })
+    return errors
+
+
 def check_template_field_names(items: list[dict], node_type: str) -> list[dict]:
     """v50.7: 检查 YAML bd 字段名是否与模板 {{xxx}} 占位符匹配。
 
@@ -460,6 +475,8 @@ def validate_file(yaml_path: str, wr: str | None = None, ch: str = "") -> dict[s
     all_results.extend(check_name_format(items, node_type))
     all_results.extend(check_mathematical_model(items, node_type))
     all_results.extend(check_file_naming(items, node_type))  # v50.0
+    # v52.2: source_from 格式校验 — 不应含"第N章 "前缀（模板自动添加）
+    all_results.extend(check_source_from_format(items, node_type))
     # v52.2: 源文公式交叉校验（需 wr+ch）
     if wr and ch:
         all_results.extend(check_source_mathematical_model(items, node_type, wr, ch))

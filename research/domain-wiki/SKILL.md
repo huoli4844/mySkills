@@ -205,6 +205,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 || 95 | Solution 仅 answer 有内容，其余 17 个 bd 字段全是"无"→ 解答"只有答案没有讲解" | **v52.2**: Solution 使用 eval_template.md（18 字段），至少填 14 个(principle_steps/characteristics/exam_points/solving_tips/difficulty 等)。Agent prompt 中必须列出 eval_template.md 的全部 bd 字段名。对照 [template-yaml-field-map.md](references/template-yaml-field-map.md)。 |
 || 96 | 模板拆分时 template_assembler.py 的 CLI 入口被移到 template_writers.py 但未加 `__main__` 回调。`_auto_detect_and_build_exercises` 调用 `template_assembler.py` 执行了 0 行代码，习题永不被生成 🔥 | **v52.2**: 在 template_assembler.py 末尾添加 `if __name__ == "__main__": _tw_main()` 回调。修复 3 处调用点。 |
 || 97 | 概念有源文公式但 `mathematical_model` 填"无"（如电磁干扰三要素的 S·C·R 模型, SE=R+A+B 公式） | **v52.2**: 写 YAML 前必须扫描源文 `$$...$$` 公式,有则提取。技能参考 yaml-generation-guide.md 新增"数学模型的强制要求"节。 |
+|| 98 | SP/Scene 被跳过：sps.yaml/scenes.yaml 为空 → pipeline 标记为 done(0 文件) → 知识库缺失工程应用内容 | **v52.2**: 每章必须≥1 SP + ≥1 Scene。绪论章也有 SP(术语辨析)和 Scene(EMC评估)。写入 sps.yaml 后再重建。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 

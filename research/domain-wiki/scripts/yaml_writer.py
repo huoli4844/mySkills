@@ -634,46 +634,131 @@ for field_name in list(_FIELD_KEYWORDS.keys()):
 
 # ── 语义级源文匹配引擎 ──
 
-# 信号词：指示特定类型内容的标记词
+# 信号词：指示特定类型内容的标记词（EMC领域全覆盖）
+# 每条信号词都可能出现在@prompt或源文中，用于句子的多维评分
 _SIGNAL_WORDS = {
-    'definition': ['是指', '定义为', '称为', '定义为', '表示', '指'],
-    'formula': ['$$', '公式', '方程', '等式'],
-    'number': ['dB', 'Hz', 'V/m', 'mm', 'MHz', 'GHz', 'kW', 'mW', 'A/m', 'Ω', '°'],
-    'example': ['例如', '如', '案例', '实例', '如图', '表'],
-    'structure': ['①', '②', '③', '步骤', '流程', '阶段', '要素'],
-    'negation': ['不要', '避免', '注意', '误区', '错误', '不能', '注意'],
-    'evolution': ['最早', '提出', '20世纪', '发展', '199', '200', '自'],
+    'definition': [
+        '是指', '定义为', '称为', '定义为', '表示', '指',
+        '是…的', '所谓', '即', '指的是', '指的是',
+        '定义', '概念', '含义', '术语', '释义',
+        '就是', '就是指', '表示的是',
+    ],
+    'formula': [
+        '$$', '公式', '方程', '等式', '表达式',
+        '关系式', '本构关系', '边界条件', '麦克斯韦',
+        'Maxwell', '旋度', '散度', '梯度',
+        '微分', '积分', '差分', '代数',
+        'FDTD', 'MoM', 'FEM', 'TLM', '数值分析',
+    ],
+    'number': [
+        # 单位
+        'dB', 'dBm', 'dBuV', 'dBuV/m', 'dBA', 'dBμV',
+        'Hz', 'kHz', 'MHz', 'GHz', 'THz',
+        'V', 'mV', 'μV', 'kV',
+        'A', 'mA', 'μA', 'kA',
+        'W', 'mW', 'μW', 'kW',
+        'Ω', 'mΩ', 'μΩ', 'kΩ',
+        'F', 'pF', 'nF', 'μF',
+        'H', 'nH', 'μH', 'mH',
+        'm', 'mm', 'cm', 'μm', 'nm',
+        's', 'ms', 'μs', 'ns', 'ps',
+        'V/m', 'A/m', 'T', 'mT', 'μT',
+        'Np', '°',
+        # 参数名
+        '频率', '功率', '电压', '电流', '阻抗',
+        '场强', '功率密度', '灵敏度', '限值',
+        '裕量', '电平', '幅度', '波长',
+        '步长', '网格', '分辨率',
+        # 数值模式
+        '\\d+',  # 任意数字 — 在代码中特殊处理
+    ],
+    'example': [
+        '例如', '如', '案例', '实例', '示例',
+        '如图', '如表', '如下', '见图',
+        '例如说', '举例', '举个例子',
+        '某', '以一个', '下面以',
+        '案例一', '案例二', '应用案例',
+        '实测', '试验', '测试案例',
+        '表13-', '图12-', '式12-',  # 图表引用
+        '场景', '应用背景', '实际工程',
+    ],
+    'structure': [
+        '①', '②', '③', '④', '⑤',
+        '步骤', '流程', '阶段', '要素',
+        '首先', '其次', '然后', '最后',
+        '第一步', '第二步', '第三步',
+        'Step1', 'Step2', '步骤1',
+        '包括', '包含', '由…组成', '分为',
+        '构成', '组成', '结构',
+        '系统组成', '系统构成', '组成部分',
+    ],
+    'negation': [
+        '不要', '避免', '注意', '误区', '错误',
+        '不能', '不得', '不可', '不应该',
+        '注意', '需要注意的是', '值得关注',
+        '误区', '常见误解', '容易混淆',
+        '不能认为', '不能简单', '并非',
+        '区别', '不同', '差异', 'vs', '对比',
+        '容易', '可能引起', '风险',
+        '困难', '复杂度', '挑战',
+        '但是', '然而', '不过', '需要注意的是',
+    ],
+    'evolution': [
+        '最早', '提出', '20世纪', '发展', 
+        '199', '200', '196', '197', '198',  # 年份
+        '自', '以来', '历经', '阶段',
+        '历史', '演进', '演变', '过程',
+        '传统', '早期', '以前', '最初',
+        '近年来', '当前', '目前', '当今',
+        '趋势', '方向', '前景',
+        '未来', '下一步', '发展方向',
+    ],
+    'application': [
+        '应用', '场景', '实际', '工程',
+        '产品', '系统', '设计', '开发',
+        '测试', '诊断', '整改',
+        '解决', '实现', '完成',
+        '应用于', '适用于', '可用于',
+        '在…中', '在…方面',
+        '车载', '机载', '舰载', '星载',
+        '通信', '雷达', '天线', 'PCB',
+        '工业', '医疗', '汽车', '航空航天',
+    ],
+    'cause_effect': [
+        '因为', '所以', '因此', '从而',
+        '导致', '引起', '造成', '产生',
+        '由于', '源于', '基于',
+        '目的', '目标', '为了',
+        '作用', '功能', '用途',
+        '原因', '根源', '机理',
+        '结果', '后果', '效果',
+        '提高', '降低', '增强', '抑制',
+    ],
 }
 
 # 字段 → 内容特征描述（自动匹配信号词的配置）
 _FIELD_SIGNAL_PROFILES = {
-    'term_definition':  {'primary': 'definition', 'min_chars': 30},
-    'definition_sentence': {'primary': 'definition', 'min_chars': 30},
-    'mathematical_model': {'primary': 'formula', 'min_chars': 20, 'require_num': True},
-    'structure': {'primary': 'structure', 'min_chars': 40},
-    'key_parameters': {'primary': 'number', 'min_chars': 20, 'require_num': True},
-    'features': {'primary': 'definition', 'min_chars': 20},
-    'solved_problem': {'primary': 'definition', 'min_chars': 30},
-    'application_scenarios': {'primary': 'example', 'min_chars': 30},
-    'engineering_practices': {'primary': 'number', 'min_chars': 30, 'require_num': True},
-    'common_misconceptions': {'primary': 'negation', 'min_chars': 20},
-    'evolution': {'primary': 'evolution', 'min_chars': 30},
-    'prerequisite_knowledge': {'primary': 'definition', 'min_chars': 20},
-    'learning_objectives': {'primary': 'definition', 'min_chars': 10},
-    'self_check_questions': {'primary': 'definition', 'min_chars': 10},
-    'related_concepts_relations': {'primary': 'definition', 'min_chars': 20},
-    'confusion_compare': {'primary': 'definition', 'min_chars': 20},
-    'value': {'primary': 'definition', 'min_chars': 30},
-    'typical_systems': {'primary': 'definition', 'min_chars': 20},
-    'core_concept_map': {'primary': 'definition', 'min_chars': 10},
-    'core_concept_map_analysis': {'primary': 'definition', 'min_chars': 20},
-    'tech_classification': {'primary': 'definition', 'min_chars': 10},
-    'domain': {'primary': 'definition', 'min_chars': 5},
-    'classification': {'primary': 'definition', 'min_chars': 5},
-    'related_knowledge_elements': {'primary': 'definition', 'min_chars': 5},
-    'upstream_downstream': {'primary': 'definition', 'min_chars': 20},
-    'aliases': {'primary': 'definition', 'min_chars': 5},
-    'tags': {'primary': 'definition', 'min_chars': 5},
+    'term_definition':  {'primary': 'definition', 'secondary': '', 'min_chars': 30},
+    'definition_sentence': {'primary': 'definition', 'secondary': '', 'min_chars': 30},
+    'mathematical_model': {'primary': 'formula', 'secondary': '', 'min_chars': 20, 'require_num': True},
+    'structure': {'primary': 'structure', 'secondary': 'definition', 'min_chars': 40},
+    'key_parameters': {'primary': 'number', 'secondary': '', 'min_chars': 20, 'require_num': True},
+    'features': {'primary': 'definition', 'secondary': 'structure', 'min_chars': 20},
+    'solved_problem': {'primary': 'cause_effect', 'secondary': 'definition', 'min_chars': 30},
+    'application_scenarios': {'primary': 'application', 'secondary': 'example', 'min_chars': 30},
+    'engineering_practices': {'primary': 'number', 'secondary': 'example', 'min_chars': 30, 'require_num': True},
+    'common_misconceptions': {'primary': 'negation', 'secondary': 'cause_effect', 'min_chars': 20},
+    'evolution': {'primary': 'evolution', 'secondary': '', 'min_chars': 30},
+    'prerequisite_knowledge': {'primary': 'definition', 'secondary': '', 'min_chars': 20},
+    'learning_objectives': {'primary': 'definition', 'secondary': '', 'min_chars': 10},
+    'self_check_questions': {'primary': 'definition', 'secondary': '', 'min_chars': 10},
+    'related_concepts_relations': {'primary': 'definition', 'secondary': 'cause_effect', 'min_chars': 20},
+    'confusion_compare': {'primary': 'negation', 'secondary': 'definition', 'min_chars': 20},
+    'value': {'primary': 'cause_effect', 'secondary': 'definition', 'min_chars': 30},
+    'typical_systems': {'primary': 'application', 'secondary': '', 'min_chars': 20},
+    'core_concept_map': {'primary': 'definition', 'secondary': '', 'min_chars': 10},
+    'core_concept_map_analysis': {'primary': 'definition', 'secondary': 'structure', 'min_chars': 20},
+    'upstream_downstream': {'primary': 'cause_effect', 'secondary': '', 'min_chars': 20},
 }
 
 
@@ -727,12 +812,21 @@ def _score_sentence(sentence: str, keywords: list, bd_name: str, prompt_text: st
     exact_matched = sum(1 for kw in keywords if len(kw) >= 3 and kw in sentence)
     score += exact_matched * 0.5
 
-    # 3. 信号词匹配
+    # 3. 信号词匹配（主+次信号）
     profile = _FIELD_SIGNAL_PROFILES.get(bd_name, {})
     primary_signal = profile.get('primary', 'definition')
+    secondary_signal = profile.get('secondary', '')
+
+    # 主信号
     signal_words = _SIGNAL_WORDS.get(primary_signal, [])
     signal_hits = sum(1 for sw in signal_words if sw in sentence)
-    score += signal_hits * 1.5  # 信号词权重更高
+    score += signal_hits * 1.5
+
+    # 次信号（权重减半）
+    if secondary_signal:
+        sec_words = _SIGNAL_WORDS.get(secondary_signal, [])
+        sec_hits = sum(1 for sw in sec_words if sw in sentence)
+        score += sec_hits * 0.75
 
     # 4. 数字密度加分（如果字段需要数值内容）
     if profile.get('require_num'):

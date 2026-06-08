@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""pipeline_v2.py — 知识库构建两阶段编排（v2.0）
+"""pipeline_v2.py — 知识库构建两阶段编排（v2.1）
 
 设计：
-  Phase A（纯代码）: YAML数据 → schema校验 → 模板渲染输出
-    概念 → KE → 实体（DAG顺序，纯代码，无Agent）
-    YAML不存在时：exercises自动检测，solutions自动生成骨架
-  
+  Phase A（纯代码）: YAML数据 → schema校验 → 模板渲染 → 质量门
+    Step 1: 校验YAML（pydantic schema验证）
+    Step 2: 模板渲染（schema.json + 模板.md 驱动）
+    Step 3: 质量门（Mermaid验证 + wikilink双向修复自动执行）
+    
   Phase B（Agent可选）: 从Phase A输出分析 → 判断是否生成KP/SP/Scene
     Agent基于已渲染的概念、KE、实体内容
     → 决定是否/如何写KP/SP/Scene的YAML
@@ -14,12 +15,16 @@
 无关领域、无关书籍。所有字段名/confidence/模板从 schema.json 读取。
 
 用法:
-  # Phase A: 渲染一章的L1内容
+  # Phase A: 渲染一章的L1内容（含自动质量门）
   python3 pipeline_v2.py phase-a \\
     --book-dir /path/to/book \\
     -c N \\
     --book-id 01_书籍ID \\
     --book-name "书籍名称"
+
+  # 质量门（单独运行，对全书做 wikilink + Mermaid 检查）
+  python3 pipeline_v2.py quality-gate \\
+    --book-dir /path/to/book
 
   # 查看状态
   python3 pipeline_v2.py status \\
@@ -29,8 +34,7 @@
   # Phase B: Agent评估Phase A结果并决定KP/SP/Scene
   python3 pipeline_v2.py phase-b \\
     --book-dir /path/to/book \\
-    -c 4
-    # 输出：建议清单（Agent读取后自行决定）
+    -c N
 """
 
 import argparse
@@ -50,6 +54,9 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(SCRIPT_DIR)
 YAML_WRITER = os.path.join(SCRIPT_DIR, "yaml_writer.py")
 TEMPLATE_ENGINE = os.path.join(SCRIPT_DIR, "template_engine.py")
+WIKILINK_FIXER = os.path.join(SCRIPT_DIR, "wikilink_fixer.py")
+WIKILINK_DEEP_FIXER = os.path.join(SCRIPT_DIR, "wikilink_deep_fixer.py")
+VALIDATE_MERMAID = os.path.join(SCRIPT_DIR, "validate_mermaid.py")
 
 
 # ════════════════════════════════════════════════════════════
@@ -156,11 +163,65 @@ def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str):
     ])
 
     if ok:
-        print(f"\n✅ Phase A 完成: 第{chapter}章 L1内容已构建")
+        print(f"\n✅ Phase A Step 2 完成: 第{chapter}章 L1内容已构建")
     else:
-        print(f"\n❌ Phase A 失败: 模板渲染出错")
+        print(f"\n❌ Phase A Step 2 失败: 模板渲染出错")
+        return False
 
-    return ok
+    # Step 3: 质量门 — Mermaid验证 + wikilink修复
+    print("\n" + "=" * 60)
+    print("Phase A Step 3: 质量门 — Mermaid验证 + wikilink修复")
+    print("=" * 60)
+
+    ok_q = True
+
+    # 3a: Mermaid验证
+    mr = run_script(VALIDATE_MERMAID, ['--book-dir', book_dir])
+    if mr:
+        print("  ✅ Mermaid语法验证通过")
+    else:
+        print("  ⚠️  Mermaid验证发现异常，请手动检查")
+        ok_q = False
+
+    # 3b: wikilink深层修复（出链=0 → 同章自动关联）
+    wf1 = run_script(WIKILINK_DEEP_FIXER, [book_dir])
+    print(f"  {'✅' if wf1 else '⚠️'} 章节关联wikilink修复完成")
+
+    # 3c: wikilink非对称修复（A→B → B也→A）
+    wf2 = run_script(WIKILINK_FIXER, [book_dir])
+    print(f"  {'✅' if wf2 else '⚠️'} 反向链接补全完成")
+
+    if ok_q:
+        print(f"\n✅ Phase A 全部完成: 第{chapter}章 (校验→渲染→质量门)")
+    else:
+        print(f"\n✅ Phase A 完成 (有质量警告): 第{chapter}章")
+
+    return ok_q and ok
+
+
+# ════════════════════════════════════════════════════════════
+# Quality Gate
+# ════════════════════════════════════════════════════════════
+
+def quality_gate(book_dir: str):
+    """全书质量门：Mermaid验证 + wikilink修复（双通道）"""
+    print("=" * 60)
+    print("Quality Gate: 质量门 — 全书检查")
+    print("=" * 60)
+
+    # 1. Mermaid验证
+    mr = run_script(VALIDATE_MERMAID, ['--book-dir', book_dir])
+    print(f"  {'✅' if mr else '⚠️'} Mermaid验证")
+
+    # 2. wikilink深层修复
+    wf1 = run_script(WIKILINK_DEEP_FIXER, [book_dir])
+    print(f"  {'✅' if wf1 else '⚠️'} 章节关联wikilink")
+
+    # 3. wikilink非对称修复
+    wf2 = run_script(WIKILINK_FIXER, [book_dir])
+    print(f"  {'✅' if wf2 else '⚠️'} 反向链接补全")
+
+    print(f"\n{'✅' if mr and (wf1 is not False) and (wf2 is not False) else '⚠️'} Quality Gate 完成")
 
 
 # ════════════════════════════════════════════════════════════
@@ -293,6 +354,10 @@ def main():
     pb.add_argument("--book-dir", required=True)
     pb.add_argument("-c", "--chapter", required=True)
 
+    # quality-gate
+    qg = sp.add_parser("quality-gate", help="质量门：Mermaid验证 + wikilink修复")
+    qg.add_argument("--book-dir", required=True)
+
     # status
     st = sp.add_parser("status", help="显示章节构建状态")
     st.add_argument("--book-dir", required=True)
@@ -310,6 +375,9 @@ def main():
 
     elif a.cmd == "phase-b":
         phase_b(a.book_dir, a.chapter)
+
+    elif a.cmd == "quality-gate":
+        quality_gate(a.book_dir)
 
     elif a.cmd == "status":
         cmd_status(a.book_dir, a.chapter)

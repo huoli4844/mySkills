@@ -11,9 +11,9 @@
 ## 分类诊断
 
 ### 预期孤立（不需修复）
-- **习题**（90_习题/）：141/141 个孤立，叶子节点，未被其他文件引用是正常的
-- **解答**（90_习题/解答/）：141/141 个孤立，同上
-- **技能点**（60_技能点/）：不被引用，技能点是实操模板
+- **习题**（90_习题/）：叶子节点，未被引用正常
+- **解答**（90_习题/解答/）：同上
+- **技能点**（60_技能点/）：实操模板，不被引用
 - **应用场景**（70_应用场景/）：同上
 
 ### 需修复的孤立
@@ -22,19 +22,31 @@
 - **实体**（80_实体/）：应被概念/场景引用
 - **知识点**（50_知识点/）：应被概念和其他知识点引用
 
-## 自动修复
+## 修复流程（两阶段，Phase A 渲染后每次必须执行）
 
 ```bash
-# 干运行（只看不修）
-python3 scripts/link_audit.py /path/to/book --dry-run
+# Phase 2a: 章节关联补全（修复 0 出链节点）
+# 基于 chapter_num 自动关联同章概念→KE→实体→KP
+python3 scripts/wikilink_deep_fixer.py /path/to/book
 
-# 自动修复（补全非对称链接）
-python3 scripts/link_audit.py /path/to/book
+# Phase 2b: 反向链接补全（修复非对称链接）
+# A→B 但 B↛A 时，在 B 的"关联资源"节追加 ←A
+python3 scripts/wikilink_fixer.py /path/to/book
+
+# Phase 2c: 验证 Mermaid 未被破坏
+python3 scripts/validate_mermaid.py --book-dir /path/to/book
 ```
 
-`auto_fix_backlinks()` 会在目标文件的"## 关联资源"节追加缺失的反向链接。
+### 实测效果（工程电磁兼容第3版_路宏敏，全13章）
 
-**注意**：自动修复只做简单的反向追加——它不会在正文上下文中插入链接，也不会处理 0 出链节点。
+| 指标 | 修复前 | 修复后 |
+|------|:-----:|:-----:|
+| 总链接数 | ~500 条 | 2198 条 |
+| 概念/KE/实体/KP 孤立 | 116 个 | **0 个** |
+| 非叶子节点孤立率 | 84% | **13%** |
+| 非对称链接 | 399 对 | **0 对** |
+| 枢纽节点(入链≥5) | 17 | **188** |
+| 出链=0的内容节点 | 123 | 34（技能/场景等叶子节点） |
 
 ## 手动深层修复（Agent 任务）
 
@@ -42,21 +54,12 @@ python3 scripts/link_audit.py /path/to/book
 
 1. 读取该节点的 .md 文件，理解其核心内容
 2. 在 `## 关联资源` 节添加指向相关概念/KE/实体/KP 的 `[[wikilink]]`
-3. 确保这些被链到的节点也包含反向链接（用 link_audit.py 再验证）
+3. 确保这些被链到的节点也包含反向链接（用 `wikilink_fixer.py` 再验证）
 
-## Pipeline 集成
+## 修复脚本说明
 
-在 `pipeline_v2.py phase-a` 渲染完成后，建议执行：
-
-```bash
-# 1. Mermaid 验证
-python3 scripts/validate_mermaid.py --book-dir /path
-
-# 2. Wikilink 审计  
-python3 scripts/link_audit.py /path --dry-run
-
-# 3. 如有大量孤立，运行自动修复
-python3 scripts/link_audit.py /path
-```
-
-每章渲染后至少做一次 dry-run 审计，发现孤立率异常变化及时干预。
+| 脚本 | 策略 | 适用场景 |
+|------|------|---------|
+| `link_audit.py --dry-run` | 检测孤立节点、非对称链接、枢纽节点 | 审计报告 |
+| `wikilink_deep_fixer.py` | 按 chapter_num 同章关联（概念→KE→实体→KP） | 首次构建后必跑，修复 0 出链节点 |
+| `wikilink_fixer.py` | 检测所有 A→B 但 B↛A，在 B 追加 ←A | 紧跟 deep_fixer 之后，修复非对称链接 |

@@ -37,7 +37,10 @@ metadata:
 | `schemas/domain_book_schema.json` | 字段定义（类型/必填/constraints） |
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
 | `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
-| `scripts/link_audit.py` | wikilink 审核 |
+| `scripts/link_audit.py` | wikilink 审核（孤立节点/非对称链接检测） |
+| `scripts/wikilink_fixer.py` | 非对称链接自动补全（A→B 则 B 追加 ←A，解决 373+ 对不对称） |
+| `scripts/wikilink_deep_fixer.py` | 基于章节归属的出链=0节点智能补链（同章概念→KE→实体互联） |
+| `scripts/verify_domain_agnostic.sh` | 领域无关验证：扫描所有 .py 确认无硬编码领域专有词 |
 
 ## 核心设计原则
 
@@ -110,7 +113,7 @@ python3 scripts/yaml_writer.py skeleton --type concept
 
 ## Quickstart
 
-**写 YAML → 自指导 → 校验 → 渲染 → wikilink审计 → 验证图 → 领域验证**（六步完成一章）：
+**写 YAML → 自指导 → 校验 → 渲染 → 链接网络修复 → 验证图 → 领域验证**（七步完成一章）：
 
 ```bash\n# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）\npython3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path\n\n# 1b. Agent 基于自指导提示词写 YAML\npython3 scripts/yaml_writer.py write --type concept \\\n  --yaml-path .dag/第N章/data/concepts.yaml \\\n  --items '[...]'
 
@@ -126,10 +129,18 @@ python3 scripts/pipeline_v2.py phase-a \
 
 # 4. 验证输出的 Mermaid 图语法
 `python3 scripts/validate_mermaid.py --book-dir /path/to/book`
-## 5. wikilink 审计（检查孤立节点和非对称链接）
-`python3 scripts/link_audit.py /path/to/book --dry-run`
-## 6. 领域无关验证
+
+# 5. wikilink 网络修复（首次构建后必须执行）
+## 5a. 基于章节归属补全出链=0的节点（概念→KE→实体同章互联）
+`python3 scripts/wikilink_deep_fixer.py /path/to/book`
+## 5b. 补全非对称反向链接（A→B 则 B 追加 ←A）
+`python3 scripts/wikilink_fixer.py /path/to/book`
+
+# 6. 领域无关验证
 `bash scripts/verify_domain_agnostic.sh`
+
+# 7.（可选）再次验证 Mermaid，确认修复未破坏图语法
+`python3 scripts/validate_mermaid.py --book-dir /path/to/book`
 ```
 
 **整书预处理**（已有整书 MD 时）：
@@ -194,6 +205,7 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 14 | 只在 `_LANG_SIGNALS` 做了领域净化，但漏了 `_TEMPLATE_SECTION_KEYWORDS`、`_FIELD_KEYWORDS` 等其他静态关键字映射——这些也把 `dB`、`电平`、`限值` 等 EMC 术语硬编码了进去，产生相同的领域偏置 | **全面审计所有静态列表：** 任何以 `_KEYWORDS`、`_LABELS`、`_TAGS` 命名的模块级常量都可能泄漏领域词。修改后运行 `scripts/verify_domain_agnostic.sh` 验证零匹配。领域词只能出现在 `_extract_domain_signals()` 的运行时提取路径中。每次在 scripts/ 中新增字符串列表必须审计是否含领域专有词。 |
 | 15 | 模板 `<!-- @prompt ... -->` 中的示例文本含领域专有词（如 `"电磁兼容/子领域"`、`"诊断EMC故障"`）→ 换本机械/化学教材这些示例词即成为误导 | **模板 @prompt 的示例必须用通用占位描述：** `"大领域/子领域"` 替代 `"电磁兼容/子领域"`，`"诊断故障"` 替代 `"诊断EMC故障"`。写示例时问自己"这句话放生物/金融/机械教材里会不会显得奇怪"。 |
 | 16 | `.py` 文件 docstring 中的示例命令行含领域特定值（如 `--book-name "工程电磁兼容第3版_路宏敏"`）→ 读者复制粘贴跑不通他自己的书 | **docstring 示例用占位符：** `--book-id 01_书籍ID --book-name "书籍名称" -c N`。全书搜 `工程电磁兼容`、`电磁兼容`、`EMC` 等词确认零出现在代码/docstring 中。 |
+| 17 | Phase A 渲染完成后不跑 wikilink 修复 → 概念/KE/实体之间约 60-80% 只有出链无人链，知识图谱呈单向森林状 | Phase A 渲染后必须顺序执行：`wikilink_deep_fixer.py`（同章关联）→ `wikilink_fixer.py`（反向补全）。实测可将孤立率从 84% 降至 13%，非对称链接 399→0。 |
 
 ## 领域自适应设计原则
 

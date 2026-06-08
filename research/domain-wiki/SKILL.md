@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
-description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.4: _strip_wu_sections三遍扫描(空节/全无表格/列表无)+bd覆盖率预校验+源文公式交叉验证"
-version: "52.4"
+description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.5: _strip_wu_sections三遍扫描(空节/全无表格/列表无)+bd覆盖率预校验+源文公式交叉验证+auto-complete缺失模板占位符自动补'无'"
+version: "52.5"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -26,10 +26,7 @@ metadata:
 
 **raw/ 目录只读原则（v52.1）**：`raw/` 目录存放源文件原始转换产物，**只读不写**。书籍的知识库工作目录必须平行于 `raw/` 创建于领域目录下（如 `电磁兼容领域/书籍名/`），并包含完整骨架（10_总揽/20_正文/30_核心概念/40_知识要素/50_知识点/60_技能点/70_应用场景/80_实体/90_习题/90_习题/解答）。`split_book_to_chapters.py prepare` 自动完成目录创建、图片复制和章节拆分，禁止手动在 `raw/` 下修改或写入任何文件。详见 [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md)。
 
-**"无"消除策略（v52.4）**：生成文件中出现"无"说明模板字段未填或未覆盖。采用三层防线消除：
-  1. **内容填充**：Agent 写 YAML 时必须填充至少 70-88% 的模板 bd 字段，对照 [template-yaml-field-map.md](references/template-yaml-field-map.md) 逐字段检查。
-  2. **预校验拦截**：`yaml_pre_validate.check_bd_coverage` 在 Phase 0.5 检查每类型字段覆盖率，低于阈值报警（concept≥25, KE≥14, entity≥13, KP≥32, SP≥20, Scene≥14, solution≥14）。
-  3. **渲染级删除（三遍扫描）**：`_strip_wu_sections` 在文件输出前执行：
+**"无"消除策略（v52.5）**：生成文件中出现"无"说明模板字段未填或未覆盖。采用**四层防线**消除：\n  1. **内容填充**：Agent 写 YAML 时必须填充至少 70-88% 的模板 bd 字段，对照 [template-yaml-field-map.md](references/template-yaml-field-map.md) 逐字段检查。\n  2. **auto-complete 预填（v52.5）**：`template_assembler._assemble_one` 和 `template_writers.assemble_md` 中，`fill_template()` 前提取模板全部 `{{placeholder}}`，与已有 bd 字段求差，缺失字段统一写入 bd 字典为"无"。确保 %template 不含未替换占位符，根除 post_build_fix 隐式替换。\n  3. **预校验拦截**：`yaml_pre_validate.check_bd_coverage` 在 Phase 0.5 检查每类型字段覆盖率，低于阈值报警（concept≥25, KE≥14, entity≥13, KP≥32, SP≥20, Scene≥14, solution≥14）。\n  4. **渲染级删除（三遍扫描）**：`_strip_wu_sections` 在文件输出前执行：
      - Pass1: 删除 `##/###/####` 标题后紧接"无"的整节
      - Pass2: 删除 `##/###/####` 标题后全为"无"单元格的表格节（如能力要求表）
      - Pass3: 压缩多余空行

@@ -101,16 +101,111 @@ def _check_phase_data_changed(wr: str, ch: str, ph: str, state_path: str) -> str
             return ""
         # 简单检查：至少有一条 YAML 记录
         if raw.startswith("- "):
+            # v52.3: 字段名校验
+            _validate_yaml_bd_fields(data_file, ph)
             return data_file
         import yaml
         data = yaml.safe_load(raw)
         if isinstance(data, list) and len(data) > 0:
+            _validate_yaml_bd_fields(data_file, ph)
             return f"{_PHASE_DATA_FILE[ph]}({len(data)}条)"
         if isinstance(data, dict) and data:
+            _validate_yaml_bd_fields(data_file, ph)
             return f"{_PHASE_DATA_FILE[ph]}(dict)"
     except Exception:
         pass
     return ""
+
+
+# ── v52.3: YAML bd 字段名 vs 模板 {{xxx}} 自动校验 ──
+# 模板文件 → 期望的 bd 字段名（不含 fm 公共字段）
+_TEMPLATE_BD_FIELDS = {
+    "concepts": {"term_english","term_definition","definition_sentence",
+                 "core_concept_map","core_concept_map_analysis","structure",
+                 "mathematical_model","tech_classification","application_scenarios",
+                 "typical_systems","engineering_practices","common_misconceptions",
+                 "related_concepts_relations","confusion_compare","evolution",
+                 "references","related_knowledge_elements","learning_objectives",
+                 "prerequisite_knowledge","self_check_questions","solved_problem",
+                 "classification","domain","features","key_parameters",
+                 "upstream_downstream","value","entity_type","additional_explanations",
+                 "figure_references","formula_references"},
+    "ke": {"term_definition","term_english","classification","structure",
+           "key_parameters","features","application_scenarios","value",
+           "upstream_downstream","related_knowledge_elements","references","domain",
+           "definition_sentence","confusion_compare","evolution",
+           "mathematical_model","related_concepts_relations"},
+    "entities": {"entity_type","term_definition","definition_sentence","structure",
+                 "application_scenarios","features","key_parameters",
+                 "related_entities","related_standards","time_milestones",
+                 "typical_products","related_concepts","evolution"},
+    "kp": {"solved_problem","learning_objectives","theoretical_basis",
+           "application_scenarios","engineering_practices","confusion_compare",
+           "self_check_questions","prerequisite","difficulty",
+           "core_knowledge_elements_table","bloom_level_description",
+           "bloom_progression","bloom_alignment","skill_requirements",
+           "skill_objectives","structure","mathematical_model","related_scenes",
+           "application_methods","derivation_analysis","derivation_diagram",
+           "diagram_analysis","key_details","knowledge_context_diagram",
+           "typical_examples"},
+    "sp": {"skill_objectives","prerequisite_skills","core_operation",
+           "typical_tools","performance_criteria","common_mistakes",
+           "application_domain","engineering_case","solved_problem",
+           "bloom_level_description","bloom_progression","bloom_alignment",
+           "competency_standards","operation_boundaries",
+           "core_theoretical_support","tool_support","prerequisite_skills",
+           "extended_skills","typical_practical_cases",
+           "confusion_skill_compare","supported_scenarios",
+           "operation_flowchart","operation_flow_analysis",
+           "common_errors_table","knowledge_context_diagram",
+           "diagram_analysis","related_concepts_knowledge","domain",
+           "applicable_scenarios"},
+    "scene": {"scenario_type","scenario_description","scene_elements",
+              "node_descriptions","typical_application_cases",
+              "knowledge_context_diagram","workflow_diagram","diagram_analysis",
+              "confusion_scenario_compare","core_knowledge_support",
+              "core_skill_support","scene_concept_support","scene_ke_support",
+              "related_scenes","evolution","domain"},
+    "exercises": {"question","related_answer"},
+    "solutions": {"principle_steps","characteristics","exam_points",
+                  "common_mistakes","solving_tips",
+                  "difficulty_1_title","difficulty_1_content",
+                  "difficulty_2_title","difficulty_2_content",
+                  "difficulty_3_title","difficulty_3_content",
+                  "flowchart_diagram","flowchart_steps",
+                  "knowledge_loop_diagram","knowledge_loop_analysis",
+                  "related_concepts","source_reference","question"},
+}
+
+
+def _validate_yaml_bd_fields(yaml_path: str, ph: str) -> None:
+    """校验 YAML bd 字段名是否匹配模板期望。日志 warning 但不阻断。"""
+    expected = _TEMPLATE_BD_FIELDS.get(ph, set())
+    if not expected:
+        return
+    try:
+        import yaml as _y
+        data = _y.safe_load(open(yaml_path, encoding="utf-8"))
+        if not data:
+            return
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            bd = item.get("bd", {})
+            if not bd:
+                continue
+            actual = set(bd.keys())
+            missing = expected - actual
+            extra = actual - expected
+            name = item.get("name", item.get("file", "?"))
+            warn_msgs = []
+            if missing:
+                warn_msgs.append(f"缺{len(missing)}字段: {', '.join(sorted(missing)[:6])}")
+            if extra:
+                warn_msgs.append(f"多{len(extra)}字段: {', '.join(sorted(extra)[:6])}")
+            if warn_msgs:
+                log.warning(f"[字段校验/{ph}/{name}] {'; '.join(warn_msgs)}")
+    except Exception:
+        pass
 
     # 获取已有文件名列表
     # 只添加不存在的 item

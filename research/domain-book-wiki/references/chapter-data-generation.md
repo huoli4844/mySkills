@@ -337,6 +337,10 @@ with open("path.yaml", "w") as f:
 | **引号字符不匹配** | 中文弯引号 vs ASCII 直引号导致检索失败 | 手工检查；Python print(repr(text)) 查看 Unicode |
 | **bd 字段名不匹配模板** | 占位符不替换 → `{{xxx}}` 残留 | 构建后 grep `{{` 检查，或 `grep -o '{{[^}]*}}' templates/<type>.md` 核对 |
 
+| **bd 字段名不匹配模板** | v52.3 新增 pipeline 字段校验，pipeline auto 检测到新 YAML 时自动警告 | 运行 pipeline auto 时看 `[字段校验/...]` 警告 |
+| **Agent 提示词中的字段名必须引用 `references/yaml-field-mapping.md`** | bd 字段名是 YAML ↔ 模板的契约，写错则所有 {{xxx}} 不替换 | 写作前 `grep -o '{{[^}]*}}' assets/templates/<type>.md` 确认 |
+
+
 ## 构建前验证
 
 ```bash

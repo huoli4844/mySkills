@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
 description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板自携带@prompt写作指导，yaml_writer.py pydantic校验，零对照表"
-version: "2.4"
+version: "2.5"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -74,6 +74,10 @@ python3 scripts/yaml_writer.py skeleton --type concept
 
 **设计意图：** 模板 @prompt 是通用写作指导（人工可控，改一次跨所有章节生效）。Agent 把 @prompt 当"原料"而非"指令"，结合当前章节源文自行形成一次性自指导提示词。这样 @prompt 成为人工控制输出质量的持久手段。
 
+**实战验证（第13章）：** 使用本流程处理第13章（1148行，10道习题）——全线零阻断、44文件全量生成。概念文件164行/篇含12-13节点Mermaid图，零@prompt泄漏，零{{xxx}}残留，所有Mermaid标签正确引用`()`。对比旧章节30/49概念缺图、27文件标签括号未引用、3个单行图——全部归零。
+
+**改进方向：** 当前Agent写YAML的待填字段清单由Agent自身记忆决定，非模板驱动。P0目标：在pipeline_v2.py增加模板字段覆盖率校验，实现"填空式写作"。详见[dag-flow-optimization.md](references/dag-flow-optimization.md)。
+
 **template_engine.py 渲染时**自动剥离 `<!-- @prompt ... -->`，零泄漏到输出。
 
 ### 两阶段构建
@@ -90,14 +94,7 @@ python3 scripts/yaml_writer.py skeleton --type concept
 
 ## Quickstart
 
-**写 YAML → 校验 → 渲染 → 验证图**（四步完成一章）：
-
-```bash
-# 1. Agent 看写作指导 + 源文上下文，形成自指导提示词
-python3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path/to/book
-
-# 1b. Agent 基于提示词写 YAML
-python3 scripts/yaml_writer.py write --type concept --yaml-path .dag/第N章/data/concepts.yaml --items '[...]'
+**写 YAML → 校验 → 渲染 → 验证图**（四步完成一章）：\n\n```bash\n# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）\npython3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path\n\n# 1b. Agent 基于自指导提示词写 YAML\npython3 scripts/yaml_writer.py write --type concept \\\n  --yaml-path .dag/第N章/data/concepts.yaml \\\n  --items '[...]'
 
 # 2. 全量校验
 python3 scripts/yaml_writer.py validate-dir --dir .dag/第N章/data/
@@ -185,5 +182,4 @@ python3 scripts/split_book_to_chapters.py prepare \
 | [golden-scene-example.md](references/golden-scene-example.md) | Scene YAML 金标范例 |
 | [chapter-data-generation.md](references/chapter-data-generation.md) | Agent 写 YAML 指南 |
 | [yaml-generation-guide.md](references/yaml-generation-guide.md) | YAML 数据格式规范 |
-| [quality-gate-architecture.md](references/quality-gate-architecture.md) | 质量门架构 |
-| [link-audit-design.md](references/link-audit-design.md) | wikilink 审计设计 |
+| [quality-gate-architecture.md](references/quality-gate-architecture.md) | 质量门架构 |\n| [link-audit-design.md](references/link-audit-design.md) | wikilink 审计设计 |\n| [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |

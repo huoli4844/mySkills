@@ -365,7 +365,7 @@ def cmd_validate_file(yaml_path: str, explicit_type: str = None):
 
 
 def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
-    """为Agent生成自指导提示词：模板@prompt + schema约束 + 源文上下文"""
+    """为Agent生成字段工作台：源文片段 + @prompt规格 + schema约束，按字段并排展示"""
     import re as _re
     schema = load_schema()
     SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -391,10 +391,24 @@ def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
     ):
         prompts[m.group(2)] = m.group(1).strip()
 
-    # 2. 收集 schema 约束
+    # 2. 加载源文，解析为按标题分段的字典
+    source_sections = {}  # {heading_text: content_text}
+    source_formulas = []  # [(line_num, formula)]
+    if book_dir and chapter_num:
+        raw = _load_source_section(book_dir, chapter_num)
+        if raw:
+            source_sections = _parse_source_sections(raw)
+            source_formulas = _extract_formulas(raw)
+
+    # 3. 收集 schema 约束 + 匹配源文
     bd_schema = node['bd']
-    field_constraints = {}
-    for bd_name, bd_def in bd_schema.items():
+    required_count = sum(1 for d in bd_schema.values() if d.get('required', True))
+    optional_count = sum(1 for d in bd_schema.values() if not d.get('required', True))
+
+    field_entries = []
+    bd_fields_sorted = sorted(bd_schema.items())
+
+    for bd_name, bd_def in bd_fields_sorted:
         required = bd_def.get('required', True)
         ftype = bd_def.get('type', 'string')
         cons = bd_def.get('constraints', {})
@@ -402,88 +416,264 @@ def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
         if 'min_chars' in cons:
             constraints_parts.append(f"≥{cons['min_chars']}字")
         if cons.get('formula_check'):
-            constraints_parts.append('公式用$$包裹')
+            constraints_parts.append('公式需$$包裹(formula_check)')
         if 'max_chars' in cons:
             constraints_parts.append(f"≤{cons['max_chars']}字")
-        field_constraints[bd_name] = {
+
+        # 找模板节标题
+        section_title = _find_section_title(tpl_content, bd_name)
+
+        # 匹配源文片段
+        matched_snippets = _match_field_to_source(bd_name, section_title, source_sections)
+
+        # 公式检测
+        formula_hint = ''
+        if bd_name == 'mathematical_model' and source_formulas:
+            formula_hint = f"\n  源文检测到 {len(source_formulas)} 个公式，以下可用:"
+            for ln, fm in source_formulas[:3]:
+                fm_short = fm[:80] + ('...' if len(fm) > 80 else '')
+                formula_hint += f"\n    L{ln}: {fm_short}"
+
+        field_entries.append({
+            'name': bd_name,
             'required': required,
             'type': ftype,
             'constraints': '，'.join(constraints_parts) if constraints_parts else '无',
             'prompt': prompts.get(bd_name, ''),
-            'section_title': _find_section_title(tpl_content, bd_name),
-        }
+            'section_title': section_title,
+            'snippets': matched_snippets,
+            'formula_hint': formula_hint,
+        })
 
-    # 3. 构建输出
+    # 4. 输出
     lines = []
-    lines.append(f"# ════════════════")
-    lines.append(f"# Agent 自指导提示词")
-    lines.append(f"# 类型: {type_name}")
-    lines.append(f"# 模板: {node['template']}")
+    lines.append("# ════════════════════════════════════════════════")
+    lines.append(f"# 📋 {type_name} 字段工作台")
+    lines.append(f"# 模板: {node['template']} → 输出: {_output_dir(type_name)}")
+    lines.append(f"# 字段总量: {len(bd_schema)} (必填 {required_count} + 可选 {optional_count})")
     lines.append(f"# 置信度: {node['confidence']['allowed']}")
-    lines.append(f"# 输出目录: {_output_dir(type_name)}")
-    lines.append(f"# ════════════════")
+    lines.append(f"# 章节: 第{chapter_num}章")
+    lines.append("# ════════════════════════════════════════════════")
+
+    # 源文结构总览
+    if source_sections:
+        lines.append("")
+        lines.append("## 一、源文章节结构")
+        for h, text in source_sections.items():
+            text_preview = text[:80].replace('\n', ' ').strip()
+            lines.append(f"  {h}")
+            lines.append(f"    {text_preview}...")
+        if source_formulas:
+            lines.append(f"\n  源文公式: {len(source_formulas)} 个")
+            for ln, fm in source_formulas[:5]:
+                fm_short = fm[:60] + ('...' if len(fm) > 60 else '')
+                lines.append(f"    L{ln}: {fm_short}")
+
+    # 字段工作台
+    lines.append("")
+    lines.append("## 二、字段工作台")
     lines.append("")
 
-    # 源文上下文
-    if book_dir and chapter_num:
-        source_text = _load_source_section(book_dir, chapter_num)
-        if source_text:
-            lines.append("## 1. 源文上下文")
-            lines.append("")
-            lines.append(f"第{chapter_num}章源文（关键段落）：")
-            lines.append("```text")
-            lines.append(source_text[:3000])  # limit to 3000 chars
-            lines.append("```")
-            lines.append("")
+    idx = 0
+    for fe in field_entries:
+        idx += 1
+        required_mark = '🔴' if fe['required'] else '🟡'
+        required_label = '必填' if fe['required'] else '可选'
+        lines.append(f"{'─'*60}")
+        lines.append(f"{required_mark} {idx}/{len(bd_schema)} {fe['name']} [{required_label}/{fe['type']}]")
+        lines.append(f"    模板位置: {fe['section_title']}")
 
-    # 3-A: 必须满足的字段（必填）
-    required_fields = [(n, c) for n, c in field_constraints.items() if c['required']]
-    if required_fields:
-        lines.append("## 2. 必须写的字段（带写作指导）")
-        lines.append("")
-        for name, fc in required_fields:
-            title = fc.get('section_title', name)
-            lines.append(f"### {name} — 位于模板「{title}」")
-            if fc['constraints'] and fc['constraints'] != '无':
-                lines.append(f"约束: {fc['constraints']}")
-            if fc['prompt']:
-                lines.append(f"写作指导: {fc['prompt']}")
-            else:
-                lines.append("（模板中无特殊写作指导，按字段名含义自然书写）")
-            lines.append("")
+        if fe['constraints'] and fe['constraints'] != '无':
+            lines.append(f"    schema约束: {fe['constraints']}")
 
-    # 3-B: 可选字段
-    optional_fields = [(n, c) for n, c in field_constraints.items() if not c['required']]
-    if optional_fields:
-        lines.append("## 3. 可选字段（有内容就写，否则填「无」）")
-        lines.append("")
-        for name, fc in optional_fields:
-            title = fc.get('section_title', name)
-            lines.append(f"- {name} — 位于模板「{title}」")
-            if fc['prompt']:
-                lines.append(f"  {fc['prompt']}")
+        if fe['prompt']:
+            lines.append(f"    @prompt: {fe['prompt']}")
+        else:
+            lines.append(f"    @prompt: （无特殊要求，按字段名含义自然书写）")
+
+        if fe['snippets']:
+            for sn in fe['snippets'][:2]:  # max 2 snippets
+                lines.append(f"    源文: 「{sn}」")
+
+        if fe['formula_hint']:
+            lines.append(f"    {fe['formula_hint']}")
+
         lines.append("")
 
-    # 3-C: 自动填充字段（不需要写）
-    auto_fields = [(n, c) for n, c in field_constraints.items() if c.get('auto_fill')]
-    if auto_fields:
-        lines.append("## 4. 自动填充字段（引擎自动处理，不需要写）")
-        lines.append("")
-        for name, _ in auto_fields:
-            lines.append(f"- {name}")
-        lines.append("")
-
-    # 4. 常见错误提醒
-    lines.append("## 5. 常见错误提醒")
+    # 总结与提醒
+    lines.append(f"{'='*60}")
+    lines.append(f"📊 共 {len(bd_schema)} 个 bd 字段需要填写")
+    lines.append(f"   必填 {required_count} 个 — 必须逐字段填写，不可跳过")
+    lines.append(f"   可选 {optional_count} 个 — 有实际内容就写，否则填「无」")
     lines.append("")
-    lines.append(f"- confidence 必须 ∈ {node['confidence']['allowed']}")
-    lines.append("- 所有内容字段放在 bd: {} 下，非顶层")
-    lines.append("- 字段名必须与上面列出的完全一致，不可自创")
-    lines.append("- 列表字段（如 related_knowledge_elements）用 YAML 列表格式")
-    lines.append("- core_concept_map 等 mermaid 字段写原始 graph TD 内容即可，引擎会自动加 ```mermaid fence")
-    lines.append("")
+    lines.append("⚠️ 重要提醒:")
+    lines.append(f"  - confidence 必须 ∈ {node['confidence']['allowed']}")
+    lines.append("  - 字段名必须与上面列出的完全一致，不可自创")
+    lines.append("  - 所有字段放在 bd: {} 下，非顶层")
+    lines.append("  - core_concept_map 写 raw graph TD 内容即可（引擎自动加 fence）")
+    lines.append("  - 列表字段用 YAML 列表格式 `[item1, item2]`")
+    lines.append(f"  - 完成写入后用 yaml_writer.py validate 确认")
+    lines.append(f"{'='*60}")
 
     print('\n'.join(lines))
+
+
+def _parse_source_sections(raw_text: str) -> dict:
+    """将源文按 ##/### 标题解析为 {标题: 内容} 字典"""
+    import re as _re
+    sections = {}
+    lines = raw_text.split('\n')
+    current_heading = None
+    current_content = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('## ') or stripped.startswith('### '):
+            if current_heading:
+                sections[current_heading] = '\n'.join(current_content).strip()
+            current_heading = stripped
+            current_content = []
+        elif current_heading:
+            current_content.append(line)
+    if current_heading:
+        sections[current_heading] = '\n'.join(current_content).strip()
+
+    return sections
+
+
+def _extract_formulas(raw_text: str) -> list:
+    """从源文提取所有 $$..$$ 公式，返回 [(行号, 公式文本)]"""
+    import re as _re
+    formulas = []
+    lines = raw_text.split('\n')
+    in_formula = False
+    formula_lines = []
+    for i, line in enumerate(lines, 1):
+        if '$$' in line:
+            if in_formula:
+                formula_lines.append(line.replace('$$', '').strip())
+                formulas.append((i - len(formula_lines) + 1, '\n'.join(formula_lines).strip()))
+                formula_lines = []
+                in_formula = False
+            else:
+                in_formula = True
+                remainder = line.replace('$$', '').strip()
+                if remainder:
+                    formula_lines.append(remainder)
+        elif in_formula:
+            formula_lines.append(line.strip())
+    return formulas
+
+
+# 模板节标题 → 源文查询关键词映射
+_TEMPLATE_SECTION_KEYWORDS = {
+    '术语定义': ['术语', '定义', '定义', '概念', '含义', '是指'],
+    '精确释义': ['是指', '定义', '含义', '释义'],
+    '核心概念图谱': ['图', '结构', '概念', '关系'],
+    '图谱解析': ['图', '所示', '如下'],
+    '数学模型': ['公式', '方程', '$$', '式', '模型', 'Maxwell', '麦克斯韦'],
+    '工作原理': ['原理', '构成', '要素', '组成', '结构', '包括'],
+    '关键参数': ['参数', '指标', '系数', '电平', '限值', 'dB'],
+    '物理含义特征': ['特征', '特性', '含义', '特点', '性质'],
+    '学习目标': ['学习', '目标', '掌握', '了解'],
+    '前置知识': ['基础', '前提', '先修', '预备'],
+    '解决的问题': ['解决', '问题', '目的', '作用'],
+    '应用场景': ['应用', '场景', '案例', '工程', '领域'],
+    '典型系统': ['系统', '设备', '仪器', '工具', '软件'],
+    '使用价值': ['价值', '重要', '意义', '作用', '关键'],
+    '工程实践': ['工程', '实践', '应用', '测量', '测试'],
+    '常见误区': ['误区', '误解', '注意', '不要', '避免'],
+    '技术分类': ['分类', '类型', '分为', '种'],
+    '与相关概念的关系': ['关系', '关联', '联系', '相关', '区别'],
+    '相近概念辨析': ['区别', '辨析', ' vs ', '对比', '比较', '不同'],
+    '发展演进': ['发展', '历史', '演进', '演变', '阶段', '最早'],
+    '关联知识要素': ['知识', '要素', '相关'],
+    '上下游关系': ['上游', '下游', '输入', '输出', '前后'],
+    '自学检验': ['自测', '问题', '思考', '检验', '题'],
+}
+
+# 字段名 → 关键词的逆向映射（由 section_title 映射而来）
+_FIELD_KEYWORDS = {
+    'term_definition': ['定义', '术语', '是指', '称为'],
+    'term_english': [],
+    'definition_sentence': ['是指', '定义为'],
+    'mathematical_model': ['公式', '方程', '$$', '模型'],
+    'structure': ['构成', '组成', '要素', '步骤', '流程', '①', '②', '③'],
+    'key_parameters': ['参数', '指标', 'dB', '电平', '限值'],
+    'features': ['特征', '特点', '特性', '包括', '可分为'],
+    'solved_problem': ['解决', '问题', '困难', '复杂', '效率'],
+    'application_scenarios': ['应用', '场景', '领域', '工程'],
+    'engineering_practices': ['工程', '实践', '实际', '建议', '注意', '应该'],
+    'common_misconceptions': ['误区', '误解', '注意', '不要', '避免'],
+    'evolution': ['发展', '历史', '最早', '提出', '阶段', '演进'],
+    'prerequisite_knowledge': ['基础', '先修', '前提', '需要', '掌握'],
+    'learning_objectives': ['掌握', '理解', '了解', '学习', '目标'],
+    'self_check_questions': ['问题', '思考', '自测', '检验'],
+    'related_concepts_relations': ['关系', '关联', '概念', '联系'],
+    'confusion_compare': ['区别', '比较', '不同', '对比'],
+    'value': ['价值', '重要', '意义', '关键'],
+    'typical_systems': ['系统', '工具', '软件', '仪器'],
+    'upstream_downstream': [],
+    'core_concept_map': ['图', '结构', '概念', '关系'],
+    'core_concept_map_analysis': [],
+    'tech_classification': ['分类', '分为', '类型'],
+    'domain': [],
+    'classification': ['分类'],
+    'related_knowledge_elements': [],
+    'aliases': [],
+    'tags': [],
+}
+
+# 补充：从字段名到关键词的通用规则
+for field_name in list(_FIELD_KEYWORDS.keys()):
+    if not _FIELD_KEYWORDS[field_name]:
+        # 从字段名拆分: "related_concepts_relations" → ["related", "concepts", "relations"]
+        parts = field_name.split('_')
+        _FIELD_KEYWORDS[field_name] = parts
+
+
+def _match_field_to_source(bd_name: str, section_title: str, source_sections: dict) -> list:
+    """为字段匹配最相关的源文片段"""
+    if not source_sections:
+        return []
+
+    # 1. 先尝试用字段特定的关键词匹配
+    keywords = _FIELD_KEYWORDS.get(bd_name, [bd_name.lower()])
+    # 也加上模板节标题的分词
+    section_keywords = _TEMPLATE_SECTION_KEYWORDS.get(section_title, [section_title])
+    all_keywords = keywords + section_keywords
+
+    scored_sections = []
+    for heading, content in source_sections.items():
+        score = 0
+        matched_kw = []
+        for kw in all_keywords:
+            if not kw:
+                continue
+            if kw in heading or kw in content:
+                score += 1
+                matched_kw.append(kw)
+        if score > 0:
+            # 优先短片段（更精确）
+            content_preview = content[:200].replace('\n', ' ').strip()
+            scored_sections.append((score, heading, content_preview, matched_kw))
+
+    # 按匹配分数降序排序
+    scored_sections.sort(key=lambda x: -x[0])
+
+    # 返回前 2 条匹配的片段
+    result = []
+    for score, heading, preview, matched_kw in scored_sections[:2]:
+        result.append(f"[{heading}] {preview}")
+
+    # 2. 如果字段是 mathematical_model 且源文有公式，特殊标记
+    if not result and bd_name == 'mathematical_model':
+        for heading, content in source_sections.items():
+            if '$$' in content:
+                preview = content[:200].replace('\n', ' ').strip()
+                result.append(f"[{heading}] {preview}")
+
+    return result
 
 
 def _find_section_title(tpl_content: str, field_name: str) -> str:

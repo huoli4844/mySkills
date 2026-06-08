@@ -81,11 +81,17 @@ def fill_template(body_template: str, replacements: dict) -> str:
 
 
 def _strip_wu_sections(body: str) -> str:
-    """C2: 删除内容恰好为'无'或'无。'的 ### / #### 子节"""
+    """C2: 删除内容恰好为'无'或'无。'的 ### / #### / ## 子节
+
+    v52.2: 扩展支持 ## 级标题,用于删除纯'无'的模板节段。
+    """
     import re as _re
 
-    pattern = _re.compile(r"^#{3,4}\s+[^\n]+\n\s*(?:无[。]?)\s*\n?", _re.MULTILINE)
+    # Remove subsections (###, ####, ##) where content is exactly "无"
+    # The blank line between heading and "无" is optional
+    pattern = _re.compile(r"^(#{2,4})\s+[^\n]+\n\s*\n?\s*无[。]?\s*\n?", _re.MULTILINE)
     stripped = pattern.sub("", body)
+    # Clean up excessive blank lines
     stripped = _re.sub(r"\n{3,}", "\n\n", stripped)
     return stripped
 

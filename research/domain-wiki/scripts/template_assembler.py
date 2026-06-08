@@ -257,6 +257,9 @@ def _assemble_one(config, template, item, kwargs, idx):
 
     output = fill_template(template, all_vars)
 
+    # v52.2: 删除内容为"无"的空节（避免"无"充斥输出）
+    output = _strip_wu_sections(output)
+
     # Determine output path
     safe_name = _fn(name) if name_only else f"{_fn(name)}_{kwargs.get('book_id','')}_{kwargs.get('chapter_num','')}"
     if is_long and not name_only:

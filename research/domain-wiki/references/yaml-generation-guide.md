@@ -162,6 +162,19 @@ Solution（eval_template.md）有 18 个 bd 字段，至少填 14 个：
 
 **判断逻辑**：只要该章包含足够支撑一个完整操作流程的内容，就必须生成 SP/Scene。
 **例外**：仅当该章确实无任何工程操作内容时才允许 SP=0（目前无此类章节）。
+
+### bd 字段覆盖率阈值（yaml_pre_validate 预校验依据）
+
+| 节点类型 | bd 总字段 | 最少填满 | 覆盖率 | 说明 |
+|:---------|:---------:|:--------:|:-----:|:-----|
+| concept | ~33 | ≥25 | 76% | 仅 mathematical_model/figure 可选空 |
+| ke | ~19 | ≥14 | 74% | definition/term_definition 不可空 |
+| entity | ~17 | ≥13 | 76% | entity_type/term_definition 不可空 |
+| kp | ~42 | ≥32 | 76% | theoretical_basis/engineering_practices 不可空 |
+| sp | ~32 | ≥20 | 63% | 核心操作/工具支撑必填,衍生字段可空 |
+| scene | ~28 | ≥14 | 50% | 场景描述/要素/节点描述必填 |
+| exercise | ~5 | ≥4 | 80% | question 必填 |
+| solution | ~18 | ≥14 | 78% | answer/principle_steps/characteristics 必填 |
 ## 管道自动工作流（pipeline auto）
 
 完整流程：

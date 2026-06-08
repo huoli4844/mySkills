@@ -125,7 +125,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | `pipeline batch -w $DIR --book-id XX --retry 3 --no-cache` | 禁用增量缓存，强制重建所有章节 |
 | `pipeline review -w $DIR --book-id XX -c N` | 内容深度 Agent 二次审核：生成 review_batch.json（A/B/C/D 分层） |
 | `yaml_pre_validate.py --chapter-dir .dag/第N章/data/` | Agent 写完 YAML 后秒级校验（含 v50.7 模板字段名 vs {{xxx}} 校验） |
-| `yaml_pre_validate.py --book-dir $DIR -c N -v` | 同上 + v52.2 **源文公式交叉校验**：读 `20_正文/第N章*.md` 扫描 `$$...$$`，对比 YAML 的 `mathematical_model` 是否遗漏 |
+| `yaml_pre_validate.py --book-dir $DIR -c N -v` | **v52.2** — 全章源文级预校验：schema+confidence+字段名+source_from格式+**源文公式交叉校验**(扫描$$到→对比mathematical_model)+**bd覆盖率检查**(SP≥20/Scene≥14等)。`--book-dir` 必须含 `20_正文/第N章*.md`。 |
 | `yaml_auto_fill.py analyze` | 分析所有模板字段分类（meta/auto/derived/llm） |
 | `yaml_auto_fill.py skeleton -t kp -n "名称" -c 1` | 生成完整 YAML 骨架（所有字段预填"待补充"） |
 | `yaml_auto_fill.py fill -w $DIR -t kp -c 1 -o .dag/.../kps.yaml` | 机械填充 YAML（自动填 meta + 源文提取 + 派生计算） |
@@ -206,8 +206,9 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 || 96 | 模板拆分时 template_assembler.py 的 CLI 入口被移到 template_writers.py 但未加 `__main__` 回调。`_auto_detect_and_build_exercises` 调用 `template_assembler.py` 执行了 0 行代码，习题永不被生成 🔥 | **v52.2**: 在 template_assembler.py 末尾添加 `if __name__ == "__main__": _tw_main()` 回调。修复 3 处调用点。 |
 || 97 | 概念有源文公式但 `mathematical_model` 填"无"（如电磁干扰三要素的 S·C·R 模型, SE=R+A+B 公式） | **v52.2**: 写 YAML 前必须扫描源文 `$$...$$` 公式,有则提取。技能参考 yaml-generation-guide.md 新增"数学模型的强制要求"节。 |
 || 98 | SP/Scene 被跳过：sps.yaml/scenes.yaml 为空 → pipeline 标记为 done(0 文件) → 知识库缺失工程应用内容 | **v52.2**: 每章必须≥1 SP + ≥1 Scene。绪论章也有 SP(术语辨析)和 Scene(EMC评估)。写入 sps.yaml 后再重建。 |
+|| 99 | 模板字段未填导致"无"充斥输出文件（SP 17个无/Scene 12个无/KP 15个无） | **v52.3**: 1)修改 template_writers.assemble_md 和 _assemble_one 启用 _strip_wu_sections（原禁用）；2)扩展 regex 支持 ## 级标题和空白行；3)新增 check_bd_coverage 预校验。 |
 
-完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
+ 完整 80+ 条陷阱清单 →
 
 ## Reference Index
 
@@ -246,3 +247,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md) | **v52.1** — 整书 MD 预处理工作流：目录创建 + 图片复制 + 章节拆分（TOC 去重/标题格式兼容/文件名标准化） |
 | [yaml-generation-guide.md](references/yaml-generation-guide.md) | **v52.2** — YAML 数据文件生成规范：四字段结构 (name/fm/bd/file) + 节点类型 vs 置信度对照表 + 内容深度要求(最少填充数/字段分级) + 常见结构错误修复 + pipeline auto 工作流 |
 | [template-yaml-field-map.md](references/template-yaml-field-map.md) | **v52.3** — 模板-YAML 字段完整映射表(8节点类型)：每类型全部模板字段的 YAML bd 键、填充等级(必填/应填/条件填)、最少非无字段数。写 YAML 时对照此文档确保无遗漏。 |
+| [quality-gate-architecture.md](references/quality-gate-architecture.md) | **v52.3** — 质量闸门架构总览：yaml_pre_validate(11项检查+覆盖率阈值) → validate_phase_output → pipeline full validate(13项) → link_audit。含常见失败模式溯源指南和新增检查步骤。 |

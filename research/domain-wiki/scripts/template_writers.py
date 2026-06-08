@@ -22,6 +22,7 @@ from template_assembler import (
     ASSEMBLER_CONFIG,
     NODE_CONFIG,
     _fn,
+    _strip_wu_sections,
     assemble_by_config,
     check_placeholders,
     fill_template,
@@ -107,6 +108,10 @@ def assemble_md(
 
     check_placeholders(full_md, filename)
     full_md = _wrap_mermaid_fields(full_md)
+    # v52.2: 删除内容为"无"的空节
+    full_md = _strip_wu_sections(full_md)
+    # v52.2: FrontMatter 中 bloom_level: 无 → 无 (保留,不移除)
+    # 剩余"无"来自 FrontMatter,无需处理
 
     os.makedirs(output_dir, exist_ok=True)
     filepath = os.path.join(output_dir, filename)

@@ -65,6 +65,9 @@ DAG_STATE = os.path.join(SCRIPT_DIR, "dag_state.py")
 sys.path.insert(0, SCRIPT_DIR)
 from dag_state import ChapterState, PipelineError, phase_status_summary  # noqa: E402
 
+# ── 质量审查模块 ──
+QUALITY_REVIEWER = os.path.join(SCRIPT_DIR, "quality_reviewer.py")
+
 
 # ════════════════════════════════════════════════════════════
 # 工具函数
@@ -228,6 +231,21 @@ def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str,
         print(f"\n✅ Phase A 全部完成: 第{chapter}章")
     else:
         print(f"\n✅ Phase A 完成 (有质量警告): 第{chapter}章")
+
+    # 质量门已通过，运行结构完整性检查（T1）
+    print("\n" + "=" * 60)
+    print("Phase A Step 4: 质量审查 (T1结构完整性)")
+    print("=" * 60)
+    qr = run_script(QUALITY_REVIEWER, [
+        "chapter", "--book-dir", book_dir, "--book-id", book_id,
+        "-c", chapter, "--threshold", "0.3",
+    ])
+    if qr:
+        print("  ✅ 质量审查通过")
+    else:
+        print("  ⚠️  质量审查发现异常（可接受）")
+        # 不阻断，仅警告
+
     return True
 
 
@@ -454,6 +472,14 @@ def main():
     ov.add_argument("--book-dir", required=True)
     ov.add_argument("--book-id", required=True)
 
+    # review
+    rv = sp.add_parser("review", help="质量审查（按章节或全书）")
+    rv.add_argument("--book-dir", required=True)
+    rv.add_argument("--book-id", required=True)
+    rv.add_argument("-c", "--chapter", help="指定章节(默认审查全书)")
+    rv.add_argument("--threshold", type=float, default=0.5)
+    rv.add_argument("-v", "--verbose", action="store_true")
+
     a = p.parse_args()
 
     if not a.cmd:
@@ -478,6 +504,18 @@ def main():
             cmd_status(a.book_dir, a.chapter, a.book_id)
         elif a.cmd == "overview":
             print(phase_status_summary(a.book_dir, a.book_id))
+        elif a.cmd == "review":
+            if a.chapter:
+                r = run_script(QUALITY_REVIEWER, [
+                    "chapter", "--book-dir", a.book_dir, "--book-id", a.book_id,
+                    "-c", a.chapter, "--threshold", str(a.threshold),
+                ] + (["-v"] if a.verbose else []))
+                sys.exit(0 if r else 1)
+            else:
+                r = run_script(QUALITY_REVIEWER, [
+                    "book", "--book-dir", a.book_dir, "--book-id", a.book_id,
+                ] + (["-v"] if a.verbose else []))
+                sys.exit(0 if r else 1)
     except PipelineError as e:
         print(f"\n❌ Pipeline错误: {e}")
         sys.exit(1)

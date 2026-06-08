@@ -72,6 +72,46 @@ def _is_last_chapter(wr: str, ch: str) -> bool:
                 return False  # 存在更大的章节 → 不是最后一章
     return True  # 没有更大的章节 → 是最后一章
 
+
+# ── v52.2: 数据文件变更检测（pipeline auto 自动重试）──
+_PHASE_DATA_FILE = {
+    "concepts": "concepts.yaml",
+    "ke": "kes.yaml",
+    "entities": "entities.yaml",
+    "kp": "kps.yaml",
+    "sp": "sps.yaml",
+    "scene": "scenes.yaml",
+    "exercises": "exercises.yaml",
+    "solutions": "solutions.yaml",
+}
+
+
+def _check_phase_data_changed(wr: str, ch: str, ph: str, state_path: str) -> str:
+    """检查 L1 阶段的数据文件是否有新增/变更。返回描述字符串或空字符串。"""
+    if ph not in _PHASE_DATA_FILE:
+        return ""
+    data_file = os.path.join(wr, ".dag", f"第{ch}章", "data", _PHASE_DATA_FILE[ph])
+    if not os.path.exists(data_file):
+        return ""
+    # 检查文件是否非空（有真实数据）
+    try:
+        with open(data_file, encoding="utf-8") as f:
+            raw = f.read().strip()
+        if not raw:
+            return ""
+        # 简单检查：至少有一条 YAML 记录
+        if raw.startswith("- "):
+            return data_file
+        import yaml
+        data = yaml.safe_load(raw)
+        if isinstance(data, list) and len(data) > 0:
+            return f"{_PHASE_DATA_FILE[ph]}({len(data)}条)"
+        if isinstance(data, dict) and data:
+            return f"{_PHASE_DATA_FILE[ph]}(dict)"
+    except Exception:
+        pass
+    return ""
+
     # 获取已有文件名列表
     # 只添加不存在的 item
     # 构建 skeleton 并只塞入新 items
@@ -494,10 +534,18 @@ def pipeline_auto(args: PipelineArgs) -> None:
         if l1_only and ph not in L1_PHASES:
             continue
 
-        # 已完成则跳过
+        # 已完成时检查数据文件是否新增/变更 → 自动重置
         if s["phases"].get(ph, {}).get("status") == "done":
-            log.success(f"[{ph}] 已完成，跳过")
-            continue
+            _data_changed = _check_phase_data_changed(wr, ch, ph, sp)
+            if _data_changed:
+                log.info(f"[{ph}] 检测到新数据文件({_data_changed})，重置为 pending")
+                s["phases"][ph]["status"] = "pending"
+                s["phases"][ph]["files"] = 0
+                _save_state(sp, s)
+                # 不跳过，继续执行
+            else:
+                log.success(f"[{ph}] 已完成，跳过")
+                continue
 
         # 依赖检查
         deps = DAG_DEPENDS.get(ph, [])

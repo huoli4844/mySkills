@@ -16,7 +16,7 @@ import os
 import re
 import sys
 
-from dag_constants import PipelineError
+from dag_constants import DIR, DIR_BY_PHASE, PipelineError
 from log_utils import get_logger
 
 log = get_logger(__name__)
@@ -89,19 +89,18 @@ def fix_block_formulas(wiki_root, fix_types=None):
     total_fixed = 0
     fixed_files = []
 
-    # 知识库内容目录（中文目录名或编号目录名均可）
-    target_dirs = [
-        "30_核心概念",
-        "30_知识要素",
-        "40_知识点",
-        "50_技能点",
-        "60_应用场景",
-        "概念",
-        "知识要素",
-        "知识点",
-        "技能点",
-        "场景",
-    ]
+    # 知识库内容目录（动态从 DIR_BY_PHASE 构建，支持双命名体系）
+    # 同时包含编号目录名（如 "30_核心概念"）和纯中文目录名（如 "概念"）
+    target_dirs = list(
+        dict.fromkeys(
+            list(DIR_BY_PHASE.values())
+            + [
+                v.split("_", 1)[1].split("/")[-1]
+                for v in DIR_BY_PHASE.values()
+                if "_" in v
+            ]
+        )
+    )
 
     for fpath in find_md_files(wiki_root):
         rel = os.path.relpath(fpath, wiki_root)
@@ -771,19 +770,21 @@ def _detect_boilerplate(content: str) -> list[str]:
         if bw_ratio > 0.4:
             matched.append("high_boilerplate_density")
 
-    # 3. 特异性检测：不含任何领域术语（从章节标题提取的关键词）
-    # 如果内容全是通用词（教材、章节、核心、分析、方法等），判为模板
-    domain_words = {"电磁兼容", "预测", "干扰", "耦合", "辐射", "屏蔽",
-                    "滤波", "接地", "测量", "频谱", "管理", "EMC",
-                    "麦克斯韦", "Maxwell", "法拉第", "安培", "高斯",
-                    "阻抗", "天线", "接收机", "发射", "标准", "CISPR",
-                    "FCC", "限值", "裕量", "LISN", "dB", "dBμV",
-                    "传导", "瞬态", "浪涌", "ESD", "EFT", "Surge",
-                    "防护", "避雷", "SPD", "滤波器", "共模", "差模",
-                    "互感", "磁耦合", "电感", "电容", "电阻"}
-    has_domain_term = any(dw in stripped for dw in domain_words)
-    if not has_domain_term and len(stripped) < 200:
-        matched.append("no_domain_terms")
+    # 3. 特异性检测：不含任何领域术语
+    # 领域术语从 config/knowledge_keywords.yaml 加载（无配置时跳过此检查）
+    try:
+        _dw_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "knowledge_keywords.yaml")
+        _domain_words = set()
+        with open(_dw_path, encoding="utf-8") as _f:
+            _dw_data = _yaml.safe_load(_f) or {}
+        for _k, _v in _dw_data.get("keyword_maps", {}).items():
+            _domain_words.add(_k)
+            _domain_words.update(_v)
+        has_domain_term = any(dw in stripped for dw in _domain_words)
+        if not has_domain_term and len(stripped) < 200:
+            matched.append("no_domain_terms")
+    except Exception:
+        pass  # 无配置文件时跳过特异性检查
 
     return matched
 

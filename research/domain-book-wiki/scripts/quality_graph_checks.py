@@ -401,7 +401,7 @@ def _check_cross_domain_bridges(wr):
         kg.build()
         with kg._conn() as c:
             domains = set()
-            for (nid,) in c.execute("SELECT DISTINCT id FROM nodes WHERE id LIKE '01_领域/%'").fetchall():
+            for (nid,) in c.execute(f"SELECT DISTINCT id FROM nodes WHERE id LIKE '{DIR['DOMAIN_DIR']}/%'").fetchall():
                 parts = nid.split("/")
                 if len(parts) >= 2:
                     domains.add(parts[1])

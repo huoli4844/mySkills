@@ -439,7 +439,7 @@ def build_book_overview(data):
     if ch_titles:
         for ch_num in sorted(ch_titles.keys()):
             ch_desc_parts.append(f"第{ch_num}章「{ch_titles[ch_num]}」")
-    ch_desc = "、".join(ch_desc_parts) if ch_desc_parts else "涵盖电磁兼容核心理论到工程应用"
+    ch_desc = "、".join(ch_desc_parts) if ch_desc_parts else "涵盖核心理论到工程应用"
 
     description = data.get("description") or ""
     if not description or description in ("（待补充）", ""):

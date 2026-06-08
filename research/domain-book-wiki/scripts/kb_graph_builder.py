@@ -14,6 +14,7 @@ import os
 import re
 from datetime import datetime
 
+from dag_constants import DIR
 from log_utils import get_logger
 
 log = get_logger(__name__)
@@ -103,10 +104,10 @@ class KGraphBuilderMixin:
     def _full_target(self, target: str, book_dir: str) -> str:
         """补全短路径为完整节点 ID"""
         t = target
-        if t.startswith("01_领域/01_资料库/"):
-            t = t[len("01_领域/01_资料库/") :]
-        elif t.startswith("01_资料库/"):
-            t = t[len("01_资料库/") :]
+        if t.startswith(f"{DIR['DOMAIN_DIR']}/{DIR['LIBRARY_DIR']}/"):
+            t = t[len(f"{DIR['DOMAIN_DIR']}/{DIR['LIBRARY_DIR']}/") :]
+        elif t.startswith(f"{DIR['LIBRARY_DIR']}/"):
+            t = t[len(f"{DIR['LIBRARY_DIR']}/") :]
         if book_dir and "/" in t and not t.startswith("01_"):
             bname = os.path.basename(book_dir)
             if bname.startswith("01_"):
@@ -669,10 +670,10 @@ class KGraphBuilderMixin:
                 if not target.strip():
                     continue
                 full_target = target
-                if full_target.startswith("01_领域/01_资料库/"):
-                    full_target = full_target[len("01_领域/01_资料库/") :]
-                elif full_target.startswith("01_资料库/"):
-                    full_target = full_target[len("01_资料库/") :]
+                if full_target.startswith(f"{DIR['DOMAIN_DIR']}/{DIR['LIBRARY_DIR']}/"):
+                    full_target = full_target[len(f"{DIR['DOMAIN_DIR']}/{DIR['LIBRARY_DIR']}/") :]
+                elif full_target.startswith(f"{DIR['LIBRARY_DIR']}/"):
+                    full_target = full_target[len(f"{DIR['LIBRARY_DIR']}/") :]
                 if "/" not in full_target:
                     if name_to_id:
                         if full_target in name_to_id:

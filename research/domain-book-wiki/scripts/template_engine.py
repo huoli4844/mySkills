@@ -134,7 +134,14 @@ def render_item(item: dict, type_name: str, schema: dict,
     # 检查未替换的占位符
     remaining = set(re.findall(r'\{\{(\w+)\}\}', result))
     if remaining:
-        print(f"  ⚠️ 未替换的占位符: {', '.join(sorted(remaining))}", file=sys.stderr)
+        # 尝试用自动填充兜底
+        for key in list(remaining):
+            val = _auto_fill_value(key, item, book_id, book_name, chapter_num, type_name)
+            if val is not None and val != '':
+                result = result.replace('{{' + key + '}}', str(val))
+                remaining.discard(key)
+        if remaining:
+            print(f"  ⚠️ 未替换的占位符: {', '.join(sorted(remaining))}", file=sys.stderr)
 
     return result
 
@@ -157,6 +164,8 @@ def _auto_fill_value(field_name: str, item: dict,
         'bloom_progression_analysis': '',
         'exercise_link': item.get('fm', {}).get('exercise_link', ''),
         'exercise_name': item.get('fm', {}).get('exercise_name', ''),
+        'source_chapter': chapter_num,
+        'source_from': '',
     }
     if field_name in defaults:
         return defaults[field_name]
@@ -354,7 +363,7 @@ def _auto_detect_exercises(output_base: str, book_id: str, book_name: str, chapt
 
 
 def _auto_generate_solutions(output_base: str, book_id: str, book_name: str, chapter_num: str):
-    """为习题生成解答骨架"""
+    """为习题生成解答骨架，读取习题文件中的题目内容"""
     ex_dir = os.path.join(output_base, '90_习题')
     sol_dir = os.path.join(output_base, '90_习题', '解答')
 
@@ -375,6 +384,16 @@ def _auto_generate_solutions(output_base: str, book_id: str, book_name: str, cha
         base = exf.replace('.md', '')
         sol_name = f"{base}-解答"
 
+        # 读取习题文件提取题目内容
+        question_text = ''
+        ex_path = os.path.join(ex_dir, exf)
+        if os.path.exists(ex_path):
+            with open(ex_path, encoding='utf-8') as f:
+                ex_content = f.read()
+            q_match = re.search(r'## 题目内容\s*\n(.*?)(?=\n## |\Z)', ex_content, re.DOTALL)
+            if q_match:
+                question_text = q_match.group(1).strip()[:500]
+
         item = {
             'name': sol_name,
             'fm': {
@@ -384,16 +403,22 @@ def _auto_generate_solutions(output_base: str, book_id: str, book_name: str, cha
                 'exercise_link': base,
                 'exercise_name': base,
             },
-            'bd': {k: '（待Agent填充）' for k in schema['node_types']['solution']['bd'].keys()},
+            'bd': {
+                k: '（待Agent填充）' for k in schema['node_types']['solution']['bd'].keys()
+            },
         }
+        # 如果有问题内容，填入题目原文
+        if question_text:
+            item['bd']['question'] = question_text
 
         md = render_item(item, 'solution', schema, book_id, book_name, chapter_num)
         if md:
-            with open(os.path.join(sol_dir, f"{sol_name}.md"), 'w', encoding='utf-8') as f:
+            out_path = os.path.join(sol_dir, f"{sol_name}.md")
+            with open(out_path, 'w', encoding='utf-8') as f:
                 f.write(md)
             generated += 1
 
-    print(f"  ✅ 生成了 {generated} 个解答骨架")
+    print(f"  ✅ 生成了 {generated} 个解答骨架（含题目原文）")
 
 
 # ════════════════════════════════════════════════════════════

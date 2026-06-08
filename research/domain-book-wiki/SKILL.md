@@ -1,266 +1,205 @@
 ---
 name: domain-book-wiki
-template_version: v1.0
+template_version: v2.0
 domain: research
-description: 知识库构建编排系统 — 教材源文→结构化YAML数据→模板引擎→Obsidian知识库。含schema_loader.py字段管理、pipeline preflight预验证闸门
-version: v52.5
+description: 知识库构建编排系统 — 正文→Agent写YAML(受pydantic保护)→schema校验→模板渲染输出。领域无关、书籍无关。
+version: v2.0
 triggers:
   - "生成知识库"
   - "domain-wiki"
   - "知识库构建"
-  - "dag pipeline"
-  - "schema_loader"
-  - "preflight"
   - "YAML完整性"
+  - "pipeline_v2"
+  - "yaml_writer"
+  - "template_engine"
 ---
 
-# domain-book-wiki — 知识库构建编排系统
+# domain-book-wiki v2.0 — 知识库构建编排系统
 
-教材源文 → 知识库（结构化 YAML 数据 → 模板引擎 → Obsidian/Markdown 输出）
+## 架构三域隔离
 
-## 核心工作流（v52.4+）
-
-### 推荐流程（v52.5+）
-
-```bash
-# 1. 初始化
-dag_controller.py pipeline init -w $BOOK_DIR --book-id XXX -c N
-
-# 2. 写入 YAML 数据到 .dag/第N章/data/
-#    必须写入全部 6 个 L1 文件：concepts.yaml / kes.yaml / entities.yaml / kps.yaml / sps.yaml / scenes.yaml
-#    exercises.yaml 和 solutions.yaml 可选（自动检测/骨架回退）
-#    用 schema_loader 获取正确字段名：
-python3 scripts/schema_loader.py extract concept --yaml
-
-# 3. 预验证（先查问题再跑auto）
-dag_controller.py pipeline preflight -w $BOOK_DIR --book-id XXX -c N
-
-# 4. 一次性修复所有问题 → 单次auto通过
-#    注意：如果 6 个 L1 YAML 缺任何一个，pipeline auto 将拒绝执行
-#    这是 v52.5 YAML 完整性闸门，防止产生残缺章节输出
-dag_controller.py pipeline auto -w $BOOK_DIR --book-id XXX -c N
+```
+正文（唯一可信数据源）
+    ↓ Agent 提取
+YAML 数据（yaml_writer.py 写入，pydantic 校验字段名/类型/confidence）
+    ↓
+schemas/domain_book_schema.json（唯一字段权威源，领域无关）
+    ↓
+template_engine.py（纯代码渲染，从 schema 读字段映射，从模板 .md 读格式）
+    ↓
+.md 输出（严格按模板 .md 结构）
 ```
 
-### 旧流程（避免）
-```bash
-# ❌ 直接auto → 第3阶段发现问题 → 回来修 → 重跑 → ...
-dag_controller.py pipeline auto ...  # 第一次：3/12 通过，平均3-4次手动干预
-```
+### 核心文件
 
-## 新命令速查（v52.5）
-
-| 命令 | 用途 |
+| 文件 | 职责 |
 |:-----|:------|
-| `pipeline preflight -w $DIR -c N` | 验证全部8个YAML文件后再跑auto |
-| `pipeline auto -w $DIR -c N` | **v52.5新增**: 执行前自动检查6个L1 YAML是否存在，缺文件立即拒绝执行 |
-| `schema_loader.py list` | 列出8种类型及模板字段数 |
-| `schema_loader.py extract concept` | 提取概念模板的bd字段名列表 |
-| `schema_loader.py extract concept --yaml` | 生成YAML骨架（含全部正确字段名） |
-| `schema_loader.py validate <yaml_path>` | 验证单个YAML的bd字段vs模板 |
-| `schema_loader.py verify type f1 f2` | 快速验证字段名合法性 |
+| `schemas/domain_book_schema.json` | **唯一真相源** — 8节点类型×字段名/类型/required/confidence/template映射 |
+| `scripts/yaml_writer.py` | Agent写YAML工具 — 动态pydantic模型，字段名/confidence写错当场报错 |
+| `scripts/template_engine.py` | 纯代码渲染引擎 — YAML→.md，从schema读映射，不硬编码字段名 |
+| `scripts/pipeline_v2.py` | 两阶段编排 — Phase A(纯代码) + Phase B(Agent评估) |
 
-## 架构
+### 层级结构
 
 ```
-dag_controller.py           CLI入口（preflight + SKILL_DIR）
-dag_pipeline_run.py         auto编排（数据变更自动检测 + 字段校验）
-phase_validator.py          阶段输出验证（置信度/占位符/FrontMatter）
-schema_loader.py [NEW]      模板字段名唯一权威源（替代4处分散列表）
-build_kb_files.py           YAML → .md 渲染引擎
-template_assembler.py       模板引擎（__main__已恢复）
-post_build_fix.py           自动修复（双反斜杠/公式/wikilink）
+L1（逐章）: concept → ke → entity [可选: kp → sp → scene] → exercise → solution
+L2（单书）: 书籍总揽（最后一章统一生成）
+L3（领域）: 领域总控（最后一章统一生成）
+L4（全库）: 知识库总控（最后一章统一生成）
 ```
 
-## 字段名管理
+## 核心工作流
 
-### 背景（v52.4之前的问题）
-技能有4个分散的字段名权威源（模板`{{xxx}}`、REQUIRED_BD_FIELDS、CONFIDENCE_LEVELS、字段校验），写 YAML 时用错字段名→模板`{{xxx}}`不替换→build后残留→质量D级。
+### Phase A（纯代码，零Agent）
 
-### 解决
-`schema_loader.py` 从 `assets/templates/*.md` 自动提取 `{{xxx}}` 占位符。自动过滤 `name`/`source_chapter`/`source_from`/`bloom_level` 等自动填充字段。Agent 写 YAML 前需用 `extract --yaml` 生成骨架。
+```bash
+# 一步完成：校验YAML → 模板渲染
+python3 scripts/pipeline_v2.py phase-a \
+  --book-dir /path/to/book \
+  -c 4 \
+  --book-id 01_工程电磁兼容 \
+  --book-name "工程电磁兼容第3版_路宏敏"
+```
 
-### 症状
-- build 生成的 `.md` 中出现 `{{xxx}}` 原样残留
-- pipeline auto 输出 `[字段校验/类型/名称] 缺N字段: ...`
-- preflight 输出 `⚠️ [名称] 缺N字段: field1, field2`
+内部流程：
+1. 检查 6 个 L1 YAML 文件是否存在（concepts.yaml / kes.yaml / entities.yaml / kps.yaml / sps.yaml / scenes.yaml）
+2. 用 schema.json 校验每个YAML的字段名、类型、confidence值
+3. 按 DAG 顺序逐个渲染（concept → ke → entity → kp → sp → scene）
+4. exercises 自动从源文.md检测；solutions 自动生成骨架
 
-## 关键陷阱（v52.4 新增）
+### Phase B（Agent评估）
 
-### B6. Confidence 值必须匹配 CONFIDENCE_LEVELS
+```bash
+python3 scripts/pipeline_v2.py phase-b --book-dir /path/to/book -c 4
+# 输出已有数据概况 + 建议Agent判断是否需要补充KP/SP/Scene
+```
 
-`tac_constants.CONFIDENCE_LEVELS` 严格校验每类节点的 confidence 值：
+Agent 读取 Phase A 输出 → 基于已渲染的概念/KE/实体内容 → 决定是否写KP/SP/Scene的YAML → 用 `yaml_writer.py` 写入（pydantic保护字段）
+
+## Agent 写 YAML 的正确方式
+
+### 1. 先看骨架（不创建文件）
+
+```bash
+python3 scripts/yaml_writer.py skeleton --type concept
+```
+
+输出所有正确字段名，自动填充字段标 `# （自动填充）`。
+
+### 2. 写 YAML（带全量校验）
+
+```bash
+python3 scripts/yaml_writer.py write \
+  --type concept \
+  --yaml-path .dag/第4章/data/concepts.yaml \
+  --items '[
+    {
+      "name": "概念名",
+      "file": "概念名-第4章",
+      "fm": {
+        "source_chapter": "4",
+        "source_from": "4.1.3",
+        "confidence": 0.95,
+        "confidence_note": "精准释义逐字匹配出处原文"
+      },
+      "bd": {
+        "term_english": "English Name",
+        "term_definition": "定义文本...",
+        ...
+      }
+    }
+  ]'
+```
+
+**字段名写错 / confidence 超范围 / 必填字段缺失 → pydantic 当场报错，不写入。**
+
+### 3. 校验已有 YAML
+
+```bash
+# 单文件（自动识别类型）
+python3 scripts/yaml_writer.py validate --yaml-path concepts.yaml
+# 显式指定类型
+python3 scripts/yaml_writer.py validate --yaml-path test.yaml --type concept
+# 批量校验整个章
+python3 scripts/yaml_writer.py validate-dir --dir .dag/第4章/data/
+```
+
+## Confidence 速查表
+
+所有值定义在 `schemas/domain_book_schema.json`，Agent不可修改默认值：
 
 | 类型 | 允许值 | 含义 |
 |:-----|:-------|:-----|
-| concept | `{0.95}` | 精准释义逐字匹配出处 |
-| ke / entity | `{0.85}` | 基于正文归纳 |
-| kp | `{0.85}` | 基于正文归纳 |
-| sp | `{0.75}` | 操作步骤来自原文 |
-| scene / exercise | `{0.65}` | 基于教材案例 |
-| solution | `{0.65, 0.85}` | 骨架0.65 / Agent填充0.85 |
+| concept | `[0.95]` | 精准释义逐字匹配出处 |
+| ke / entity | `[0.85]` | 基于正文归纳 |
+| kp | `[0.85]` | 基于正文归纳 |
+| sp | `[0.75]` | 操作步骤来自原文 |
+| scene / exercise | `[0.65]` | 基于教材案例 |
+| solution | `[0.65, 0.85]` | 骨架0.65 / Agent填充0.85 |
 
-写错 confidence 直接阻断 build。用错值（concept=0.85 / sp=0.80）导致 build_kb_files.py 输出"OK 完成: 0 个文件"。
+## 字段管理（与旧版对比）
 
-### B7. Preflight 先于 pipeline auto 执行
+| 维度 | 旧版(v52.5-) | 新版(v2.0) |
+|:-----|:------------|:-----------|
+| 字段权威源 | schema_loader + schema.py + config.py + tac_constants.py (4处) | `schemas/domain_book_schema.json`（唯一） |
+| confidence定义 | 10个文件 | 同上一处 |
+| Agent写YAML | 文字提示"按以下字段写" | pydantic模型，写错0%通过 |
+| 模板渲染 | build_kb_files.py（含字段校验） | template_engine.py（纯渲染，无校验） |
+| 校验 | 15个validator文件(~5108行) | yaml_writer内置校验（从schema驱动） |
+| 编排 | dag_controller.py（12阶段） | pipeline_v2.py（两阶段） |
 
-缺失字段（missing）→ 必须补充，否则 {{xxx}} 残留阻断build → **阻断级**
-多余字段（extra）→ 不会阻断build，但不清理会干扰后续校验
-置信度超出允许值 → **阻断级**
+## 已知陷阱
 
-### B8. 自动填充字段无需写入 bd
+### P1. YAML `file:` 值禁止含 `/` 字符
 
-`name`, `source_chapter`, `source_from`, `type_tag`, `type`, `confidence`,
-`confidence_note`, `chapter_num`, `bloom_level`, `entity_type`, `aliases`, `tags`,
-`book_id`, `book_name`, `exercise_link`, `exercise_name`, `bloom_progression_analysis`
+`file: 多设备DC/DC隔离供电场景-第4章` → `/` 被OS解释为路径分隔符。
+**正确**: `多设备DC_DC隔离供电场景-第4章`
 
-这些字段只写一次（放在`fm:`或`bd:`中），不重复。
+### P2. 6个L1 YAML文件缺一不可
 
-### B9. [已知] Solutions 回退骨架生成（eval_template 格式不匹配）
+`pipeline_v2 phase-a` 执行前检查 concepts.yaml / kes.yaml / entities.yaml / kps.yaml / sps.yaml / scenes.yaml。
+缺少任何一个立即拒绝。exercises.yaml 和 solutions.yaml 不在此列（自动检测/骨架回退）。
 
-**症状**: `pipeline auto` 的 solutions 阶段输出 `⚠️ build_kb_files.py 返回非零（可能 solutions.yaml 缺失）` → 回退到从习题文件直接生成骨架解答。生成的 .md 含 `{{type_tag}}`, `{{bloom_level}}` 占位符残留。
+### P3. 多余字段不阻断但应清理
 
-**根因**: `build_kb_files.py` 处理 `--type solution` 时，期望的 bd 字段结构与 `eval_template.md` 中的 `{{xxx}}` 字段名不完全一致，导致 template_assembler 找不到匹配。现有workaround是回退到 skeleton 生成 + auto-fix，但 `{{type_tag}}` 和 `{{bloom_level}}` 无法自动填充（它们在 frontmatter 中但 skeleton 生成时未提供）。
-
-**当前状态**: 非阻断问题 — 解答骨架可以正常浏览，但 2 个占位符残留影响 Obsidian 渲染。需后续系统修复 `build_kb_files.py` 的 solution 处理逻辑或统一 solutions.yaml 的 bd 字段名为 eval_template.md 的精确 {{xxx}} 集合。
-
-### B10. [新增] Preflight 不覆盖内容深度质量
-
-pipeline preflight 保障**格式正确性**（字段名、confidence、文件存在），但**不检验内容深度质量**。
-
-第8章审计经验：
-
-| 检查项 | preflight 是否覆盖 | 第8章合规率 |
-|:-------|:------------------:|:----------:|
-| 占位符残留 | ✅ | 100% |
-| 字段名匹配 | ✅ | 100% |
-| confidence合规 | ✅ | 100% |
-| 理论基础深度(≥150字) | ❌ | 0% (4/4 KP不足) |
-| Wikilink 引用(≥3条) | ❌ | 0% (4/4 KP无) |
-| formula $$ 包裹 | ❌ | 0% (1/1概念用纯文本) |
-| bloom_level 在fm中 | ❌ | 0% (4/4 KP缺失) |
-
-**原因**: 内容深度是语义级质量，不可通过文件结构和字段名模式匹配自动检查。
-
-| 2026-06-08 | preflight新增4项内容质量检测 | 已修复 (📐公式/📖深度/🔗wikilink/🎯bloom) |
-
-### B11. [v52.5] YAML 完整性闸门 — 6个L1文件必须全部存在
-
-**症状**: `pipeline auto` 拒绝执行，输出 `❌ YAML 数据文件不完整` 并列出缺失文件。
-
-**根因**: 只写了部分YAML（如仅 concepts.yaml）就运行 pipeline auto → 缺文件的阶段被blocked → 输出残缺（只有概念+自动检测的习题）。
-
-**检查范围**: 6个L1文件 — `concepts.yaml`, `kes.yaml`, `entities.yaml`, `kps.yaml`, `sps.yaml`, `scenes.yaml`。
-**明确排除**: `exercises.yaml` 和 `solutions.yaml` 不在检查范围内。它们走自动检测（从源文.md提取）和骨架回退机制，无需YAML数据文件。
-
-**修复**: 补全缺失的YAML文件后重跑 pipeline auto。
-
-**预防**: pipeline init 阶段即检查 L1 完整性（Phase 0.25 告警，非阻断）。
-
-### B12. [v52.5] YAML item 的 `file:` 字段必须唯一
-
-**症状**: 多个 items 使用相同 `file:` 值 → build 将它们全部合并到同一个 .md 文件（如 `第4章 电磁兼容性控制.md` 包含6个KE内容）。
-
-**根因**: `build_kb_files.py` 按 `file:` 分组，同名的 items 输出到同一文件。
-
-**正确做法**: 每个 item 应有唯一 `file:`，格式为 `短名称-第N章`：
-```yaml
-- name: 问题解决法
-  file: 问题解决法-第4章    # ✅ 唯一
-- name: 规范法
-  file: 规范法-第4章        # ✅ 唯一
-```
-
-### B13. [v52.5] YAML `file:` 值禁止含 `/` 字符
-
-**症状**: `file: 多设备DC/DC隔离供电场景-第4章` → OS将 `/` 解释为路径分隔符 → 文件写入 `70_应用场景/多设备DC/DC隔离供电场景-第4章.md` 路径错误。
-
-**根因**: `file` 值直接用作输出文件名。`/` 在 Unix/macOS/Windows 中均为路径分隔符。
-
-**修复**: 替换 `/` 为 `_` 或 `-`：`多设备DC_DC隔离供电场景-第4章`。
-
-**预防**: `file:` 值中除字母、数字、中文、`-`、`_`、`.`外不包含任何特殊字符，尤其禁止 `/`、`\`、`:`、`*`、`?`。
-
-## 已知字段名速查陷阱
-
-preflight 报告"多余字段"时，往往不是字段多余而是字段名写错了。常见错误对照：
-
-| YAML 中写错的字段 | 模板期望的字段名 | 适用文件 |
-|:-----------------|:----------------|:---------|
-| `scene_description` | `scenario_description` | scenes.yaml |
-| `scene_type` | `scenario_type` | scenes.yaml |
-| `answer_text` | `principle_steps` + `characteristics` + ...(共19个) | solutions.yaml |
-| `question_text` | `question` | exercises.yaml |
-| `knowledge_context` | `knowledge_context_diagram` | scenes.yaml |
-| `core_operation`（在KP中） | 该字段仅属于SP，不属于KP | kps.yaml |
-
-修复方法：`schema_loader.py extract <type> --yaml` 生成骨架 → 对照骨架修正字段名。
+schema校验中"多余字段"是警告而非错误——渲染引擎只取schema中定义的字段。但遗留字段（如旧版的 `additional_explanations`、`definition_source` 等）建议清理。
 
 ## 快速调试
 
 ```bash
-# pipeline状态
-dag_controller.py pipeline status -w $BOOK_DIR --book-id XXX -c N
+# 查看所有类型
+python3 scripts/yaml_writer.py list
 
-# 预验证YAML数据（推荐：先于pipeline auto）
-dag_controller.py pipeline preflight -w $BOOK_DIR --book-id XXX -c N
+# 查看章节构建状态
+python3 scripts/pipeline_v2.py status --book-dir /path/to/book -c 4
 
-# 字段名排查
-python3 scripts/schema_loader.py validate .dag/第N章/data/solutions.yaml
+# 只渲染单个类型（不经过pipeline）
+python3 scripts/template_engine.py render \
+  --type concept \
+  --data .dag/第4章/data/concepts.yaml \
+  --output 30_核心概念 \
+  --book-id 01_工程电磁兼容 \
+  --book-name "工程电磁兼容第3版_路宏敏" -c 4
 
-# 确认类型名→模板文件映射
-python3 scripts/schema_loader.py list
-
-# 生成YAML骨架供Agent参考
-python3 scripts/schema_loader.py extract concept --yaml
+# 批量校验整个章的YAML
+python3 scripts/yaml_writer.py validate-dir --dir .dag/第4章/data/
 ```
 
-## 完整验证示例（ch7 实际运行记录）
+## 遗留（旧版 dag_controller.py 已弃用）
 
-第7章（搭接技术及其应用，264行，6习题）从零到完全构建的完整流程：
-
-```bash
-# 1. init + 写8个YAML文件
-dag_controller.py pipeline init -w $BOOK_DIR -c 7
-# ← 手动写入 .dag/第7章/data/concepts.yaml 等8文件
-
-# 2. preflight：一次性发现9项问题（全部是extra field，非阻断）
-dag_controller.py pipeline preflight -w $BOOK_DIR -c 7
-# 返回: "发现9项问题（上述 ⚠️ 标记），请修复后运行 pipeline auto"
-
-# 3. 清理extra field（1次性操作，30秒）
-# ← 从concepts.yaml移除5个legacy字段，从scenes.yaml移除1个
-
-# 4. 再次preflight → 全通过
-dag_controller.py pipeline preflight -w $BOOK_DIR -c 7
-# 返回: "🎉 Preflight 全部通过: 30 项数据，无问题"
-
-# 5. pipeline auto → 9/12阶段一次通过（0中断）
-dag_controller.py pipeline auto -w $BOOK_DIR -c 7
-# 输出: concepts(4) ke(4) entities(3) kp(3) sp(2) scene(2) exercises(6) solutions(106)
-# L2/L3/L4跳过（非最终章）
-```
-
-**效果**: 从写YAML到构建完成，**零手动中断、零多次重跑**。
+`dag_controller.py` / `dag_pipeline_run.py` / `build_kb_files.py` / `schema_loader.py` 等旧版pipeline文件保留在`scripts/`目录中供参考，但不再用于新章节构建。新构建请使用 `pipeline_v2.py` + `yaml_writer.py` + `template_engine.py`。
 
 ## 版本历史
 
-v52.5 (2026-06-08) — 当前版本
-- dag_pipeline_run.py: 新增 `_check_l1_yaml_completeness()` + pipeline auto 入口闸门
-- dag_pipeline_ops.py: pipeline init 新增 Phase 0.25 L1 YAML 完整性检查
-- 闸门只检查 6 个 L1 文件（concepts/kes/entities/kps/sps/scenes），exercises/solutions 排除
-- 通用化设计：任何书/章节自动适配，无硬编码
-- SKILL.md 新增 B11（完整性闸门）、B12（唯一file:）、B13（文件名禁/）陷阱
-- 第4章修复验证：从仅有concepts.yaml → 全自动6L1补全 + preflight + auto，9/12阶段零中断
+v2.0 (2026-06-08) — 数据层重构
+- `schemas/domain_book_schema.json`: 唯一字段权威源，全类型定义
+- `scripts/yaml_writer.py`: Agent写YAML工具，pydantic模型动态生成
+- `scripts/template_engine.py`: schema驱动的模板渲染引擎，重写
+- `scripts/pipeline_v2.py`: Phase A纯代码 + Phase B Agent评估
+- 废弃 dag_controller.py / build_kb_files.py / schema_loader.py 等15个validator
+- 领域无关、书籍无关：换模板只需更新schema.json
 
-v52.4a (2026-06-08)
-- SKILL.md 从无操作占位符改为完整使用文档
-- 新增推荐工作流（preflight先于auto）
-- 新增CONFIDENCE_LEVELS速查表
-- 新增B9（解答骨架回退已知问题）
-- 新增ch7完整验证示例
-- schema_loader.py: 模板字段唯一权威源
-- pipeline preflight: 预验证闸门
-- 自动填充字段过滤：消除假阳性
-
+v52.5 (2026-06-08) — YAML完整性闸门（历史版本，标记tag）
+v52.4a — schema_loader + preflight质量门
 v52.3 — 字段校验warning
-v52.2 — 数据变更自动检测 + template_assembler __main__恢复
+v52.2 — 数据变更自动检测

@@ -103,10 +103,18 @@ class ChapterState:
 
     def set_status(self, phase: str, status: str, files: int = 0):
         """设置阶段状态"""
-        if phase in self._data.get("phases", {}):
-            self._data["phases"][phase]["status"] = status
-            if files:
-                self._data["phases"][phase]["files"] = files
+        if phase not in self._data.get("phases", {}):
+            # 如果状态文件中没有该阶段（旧版本创建的），自动创建
+            idx_map = {p["name"]: p["index"] for p in PHASES}
+            self._data.setdefault("phases", {})[phase] = {
+                "index": idx_map.get(phase, 99),
+                "status": "pending",
+                "files": 0,
+                "deps": [],
+            }
+        self._data["phases"][phase]["status"] = status
+        if files:
+            self._data["phases"][phase]["files"] = files
 
     def get_phase_count(self, phase: str) -> int:
         """获取阶段文件数"""

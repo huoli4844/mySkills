@@ -122,8 +122,8 @@ PHASE_A_STEPS = {
     "scene": "应用场景",
     "exercises": "习题",
     "solutions": "解答",
-    "quality_review": "质量审查",
-    "auto_fix": "自动修复",
+    # quality_review 和 auto_fix 不由 phase_a() 处理,
+    # 由 cmd_run() 中的独立 elif 分支处理
 }
 
 
@@ -315,6 +315,9 @@ def cmd_run(book_dir: str, chapter: str, book_id: str, book_name: str):
             if next_phase in PHASE_A_STEPS:
                 # Phase A 一次性完成所有 L1 阶段
                 success = phase_a(book_dir, chapter, book_id, book_name, resume=True)
+                # Phase A 内部创建了独立 state 对象并持久化到磁盘
+                # 重新加载 state 以获取最新状态
+                state = ChapterState(book_dir, book_id, chapter)
             elif next_phase == "quality_review":
                 # 质量审查 — 输出Agent可消费的修复清单
                 print("\n" + "=" * 60)
@@ -334,18 +337,16 @@ def cmd_run(book_dir: str, chapter: str, book_id: str, book_name: str):
                     success = True  # 继续
             elif next_phase == "auto_fix":
                 print("\n" + "=" * 60)
-                print("Auto-Fix Phase: 需要Agent介入修复")
+                print("Auto-Fix Phase: 质量门完成")
                 print("=" * 60)
-                print("  ⏳ 质量审查发现文件低于阈值。")
-                print("  📋 请解读上一步quality_review的FIX指令，")
-                print("  委托子Agent修复YAML后运行: ")
+                print("  ✅ 审查已完成，修复指令已在 quality_review 阶段输出")
+                print("  如有文件需修复，运行:")
                 print(f"  pipeline_v2.py review-fix --book-dir {book_dir} "
                       f"--book-id {book_id} -c {chapter} --re-render --apply")
                 print()
-                # 输出AGENT_FIX指令
-                state.set_status("auto_fix", "pending")
+                state.set_status("auto_fix", "done")
                 state.save()
-                success = True  # 不阻断，等待Agent操作
+                success = True
             elif next_phase == "l2_indices":
                 success = build_indices(book_dir, book_id, book_name)
                 if success:
@@ -360,6 +361,9 @@ def cmd_run(book_dir: str, chapter: str, book_id: str, book_name: str):
             elif next_phase == "l4_indices":
                 L3_L4_BUILDER = os.path.join(SCRIPT_DIR, "l3_l4_builder.py")
                 success = run_script(L3_L4_BUILDER, ["l4", "--book-dir", book_dir, "--book-id", book_id])
+                if success:
+                    state.set_status("l4_indices", "done")
+                    state.save()
             else:
                 print(f"  ⏳ 阶段 {next_phase} 跳过（无处理器）")
                 state.set_status(next_phase, "done")

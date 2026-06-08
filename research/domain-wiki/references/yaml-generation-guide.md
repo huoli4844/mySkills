@@ -1,0 +1,125 @@
+# YAML 生成指南 — Agent 写数据文件规范
+
+## Schema 要求
+
+所有 YAML 数据文件必须严格遵循 `{name, file, fm, bd}` 四字段结构。
+
+### 字段说明
+
+```yaml
+- name: "名称"                    # 条目名称，人类可读
+  file: "第1章-概念1"              # 短名/文件名（无 .md 无路径，exercises/solutions 用第N章-习题N格式）
+  fm:                            # 元数据（frontmatter）
+    source_chapter: "1"          # 字符串，非数字
+    source_from: "第1章 1.2.2"    # 来源定位
+    confidence: 0.95             # 必须匹配节点类型的允许值！
+    confidence_note: "精准释义逐字匹配出处原文"  # 必填！
+  bd:                            # 内容数据（必须是字典，不是 | 块字符串）
+    term_definition: "..."       # 模板字段在 bd 内部
+    ...
+```
+
+### 节点类型 vs 置信度对照表
+
+| 类型 | 文件名 | 置信度 | 说明 |
+|:-----|:-------|:------:|:-----|
+| concept | concepts.yaml | **0.95** | 固定值，仅此可接受 |
+| ke | kes.yaml | **0.85** | 允许值 `{0.85}` |
+| entity | entities.yaml | **0.85** | 允许值 `{0.85}` |
+| kp | kps.yaml | **0.85** | 允许值 `{0.85}` |
+| sp | sps.yaml | **0.75** | 允许值 `{0.75}` |
+| scene | scenes.yaml | **0.65** | 允许值 `{0.65}` |
+| exercise | exercises.yaml | **0.65** | 允许值 `{0.65}`（非 0.85！） |
+| solution | solutions.yaml | **0.65** | 允许值 `{0.65}` |
+
+**重要**：置信度必须精确匹配允许值中的某个值。0.95 ≠ 0.98，0.85 ≠ 0.95。`build_kb_files.py` 会逐文件检查 FrontMatter 中的 confidence 值，不符合直接跳过该文件。
+
+### 常见结构错误
+
+| 错误模式 | 现象 | 修复 |
+|:---------|:-----|:-----|
+| 顶层无 name/file/fm/bd | build_kb_files 读不到数据 | 包装为 `{name, file, fm, bd}` 四字段 |
+| confidence 值错误（如 exercise=0.85） | build 说"不符合允许值"，0 文件产出 | 修改 confidence 为允许值列表中的值 |
+| kps.yaml 的 bd 字段在顶层 | build 说"数据为空"或 0 文件 | 把 solved_problem/learning_objectives 等移到 bd 下 |
+| exercises.yaml 扁平结构（无 fm/bd） | build 说"数据未找到" | 添加 fm (含 source_chapter+confidence) + bd |
+| fm 缺失 confidence 字段 | 构造时 KeyError 或 0 文件 | 补 confidence + confidence_note |
+| bd 是 `\|` 块字符串 | 所有 `{{字段}}` 占位符不替换 | bd 必须是字典，公式/图在字典内部用 `\|` 块 |
+| source_chapter 是数字 1 而非字符串 "1" | schema 校验失败 | 加引号 `"1"` |
+
+### Agent 写 YAML 的正确方式（delegate_task）
+
+Python 脚本中使用 `yaml.dump`：
+
+```python
+import yaml, os
+
+items = [{
+    "name": "概念名称",
+    "file": "概念名称",
+    "fm": {
+        "source_chapter": "1",
+        "source_from": "第1章 1.2.2",
+        "confidence": 0.95,
+        "confidence_note": "精准释义逐字匹配出处原文"
+    },
+    "bd": {
+        "term_english": "EMC",
+        "term_definition": "...",
+        "definition_sentence": "从源文逐字复制的定义句",
+        # ... 其他模板字段
+    }
+}]
+
+out_dir = "/path/to/.dag/第1章/data/"
+with open(os.path.join(out_dir, "concepts.yaml"), 'w') as f:
+    yaml.dump(items, f, allow_unicode=True, default_flow_style=False,
+              sort_keys=False, indent=2, width=120)
+```
+
+### 写完后必做校验
+
+1. **yaml.safe_load 能解析**：`python3 -c "import yaml; yaml.safe_load(open('file.yaml'))"`
+2. **计数检查**：`print(f\"{len(data_before)}→{len(data_after)}\")` — 确保没覆盖条目
+3. **字段名匹配模板**：`grep -o '{{[^}]*}}' assets/templates/<type>.md | sort -u` 核对 bd 字段名
+4. **confidence 值允许列表**：查看对应 schema JSON 中的 enum
+
+## 管道自动工作流（pipeline auto）
+
+完整流程：
+
+1. **chapter_toc**: `preprocess_toc.py` → 自动执行（或 `pipeline done chapter_toc`）
+2. **Agent 写 YAML**: 写入 `.dag/第N章/data/{concepts,kes,entities,kps,sps,scenes,exercises,solutions}.yaml`
+3. **pipeline auto**: 自动构建 → 检查 → 验证 → 标记 done
+4. **修复循环**: pipeline auto 可能因 confidence/结构问题失败 → 手动修正 YAML → 回滚失败阶段 → 重新 pipeline auto
+5. **indexes**: l2_indices → l3_indices → l4_indices
+
+### pipeline auto 的依赖链
+
+```
+chapter_toc → concepts → ke → entities → kp → sp → scene → exercises → solutions → l2/l3/l4
+```
+
+如果某阶段需要上游完成才能进行。如果上游阶段 FAIL，必须 `pipeline rollback <phase>` 重置后修复 YAML 再重跑。
+
+### 手动构建（build_kb_files.py）
+
+当 pipeline auto 因 confidence 或其他校验失败时，手动构建参数：
+
+```bash
+python3.12 build_kb_files.py --type exercise --chapter 1 \
+  --book-id "01_工程电磁兼容" \
+  --output-dir "/path/to/book_dir"
+```
+
+需要同时提供 `--book-id` 和 `--output-dir`（指向书籍根目录 wr）。之后用 `pipeline done <phase>` 同步状态。
+
+### 回滚阶段
+
+当阶段验证失败需要重新构建时：
+
+```bash
+python3.12 dag_controller.py pipeline rollback <phase> \
+  -w $BOOK_DIR --book-id 01_xxx -c 1
+```
+
+回滚会自动重置该阶段及所有下游依赖阶段。

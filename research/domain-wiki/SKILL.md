@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
 description: "从教材源文件构建结构化 Obsidian 知识库：Prepare book目录结构 + split整书MD → Agent 写 .dag/第N章/data/*.yaml → build_kb_files 生成含 LaTeX/Mermaid 的 Markdown → pipeline batch 一键全自动构建。v52.1: 新增 split_book_to_chapters.py 整书预处理）"
-version: "52.1"
+version: "52.2"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -196,6 +196,9 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 || 88 | 章节标题使用混合格式（`# 第N章` vs `## 第N章`，空格分布不一致），grep 模式 `^## 第` 或 `^# 第` 单独均不全匹配 | **vN**: `CHAPTER_PATTERN` 使用 `^(#{1,2})\s*(第\s*\d+\s*章\s*...)`，兼容单#和双#，同时自动折叠空格。 |
 || 89 | 章节文件名包含 TOC 页码（如 `第9章 EMC 标准简介……215.md`）导致 discover_chapters 匹配失败 | **vN**: `normalize_filename` 中对 `……\s*\d+\s*$` 做 strip。正则 `第(\d+)章\s.*\.md$` 要求文件名无多余尾部。 |
 || 90 | 输出目录在 `raw/` 下（raw 是只读源文件区） | **vN**: 整书预处理必须输出到平行于 `raw/` 的领域目录下。`split_book_to_chapters.py prepare` 默认在 `-w` 指定的 `book_dir` 下操作。 |
+|| 91 | exercise/solution 的 confidence 值误用 0.85（子代理从 concept 偷了模板），build 说"不符合允许值 {0.65}"，0 文件产出 | **vN**: exercise/solution 的允许值仅 `{0.65}`，非 0.85。写 YAML 前检查 schema JSON 中的 enum。 |
+|| 92 | kps.yaml 的内容字段（solved_problem/learning_objectives 等）在顶层而非 bd 下 → build 说"数据未找到" | **vN**: 所有 YAML 必须 `{name, file, fm, bd}` 四字段。内容字段必须位于 `bd: {}` 内部，非顶层。 |
+|| 93 | exercises.yaml/solutions.yaml 扁平结构（无 fm/bd） → build_kb_files 跳过该文件 | **vN**: 即使 exercises/solutions 结构简单，也必须包含 `fm: {source_chapter, confidence}` 和 `bd: {}`。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 
@@ -234,3 +237,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [solution-content-quality.md](references/solution-content-quality.md) | **v51.7** — 解答内容增强设计：质量评分检测通用模板→章节标题回退关键词→源文段落匹配→差异化生成 |
 | [link-audit-design.md](references/link-audit-design.md) | **v52.0** — link_audit 替代 KGraph 设计文档：纯文本扫描入度/反向链路/跨章统计，无 SQLite 维护成本 |
 | [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md) | **v52.1** — 整书 MD 预处理工作流：目录创建 + 图片复制 + 章节拆分（TOC 去重/标题格式兼容/文件名标准化） |
+| [yaml-generation-guide.md](references/yaml-generation-guide.md) | **v52.1** — YAML 数据文件生成规范：四字段结构 (name/fm/bd/file) + 节点类型 vs 置信度对照表 + 常见结构错误修复 + pipeline auto 工作流 |

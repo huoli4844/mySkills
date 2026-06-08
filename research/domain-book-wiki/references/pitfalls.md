@@ -374,6 +374,38 @@ book_id, book_name, exercise_link, exercise_name, bloom_progression_analysis
 
 **临时修复**: 占位符不影响阅读（位于 frontmatter 中）。完整修复需统一 `build_kb_files.py` 中 solution 字段映射为 `eval_template.md` 的精确 {{xxx}} 集合。
 
+### B11. [v52.5] YAML 完整性闸门 — 6个L1文件必须全部存在
+
+**症状**: `pipeline auto` 拒绝执行，输出 `❌ YAML 数据文件不完整` 并列出缺失文件。
+
+**根因**: 只写了部分YAML（如仅 concepts.yaml）就运行 pipeline auto → 缺文件的阶段被blocked → 输出残缺（只有概念+自动检测的习题）。
+
+**检查范围**: 6个L1文件 — `concepts.yaml`, `kes.yaml`, `entities.yaml`, `kps.yaml`, `sps.yaml`, `scenes.yaml`。`exercises.yaml` 和 `solutions.yaml` 明确排除在外（自动检测/骨架回退不需要YAML）。
+
+**修复**: 补全缺失的YAML文件后重跑 pipeline auto。
+
+**预防**: pipeline init 阶段即检查 L1 完整性（Phase 0.25 告警，非阻断）。
+
+### B12. [v52.5] YAML item 的 `file:` 字段必须唯一
+
+**症状**: 多个 items 使用相同 `file:` 值 → build 将它们全部合并到同一个 .md 文件。
+
+**根因**: `build_kb_files.py` 按 `file:` 分组，同名的 items 输出到同一文件。
+
+**修复**: 每个 item 应有唯一 `file:`，格式为 `短名称-第N章`。
+
+**预防**: 写 YAML 时检查所有 `file:` 值是否唯一。
+
+### B13. [v52.5] YAML `file:` 值禁止含 `/` 字符
+
+**症状**: `file: 多设备DC/DC隔离供电场景-第4章` → OS将 `/` 解释为路径分隔符 → 文件写入错误路径。
+
+**根因**: `file` 值直接用作文件名。`/` 在所有 OS 中均为路径分隔符。
+
+**修复**: 替换 `/` 为 `_` 或 `-`：`多设备DC_DC隔离供电场景-第4章`。
+
+**预防**: `file:` 值仅含字母、数字、中文、`-`、`_`、`.`，禁止 `/`、`\`、`:`、`*`、`?`。
+
 ## 历史归档索引（重复删除 — 上一个完全相同）
 
 ---

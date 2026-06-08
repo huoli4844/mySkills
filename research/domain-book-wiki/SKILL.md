@@ -3,7 +3,7 @@ name: domain-book-wiki
 template_version: v1.0
 domain: research
 description: 知识库构建编排系统 — 教材源文→结构化YAML数据→模板引擎→Obsidian知识库。含schema_loader.py字段管理、pipeline preflight预验证闸门
-version: v52.4
+version: v52.5
 triggers:
   - "生成知识库"
   - "domain-wiki"
@@ -11,6 +11,7 @@ triggers:
   - "dag pipeline"
   - "schema_loader"
   - "preflight"
+  - "YAML完整性"
 ---
 
 # domain-book-wiki — 知识库构建编排系统
@@ -19,13 +20,15 @@ triggers:
 
 ## 核心工作流（v52.4+）
 
-### 推荐流程（每章一次通过）
+### 推荐流程（v52.5+）
 
 ```bash
 # 1. 初始化
 dag_controller.py pipeline init -w $BOOK_DIR --book-id XXX -c N
 
 # 2. 写入 YAML 数据到 .dag/第N章/data/
+#    必须写入全部 6 个 L1 文件：concepts.yaml / kes.yaml / entities.yaml / kps.yaml / sps.yaml / scenes.yaml
+#    exercises.yaml 和 solutions.yaml 可选（自动检测/骨架回退）
 #    用 schema_loader 获取正确字段名：
 python3 scripts/schema_loader.py extract concept --yaml
 
@@ -33,6 +36,8 @@ python3 scripts/schema_loader.py extract concept --yaml
 dag_controller.py pipeline preflight -w $BOOK_DIR --book-id XXX -c N
 
 # 4. 一次性修复所有问题 → 单次auto通过
+#    注意：如果 6 个 L1 YAML 缺任何一个，pipeline auto 将拒绝执行
+#    这是 v52.5 YAML 完整性闸门，防止产生残缺章节输出
 dag_controller.py pipeline auto -w $BOOK_DIR --book-id XXX -c N
 ```
 
@@ -42,11 +47,12 @@ dag_controller.py pipeline auto -w $BOOK_DIR --book-id XXX -c N
 dag_controller.py pipeline auto ...  # 第一次：3/12 通过，平均3-4次手动干预
 ```
 
-## 新命令速查（v52.4）
+## 新命令速查（v52.5）
 
 | 命令 | 用途 |
 |:-----|:------|
 | `pipeline preflight -w $DIR -c N` | 验证全部8个YAML文件后再跑auto |
+| `pipeline auto -w $DIR -c N` | **v52.5新增**: 执行前自动检查6个L1 YAML是否存在，缺文件立即拒绝执行 |
 | `schema_loader.py list` | 列出8种类型及模板字段数 |
 | `schema_loader.py extract concept` | 提取概念模板的bd字段名列表 |
 | `schema_loader.py extract concept --yaml` | 生成YAML骨架（含全部正确字段名） |
@@ -137,6 +143,43 @@ pipeline preflight 保障**格式正确性**（字段名、confidence、文件�
 
 | 2026-06-08 | preflight新增4项内容质量检测 | 已修复 (📐公式/📖深度/🔗wikilink/🎯bloom) |
 
+### B11. [v52.5] YAML 完整性闸门 — 6个L1文件必须全部存在
+
+**症状**: `pipeline auto` 拒绝执行，输出 `❌ YAML 数据文件不完整` 并列出缺失文件。
+
+**根因**: 只写了部分YAML（如仅 concepts.yaml）就运行 pipeline auto → 缺文件的阶段被blocked → 输出残缺（只有概念+自动检测的习题）。
+
+**检查范围**: 6个L1文件 — `concepts.yaml`, `kes.yaml`, `entities.yaml`, `kps.yaml`, `sps.yaml`, `scenes.yaml`。
+**明确排除**: `exercises.yaml` 和 `solutions.yaml` 不在检查范围内。它们走自动检测（从源文.md提取）和骨架回退机制，无需YAML数据文件。
+
+**修复**: 补全缺失的YAML文件后重跑 pipeline auto。
+
+**预防**: pipeline init 阶段即检查 L1 完整性（Phase 0.25 告警，非阻断）。
+
+### B12. [v52.5] YAML item 的 `file:` 字段必须唯一
+
+**症状**: 多个 items 使用相同 `file:` 值 → build 将它们全部合并到同一个 .md 文件（如 `第4章 电磁兼容性控制.md` 包含6个KE内容）。
+
+**根因**: `build_kb_files.py` 按 `file:` 分组，同名的 items 输出到同一文件。
+
+**正确做法**: 每个 item 应有唯一 `file:`，格式为 `短名称-第N章`：
+```yaml
+- name: 问题解决法
+  file: 问题解决法-第4章    # ✅ 唯一
+- name: 规范法
+  file: 规范法-第4章        # ✅ 唯一
+```
+
+### B13. [v52.5] YAML `file:` 值禁止含 `/` 字符
+
+**症状**: `file: 多设备DC/DC隔离供电场景-第4章` → OS将 `/` 解释为路径分隔符 → 文件写入 `70_应用场景/多设备DC/DC隔离供电场景-第4章.md` 路径错误。
+
+**根因**: `file` 值直接用作输出文件名。`/` 在 Unix/macOS/Windows 中均为路径分隔符。
+
+**修复**: 替换 `/` 为 `_` 或 `-`：`多设备DC_DC隔离供电场景-第4章`。
+
+**预防**: `file:` 值中除字母、数字、中文、`-`、`_`、`.`外不包含任何特殊字符，尤其禁止 `/`、`\`、`:`、`*`、`?`。
+
 ## 已知字段名速查陷阱
 
 preflight 报告"多余字段"时，往往不是字段多余而是字段名写错了。常见错误对照：
@@ -201,7 +244,15 @@ dag_controller.py pipeline auto -w $BOOK_DIR -c 7
 
 ## 版本历史
 
-v52.4a (2026-06-08) — 当前版本
+v52.5 (2026-06-08) — 当前版本
+- dag_pipeline_run.py: 新增 `_check_l1_yaml_completeness()` + pipeline auto 入口闸门
+- dag_pipeline_ops.py: pipeline init 新增 Phase 0.25 L1 YAML 完整性检查
+- 闸门只检查 6 个 L1 文件（concepts/kes/entities/kps/sps/scenes），exercises/solutions 排除
+- 通用化设计：任何书/章节自动适配，无硬编码
+- SKILL.md 新增 B11（完整性闸门）、B12（唯一file:）、B13（文件名禁/）陷阱
+- 第4章修复验证：从仅有concepts.yaml → 全自动6L1补全 + preflight + auto，9/12阶段零中断
+
+v52.4a (2026-06-08)
 - SKILL.md 从无操作占位符改为完整使用文档
 - 新增推荐工作流（preflight先于auto）
 - 新增CONFIDENCE_LEVELS速查表

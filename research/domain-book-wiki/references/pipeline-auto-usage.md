@@ -15,6 +15,28 @@ dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_foo -c 3 --l1-only
 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_foo -c 3 --from kp
 ```
 
+## 自动数据检测（v52.2）
+
+以前：Agent 写完 YAML 数据文件后，管道认为阶段已 done 并不再处理，需要人工编辑 JSON 状态文件重置。
+
+现在：每次 `pipeline auto` 在跳过"已完成"阶段前，自动检查 `.dag/第N章/data/` 目录下是否有对应的 YAML 数据文件新增：
+- 若发现非空新数据 → 自动将阶段状态重置为 pending → 重建
+- 若数据文件不存在或为空 → 跳过（行为不变）
+- 无需人工编辑 JSON 或发第二条指令
+
+典型工作流：
+```bash
+# 1. 首次初始化+构建（所有L1阶段标记 done，为0文件）
+dag_controller.py pipeline init -w $DIR --book-id XX -c 3
+dag_controller.py pipeline auto -w $DIR --book-id XX -c 3
+
+# 2. Agent 写入 YAML 数据（delegate_task 写入 .dag/第3章/data/）
+#    无需任何额外操作
+
+# 3. 再次 pipeline auto → 自动检测新数据 → 自动重建
+dag_controller.py pipeline auto -w $DIR --book-id XX -c 3
+```
+
 ## DAG_ORDER（v33.0）
 
 按教学认知链顺序：

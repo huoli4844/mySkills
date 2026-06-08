@@ -110,8 +110,7 @@ def assemble_md(
     full_md = _wrap_mermaid_fields(full_md)
     # v52.2: 删除内容为"无"的空节
     full_md = _strip_wu_sections(full_md)
-    # v52.2: FrontMatter 中 bloom_level: 无 → 无 (保留,不移除)
-    # 剩余"无"来自 FrontMatter,无需处理
+    # v52.4: FrontMatter bloom_level: 无 → 无 保留在YAML中,无需修改
 
     os.makedirs(output_dir, exist_ok=True)
     filepath = os.path.join(output_dir, filename)

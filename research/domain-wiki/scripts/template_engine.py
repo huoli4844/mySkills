@@ -83,16 +83,54 @@ def fill_template(body_template: str, replacements: dict) -> str:
 def _strip_wu_sections(body: str) -> str:
     """C2: 删除内容恰好为'无'或'无。'的 ### / #### / ## 子节
 
-    v52.2: 扩展支持 ## 级标题,用于删除纯'无'的模板节段。
+    v52.3: 扩展支持 ## 级标题,用于删除纯'无'的模板节段。
+    v52.4: 第二遍扫描: 处理表格/列表内的"无"空节。
     """
     import re as _re
 
-    # Remove subsections (###, ####, ##) where content is exactly "无"
-    # The blank line between heading and "无" is optional
+    # Pass 1: Remove subsections where content is exactly "无"
     pattern = _re.compile(r"^(#{2,4})\s+[^\n]+\n\s*\n?\s*无[。]?\s*\n?", _re.MULTILINE)
     stripped = pattern.sub("", body)
-    # Clean up excessive blank lines
-    stripped = _re.sub(r"\n{3,}", "\n\n", stripped)
+
+    # Pass 2: Remove subsections whose content is only a table with "无" cells
+    # Pattern: heading + table where ALL cell values are "无"
+    table_wu = _re.compile(
+        r"^(#{2,4})\s+[^\n]+\n"
+        r"(?:\s*\n)*"
+        r"\|[^|]*\|[^n]*\n"
+        r"\|[-:]+\|[-:]+\|\n"
+        r"(?:\|[^|]*\|[^\n]*\n)*?"
+        r"(?=\n#{2,4}\s|\Z)",
+        _re.MULTILINE
+    )
+    # Check each matched table section - if all data cells are "无", remove it
+    def _should_remove_table(m):
+        section = m.group(0)
+        # Count data rows (skip header and separator)
+        lines = section.strip().split('\n')
+        data_rows = [l for l in lines if l.startswith('|') and not l.startswith('|-')]
+        # Skip header row
+        data_rows = data_rows[1:]
+        if not data_rows:
+            return False
+        # Check each data cell
+        all_wu = True
+        for row in data_rows:
+            cells = row.split('|')[1:-1]  # skip leading/trailing empty
+            for cell in cells:
+                val = cell.strip()
+                if val and val != "无":
+                    all_wu = False
+                    break
+            if not all_wu:
+                break
+        return all_wu
+
+    # Apply pass 2
+    stripped = table_wu.sub("", stripped)
+
+    # Pass 3: Clean up excessive blank lines
+    stripped = _re.sub(r"\n{4,}", "\n\n\n", stripped)
     return stripped
 
 

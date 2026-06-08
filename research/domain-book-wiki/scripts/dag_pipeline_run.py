@@ -360,41 +360,24 @@ def pipeline_validate(args: PipelineArgs) -> dict[str, Any]:
     _tracked["cross_chapter_conflicts"] = cross_chapter_conflicts
     _tracked["cross_chapter_similar"] = cross_chapter_similar
 
-    # 13. 知识图谱健康检查（合并原 [11]+[12]）— A6优化：一次构建+双重验证
-    log.info("\n[13/13] 知识图谱健康检查")
+    # 13. 知识链接审计（替代 KGraph）— 孤立节点/反向链接/跨章统计
+    log.info("\n[13/13] 知识链接审计")
     try:
-        from kb_graph import KGraph
-
+        from link_audit import check_orphan_nodes, check_cross_chapter_links
         wiki_root = get_wiki_root(wr)
-        kg = KGraph(wiki_root)
-        if os.path.exists(kg.db_path):
-            # 1) 结构完整性
-            issues = kg.validate()
-            errors = [i for i in issues if i["severity"] == "error"]
-            if errors:
-                log.error(f"发现 {len(errors)} 个图结构问题:")
-                for e in errors[:3]:
-                    log.error(f"{e['message'][:80]}")
-            else:
-                log.success("图结构完整，无断链/孤立节点")
-            # 2) 质量增强分析
-            quality = kg.check_graph_quality()
-            crit = [i for i in quality["issues"] if i["severity"] == "critical"]
-            if crit:
-                for ci in crit[:3]:
-                    log.info(f"🔴 [{ci['category']}] {ci['message']}")
-                    if ci.get("fix_hint"):
-                        log.info(f"🔧 {ci['fix_hint']}")
-            else:
-                log.success("无空心概念等 critical 问题")
-            s_sum = quality["summary"]
-            log.info(f"ℹ️  汇总: 🔴{s_sum['critical']}/⚠️{s_sum['warning']}/ℹ️{s_sum['info']}")
+        orphans = check_orphan_nodes(wiki_root)
+        if orphans["orphans"]:
+            log.warning(f"孤立节点: {len(orphans['orphans'])} 个 ({orphans['orphan_pct']}%)")
+            for f in orphans["orphans"][:5]:
+                log.warning(f"  {f}")
         else:
-            log.warning("图索引未构建，跳过（运行 graph build）")
-    except ImportError:
-        log.warning("kb_graph.py 不可用，跳过")
+            log.success("无孤立节点，全部节点均有入链")
+        cross = check_cross_chapter_links(wiki_root)
+        hubs = cross.get("hub_nodes", [])
+        if hubs:
+            log.info(f"枢纽节点 (TOP5): " + ", ".join(f"{n}({c})" for c, n in hubs[:5]))
     except Exception as e:
-        log.warning(f"图检查异常: {e}")
+        log.debug(f"知识链接审计跳过: {e}")
 
     log.info("\n" + "=" * 50)
     log.info("  全量验证完成")
@@ -620,19 +603,20 @@ def pipeline_auto(args: PipelineArgs) -> None:
                     s["phases"][ph]["files"] = 0
                     _save_state(sp, s)
                     continue
-                # v40.0: 索引阶段前自动构建知识图谱（L2+ 索引依赖图数据）
+                # v52.0: 知识链接审计（替代 KGraph）——孤立节点/反向链接/跨章统计
                 if ph == "l2_indices":
                     try:
-                        from kb_graph import KGraph
-
+                        from link_audit import run_link_audit
                         wiki_root = get_wiki_root(wr)
-                        kg = KGraph(wiki_root)
-                        if not os.path.exists(kg.db_path):
-                            log.info("  📊 自动构建知识图谱（L2 索引依赖图数据）...")
-                            kg.build()
-                            log.success("知识图谱构建完成")
+                        audit = run_link_audit(wiki_root, auto_fix=True)
+                        # 将审计结果注入 args，供 _build_level_indices 使用
+                        args.link_audit = audit
+                        if audit["orphans"]["orphans"]:
+                            log.info(f"  📊 孤立节点: {len(audit['orphans']['orphans'])} 个 → 缺失入链")
+                        if audit["backlinks"]["asymmetric"]:
+                            log.info(f"  📊 自动补全: {audit['auto_fixed']} 个文件的反向链接")
                     except Exception as e:
-                        log.warning(f"知识图谱构建失败: {e}")
+                        log.debug(f"知识链接审计跳过: {e}")
                 idx_ok = _build_level_indices(wr, ph, args)
                 success = idx_ok
             else:
@@ -649,6 +633,21 @@ def pipeline_auto(args: PipelineArgs) -> None:
                     s["phases"][ph]["files"] = _phase_count(wr, ph)
                     _save_state(sp, s)
                     log.success(f"[{ph}] → done ({s['phases'][ph]['files']} 文件)，验证通过")
+
+                    # v52.0: scene 完成后运行知识链接审计（孤立节点/反向链接补全）
+                    if ph == "scene":
+                        try:
+                            from link_audit import run_link_audit
+                            wiki_root = get_wiki_root(wr)
+                            audit = run_link_audit(wiki_root, auto_fix=True)
+                            if audit["orphans"]["orphans"]:
+                                log.info(f"  📊 孤立节点: {len(audit['orphans']['orphans'])} 个 → 缺失入链")
+                            if audit["auto_fixed"]:
+                                log.info(f"  📊 自动补全: {audit['auto_fixed']} 个文件的反向链接")
+                            if audit["backlinks"]["asymmetric"]:
+                                log.info(f"  📊 非对称链接: {audit['backlinks']['total_pairs']} 对（建议检查）")
+                        except Exception as e:
+                            log.debug(f"知识链接审计跳过: {e}")
                 else:
                     # v39.1: 自动重试一次（构建后修复可能已修复部分问题，重新验证）
                     log.warning(f"[{ph}] 验证未通过，自动重试...")

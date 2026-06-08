@@ -287,6 +287,14 @@ try:
         assemble_book_overview_md,
         assemble_concept_md,
         assemble_md,
+        main as _tw_main,
     )
 except ImportError:
-    pass
+    _tw_main = None  # type: ignore
+
+# ── CLI 入口（v52.2: 恢复 __main__，此前拆分时丢失）──
+if __name__ == "__main__":
+    if _tw_main:
+        _tw_main()
+    else:
+        sys.exit("ERROR: template_writers.main() not available (circular import?)")

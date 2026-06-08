@@ -26,6 +26,11 @@ metadata:
 
 **raw/ 目录只读原则（v52.1）**：`raw/` 目录存放源文件原始转换产物，**只读不写**。书籍的知识库工作目录必须平行于 `raw/` 创建于领域目录下（如 `电磁兼容领域/书籍名/`），并包含完整骨架（10_总揽/20_正文/30_核心概念/40_知识要素/50_知识点/60_技能点/70_应用场景/80_实体/90_习题/90_习题/解答）。`split_book_to_chapters.py prepare` 自动完成目录创建、图片复制和章节拆分，禁止手动在 `raw/` 下修改或写入任何文件。详见 [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md)。
 
+**\"无\"消除策略（v52.3）**：生成文件中出现"无"说明模板字段未填或未覆盖。采用三层防线消除：
+  1. **内容填充**：Agent 写 YAML 时必须填充至少 70-88% 的模板 bd 字段，对照 [template-yaml-field-map.md](references/template-yaml-field-map.md) 逐字段检查。
+  2. **预校验拦截**：`yaml_pre_validate.check_bd_coverage` 在 Phase 0.5 检查每类型字段覆盖率，低于阈值报警（concept≥25, KE≥14, entity≥13, KP≥32, SP≥20, Scene≥14, solution≥14）。
+  3. **渲染级删除**：`_strip_wu_sections` 在文件输出前删除内容为"无"的节段（##/###/#### 级标题+内容），剩余"无"仅来自 FrontMatter（如 `bloom_level: 无`），不影响内容可读性。
+
 | 归属 | 特征 | 由谁执行 | 典型任务 |
 |:-----|:-----|:---------|:---------|
 | 工程化/结构化 | 确定性输入→确定性输出，零语义理解 | Python 脚本 | 格式校验、路径/状态管理、模板渲染、Mermaid/LaTeX 语法检查、wikilink 断裂修复、构建编排、YAML schema 预检、管道状态推进 |
@@ -74,8 +79,8 @@ python3.12 split_book_to_chapters.py prepare \
 # 2. 初始化 pipeline
 python3.12 dag_controller.py pipeline init -w $BOOK_DIR --book-id 01_xxx -c 1
 
-# 3. Agent 写 YAML 到 .dag/第N章/data/ → 运行预校验 → pipeline auto
-python3.12 yaml_pre_validate.py --book-dir $BOOK_DIR -c N -v   # 检查源文公式是否遗漏
+# 3. Agent 写 YAML 到 .dag/第N章/data/（必须包含全部8种类型：concepts/ke/entities/kp/sp/scene/exercises/solutions）→ 运行预校验 → pipeline auto
+python3.12 yaml_pre_validate.py --book-dir $BOOK_DIR -c N -v   # 检查源文公式遗漏 + bd覆盖率
 python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 ```
 
@@ -154,7 +159,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | 36 | chapter-data-generation.md 目录前缀全部偏移 10（KE→30而非40） | wikilink 必须带正确目录前缀：`[[40_知识要素/xxx|xxx]]`，6/6 前缀已修正 |
 | 37 | 解答 `related_concepts` wikilink 不带目录前缀，子目录中无法跳转 | YAML 中 wikilink 强制 `[[前缀/文件名|显示名]]`，禁止裸 `[[xxx]]` |
 | 38 | 知识点模板 `{{placeholder}}` 残留（skill_requirements 等字段 YAML 缺失时留 `{{skill_requirements}}` 字面量） | v50.0: build_kb_files 缺失字段统一填"无"（不再保留 {{}}） |
-| 39 | 空节被 `_strip_wu_sections` 删除导致同类型文件结构不一致 | v50.0: `_strip_wu_sections` 已禁用——内容为"无"的节保留，确保结构一致 |
+| 39 | 空节被 `_strip_wu_sections` 删除导致同类型文件结构不一致 | ~~v50.0 禁用~~ **v52.3 已重新启用**: 因用户反复抱怨"无"充斥,重新启用并扩展regex(##级+空白行)。在 template_writers.assemble_md 和 _assemble_one 中调用。有内容字段的节不受影响。 |
 | 40 | 模板 HTML 注释（`<!-- Agent提示 -->`）泄漏到生成文件中 | `fill_template()` 返回前 `re.sub(r'<!--.*?-->', '', result, flags=re.DOTALL)` 剥离 |
 | 41 | KP 内容深度不足——理论基础太浅、推导无节点解释、案例缺定量参数 | 新增 `check_kp_depth()` 三指标（具体性≥3数字+公式、源文锚定到行号、可操作性含工具名+判据）；Agent 须先精读源文容器再写 YAML；参见 [golden-kp-example.md](references/golden-kp-example.md) 金标范例 |
 | 42 | delegate_task 子代理处理源文密集型 chapter 超时（读 800+ 行源文 + 关联概念/KE → 15 API call 600s 耗尽） | 将源文关键段落直接注入 context（而非让子代理 `read_file` 整个文件），缩短上下文建立时间；单次任务 ≤3 KP |

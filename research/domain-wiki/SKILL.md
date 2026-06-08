@@ -32,7 +32,7 @@ metadata:
 |------|------|
 | `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine |
 | `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 |
-| `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 剥离 @prompt 注释 |
+| `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 自动包裹 mermaid 图 → 剥离 @prompt 注释 |
 | `schemas/domain_book_schema.json` | 字段定义（类型/必填/constraints） |
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
 | `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
@@ -142,7 +142,9 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 5 | Agent 写的 `theoretical_basis` 太短（<150字）被拦截 | schema 中有 `min_chars` 约束。写之前用 `yaml_writer.py prompt --type kp --field theoretical_basis` 看要求 |
 | 6 | 内容质量的根因不是 prompt 不够细，而是源文不在上下文。prompt 只能解决"格式"，解决不了"深度" | Agent 写 YAML 前必须精读源文对应段落。prompt 命令只是锦上添花，不是雪中送炭。 |
 | 7 | `confidence` 值超出允许范围（如 exercise 写 0.85 但只允许 0.65） | schema.json 每类型有 `confidence.allowed` 枚举。`yaml_writer.py write` 在校验阶段直接 reject |
-| 8 | 换书：章节文件名、关键词、教材描述全硬编码 | `config/book_info.yaml` 和 `config/knowledge_keywords.yaml` 外置配置。`
+| 8 | 换书：章节文件名、关键词、教材描述全硬编码 | `config/book_info.yaml` 和 `config/knowledge_keywords.yaml` 外置配置。 |
+| 9 | 核心概念图的 `core_concept_map` 不含 ` ```mermaid ` fence → Obsidian 把 graph TD 当普通文字渲染，不显示图 | **引擎层防护**：`template_engine.py._auto_wrap_mermaid()` 自动检测 raw `graph TD/LR/flowchart/sequenceDiagram` 等 mermaid 语法并包裹代码块。**Agent 写 YAML 时的预防**：`core_concept_map` 只需写 `graph TD\n  A[label] --> B[label2]` 内容本身，不需要加 `` ```mermaid `` fence（引擎会加）。纯文字描述（如"接地是EMC四大技术之一"）不会被引擎转换，需重写为 graph 格式。 |
+| 10 | YAML 中存在 `\n`（字面反斜杠+n）而非真正的换行 → mermaid graph 渲染为一行 `graph TD\n  A-->B` | YAML 中多行 graph 必须用 `|` block scalar：`core_concept_map: |-\n  graph TD\n    A[label] --> B[label2]`。不能用双引号 + `\n` 转义——会被 yaml.safe_load 解析为字面 `\n` 字符串而非换行。 |
 
 ## Reference Index
 

@@ -494,6 +494,39 @@ def _run_preflight(wr: str, ch: str, sl) -> None:
                         if conf > 0.95 or conf < 0.5:
                             issues.append(f"⚠️ [{name}] confidence={conf} 超出合理范围 [0.5, 0.95]")
 
+                        # ── v52.4: 内容质量检查 ──
+                        # 1. 公式检查: mathematical_model 含类公式文本但无 $$ 包裹
+                        mm = bd.get("mathematical_model", "")
+                        if mm and mm != "无":
+                            _formula_chars = {"lg", "log", "dB", "ω", "π", "Ω", "λ", "μH", "mH", "Hz"}
+                            has_formula_chars = any(c in mm for c in _formula_chars)
+                            has_any_eq_sign = "=" in mm
+                            no_dollar = "$$" not in mm
+                            if has_formula_chars and has_any_eq_sign and no_dollar:
+                                issues.append(f"📐 [{name}] mathematical_model 有公式类文本但未用 $$ 包裹")
+
+                        # 2. 深度检查: KP 的 theoretical_basis < 150 字
+                        tb = bd.get("theoretical_basis", "")
+                        if tb and tb != "无" and len(tb) < 150:
+                            issues.append(f"📖 [{name}] theoretical_basis 仅 {len(tb)} 字（建议 ≥150）")
+
+                        # 3. Wikilink 检查: KP/SP/scene 的文本字段应含 wikilink
+                        if type_name in ("kp", "sp", "scene"):
+                            _text_fields = ["theoretical_basis", "core_operation", "key_details",
+                                            "engineering_practices", "typical_application_cases"]
+                            has_wl = any("[[" in bd.get(f, "") for f in _text_fields)
+                            if not has_wl:
+                                all_text = "".join(str(bd.get(f, "")) for f in _text_fields)
+                                if len(all_text.strip()) > 50:  # 有实质内容但无 wikilink
+                                    issues.append(f"🔗 [{name}] 内容字段无 wikilink [[引用]]")
+
+                        # 4. Bloom level 检查: KP 有 bloom_level_description 但 fm 缺 bloom_level
+                        if type_name == "kp":
+                            has_bld = bool(bd.get("bloom_level_description", ""))
+                            has_bl = bool(fm.get("bloom_level", ""))
+                            if has_bld and not has_bl:
+                                issues.append(f"🎯 [{name}] fm 缺 bloom_level（建议设为 2-理解/3-应用 等）")
+
         total_items += items_count
         n_issues = len(issues)
         status = "✅" if n_issues == 0 else f"⚠️ {n_issues}项"

@@ -238,6 +238,49 @@ grep "0%" 10_总揽/book_overview_*.md
 
 ---
 
+## v52.4 新增 (2026-06-08)
+
+### B6. Confidence 值必须精确匹配 CONFIDENCE_LEVELS
+
+**症状**：`phase_validator.py` 输出 `confidence=0.90 不符合 concept_template.md 的允许值 {0.95}`，阶段 blocked。
+
+**根因**：`tac_constants.CONFIDENCE_LEVELS` 对每种节点类型定义了严格允许值：
+- concept: `{0.95}` — 使用 0.90 或 0.85 都阻断
+- sp: `{0.75}` — 使用 0.80 阻断
+- entity/ke: `{0.85}`
+- scene/exercise: `{0.65}`
+
+**修复**：YAML 的 `fm.confidence` 使用精确允许值。
+
+**预防**：用 `pipeline preflight` 一次性发现所有置信度问题。
+
+### B7. 缺失字段阻断 build，多余字段不阻断
+
+**症状**：build 后 .md 文件存在但含 `{{xxx}}` 占位符。
+
+**根因**：模板 `{{xxx}}` 对应的字段在 YAML `bd:` 中不存在 → `assemble_md` 不替换 → `{{xxx}}` 原样留在输出中。
+
+**区分规则**：
+- **缺失字段**（模板有但 YAML 无）→ **阻断级** → 必须补
+- **多余字段**（YAML 有但模板无）→ **非阻断级** → 模板不消耗这些字段
+
+**修复**：`schema_loader.py extract concept --yaml` → 用正确骨架替换整个 `bd:` 区块。
+
+### B8. 自动填充字段无需也不应在 bd 中出现
+
+**症状**：`name`、`source_chapter`、`source_from` 被报告为 bd 中"多余"字段。
+
+**根因**：这些字段出现在模板正文中，但由 `build_kb_files.py` 自动从 YAML 的 `fm:` 中读取填充。不需要在 `bd:` 中写。
+
+**完整列表**：
+```
+name, source_chapter, source_from, type_tag, type, confidence,
+confidence_note, chapter_num, bloom_level, entity_type, aliases, tags,
+book_id, book_name, exercise_link, exercise_name, bloom_progression_analysis
+```
+
+**预防**：用 `schema_loader.py extract concept` 输出的字段列表只包含 `bd:` 字段。
+
 ## 历史归档索引
 
 
@@ -278,9 +321,60 @@ grep "0%" 10_总揽/book_overview_*.md
 **修复**（v44.2-maint）：阈值改为 ≥1。
 
 
-## 历史归档索引
+## v52.4 新增 (2026-06-08)
 
-全部已修复的 v34.0/v35.2/v35.4/v35.5 陷阱详见 → [pitfalls-archive.md](./pitfalls-archive.md)
+### B6. Confidence 值必须精确匹配 CONFIDENCE_LEVELS
+
+**症状**：`phase_validator.py` 输出 `confidence=0.90 不符合 concept_template.md 的允许值 {0.95}`，阶段 blocked。
+
+**根因**：`tac_constants.CONFIDENCE_LEVELS` 对每种节点类型定义了严格允许值：
+- concept: `{0.95}` — 使用 0.90 或 0.85 都阻断
+- sp: `{0.75}` — 使用 0.80 阻断
+- entity/ke: `{0.85}`
+- scene/exercise: `{0.65}`
+
+**修复**：YAML 的 `fm.confidence` 使用精确允许值。
+
+**预防**：用 `pipeline preflight` 一次性发现所有置信度问题。
+
+### B7. 缺失字段阻断 build，多余字段不阻断
+
+**症状**：build 后 .md 文件存在但含 `{{xxx}}` 占位符。
+
+**根因**：模板 `{{xxx}}` 对应的字段在 YAML `bd:` 中不存在 → `assemble_md` 不替换 → `{{xxx}}` 原样留在输出中。
+
+**区分规则**：
+- **缺失字段**（模板有但 YAML 无）→ **阻断级** → 必须补
+- **多余字段**（YAML 有但模板无）→ **非阻断级** → 模板不消耗这些字段
+
+**修复**：`schema_loader.py extract concept --yaml` → 用正确骨架替换整个 `bd:` 区块。
+
+### B8. 自动填充字段无需也不应在 bd 中出现
+
+**症状**：`name`、`source_chapter`、`source_from` 被报告为 bd 中"多余"字段。
+
+**根因**：这些字段出现在模板正文中，但由 `build_kb_files.py` 自动从 YAML 的 `fm:` 中读取填充。不需要在 `bd:` 中写。
+
+**完整列表**：
+```
+name, source_chapter, source_from, type_tag, type, confidence,
+confidence_note, chapter_num, bloom_level, entity_type, aliases, tags,
+book_id, book_name, exercise_link, exercise_name, bloom_progression_analysis
+```
+
+**预防**：用 `schema_loader.py extract concept` 输出的字段列表只包含 `bd:` 字段。
+
+### B9. [已知] Solutions 回退骨架生成（eval_template 格式不匹配）
+
+**症状**: `pipeline auto` solutions 阶段输出 `⚠️ build_kb_files.py 返回非零（可能 solutions.yaml 缺失）` → 回退到骨架解答。生成的 .md 含 `{{type_tag}}`, `{{bloom_level}}` 占位符残留。
+
+**根因**: `build_kb_files.py --type solution` 预期的 bd 字段结构与 `eval_template.md` 的 `{{xxx}}` 不完全对齐。Template 引擎找不到匹配字段 → 返回非零 → pipeline 回退到从 exercises 文件生成骨架。
+
+**影响范围**: 所有章节解答文件（ch1~ch7 106个）均含2个占位符。
+
+**临时修复**: 占位符不影响阅读（位于 frontmatter 中）。完整修复需统一 `build_kb_files.py` 中 solution 字段映射为 `eval_template.md` 的精确 {{xxx}} 集合。
+
+## 历史归档索引（重复删除 — 上一个完全相同）
 
 ---
 

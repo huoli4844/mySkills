@@ -8,7 +8,7 @@
 
 ```yaml
 - name: "名称"                    # 条目名称，人类可读
-  file: "第1章-概念1"              # 短名/文件名（无 .md 无路径，exercises/solutions 用第N章-习题N格式）
+  file: "概念中文名"              # 短名/文件名（无 .md 无路径）
   fm:                            # 元数据（frontmatter）
     source_chapter: "1"          # 字符串，非数字
     source_from: "第1章 1.2.2"    # 来源定位
@@ -35,7 +35,6 @@
 **重要**：
 - 置信度必须精确匹配允许值中的某个值。0.95 ≠ 0.98，0.85 ≠ 0.95。
 - KP 的 `file` 字段必须使用知识点名称（如 `EMC基本概念`），**禁止**使用 `第1章-知识点1` 格式。
-- 违反了上述规则的，`build_kb_files.py` 会逐文件检查 FrontMatter，不符合直接跳过该文件。
 
 ### 常见结构错误
 
@@ -46,7 +45,7 @@
 | kps.yaml 的 bd 字段在顶层 | build 说"数据为空"或 0 文件 | 把 solved_problem/learning_objectives 等移到 bd 下 |
 | exercises.yaml 扁平结构（无 fm/bd） | build 说"数据未找到" | 添加 fm (含 source_chapter+confidence) + bd |
 | fm 缺失 confidence 字段 | 构造时 KeyError 或 0 文件 | 补 confidence + confidence_note |
-| bd 是 `\|` 块字符串 | 所有 `{{字段}}` 占位符不替换 | bd 必须是字典，公式/图在字典内部用 `\|` 块 |
+| bd 是 `|` 块字符串 | 所有 `{{字段}}` 占位符不替换 | bd 必须是字典，公式/图在字典内部用 `|` 块 |
 | source_chapter 是数字 1 而非字符串 "1" | schema 校验失败 | 加引号 `"1"` |
 
 ### Agent 写 YAML 的正确方式（delegate_task）
@@ -82,15 +81,14 @@ with open(os.path.join(out_dir, "concepts.yaml"), 'w') as f:
 ### 写完后必做校验
 
 1. **yaml.safe_load 能解析**：`python3 -c "import yaml; yaml.safe_load(open('file.yaml'))"`
-2. **计数检查**：`print(f\"{len(data_before)}→{len(data_after)}\")` — 确保没覆盖条目
-3. **字段名匹配模板**：`grep -o '{{[^}]*}}' assets/templates/<type>.md | sort -u` 核对 bd 字段名
-4. **confidence 值允许列表**：查看对应 schema JSON 中的 enum
+2. **计数检查**：确保没覆盖条目
+3. **字段名匹配模板**：对照 [template-yaml-field-map.md](template-yaml-field-map.md) 核对 bd 字段名和等级
 
 ## 内容深度要求（减少"无"）
 
-Agent 写每个 YAML 条目时，**必须从源文精读提取内容**填充模板字段。以下规则适用所有节点类型：
+Agent 写每个 YAML 条目时，**必须从源文精读提取内容**填充模板字段。每条目的 bd 字段数与要求见 [template-yaml-field-map.md](template-yaml-field-map.md)（节点类型总表）。
 
-### bd 字段填充规则
+### 核心原则
 
 | 等级 | 要求 | 适用字段举例 |
 |:-----|:-----|:------------|
@@ -98,18 +96,34 @@ Agent 写每个 YAML 条目时，**必须从源文精读提取内容**填充模�
 | 🟡 应填 | 从源文归纳，最多1个节可为"无" | `structure`, `application_scenarios`, `typical_systems`, `related_concepts_relations`, `engineering_practices`, `common_misconceptions`, `solved_problem`, `learning_objectives` |
 | 🔴 条件填 | 源文有时填，无则"无" | `mathematical_model`, `formula_references`, `core_concept_map`, `figure_references` |
 
-### 每节点类型最少填充数
+### 数学模型的强制要求（重要陷阱）
 
-| 类型 | bd 总字段数 | 最少非"无"字段 | 说明 |
-|:-----|:----------:|:-------------:|:-----|
-| concept | 23 | ≥20 (87%) | 只有 mathematical_model/formula/图 可选"无" |
-| ke | 13 | ≥10 (77%) | definition/source/festures 不能为"无" |
-| entity | 10 | ≥7 (70%) | entity_type/term_definition/definition_sentence 不能"无" |
-| kp | 32 | ≥28 (88%) | theoretical_basis/engineering_practices/confusion_compare 等源自源文 |
-| sp | 20 | ≥16 (80%) | core_operation/operation_steps 不能为"无" |
-| scene | 18 | ≥14 (78%) | scenario_description/node_descriptions 不能为"无" |
-| exercise | 4 | ≥3 (75%) | question 必填 |
-| solution | 18 | ≥14 (78%) | answer/principles_steps/characteristics 从源文推导 |
+对于 `mathematical_model` 和 `formula_references` 字段：
+1. **写前必须扫描源文**：搜索对应容器/节段的 `$$...$$` 及行内 `$...$` 公式。如果源文含公式，**必须**提取。
+2. **禁止直接填"无"**：除非确认源文对应节段确实没有任何数学表达式（如纯分类介绍的文本段）。即使是框架性概念（如"电磁干扰三要素"），源文也往往有对应的数学模型。
+3. **提取模板**：Agent 必须从源文中复制公式。格式示例：
+   ```
+   $$E(t,f,r,\theta) = S(t,f,r,\theta) \cdot C(t,f,r,\theta) \cdot R(t,f,r,\theta)$$
+   ```
+4. **Figure 引用**：如果公式以图片形式存在（WMF/EMF），在 `figure_references` 中记录图片编号，在 `mathematical_model` 中用 LaTeX 重写公式。
+5. **典型陷阱案例**：
+   - ❌ `电磁干扰三要素` → `mathematical_model: 无`（源文有 S·C·R 乘积模型 ✅）
+   - ❌ `屏蔽效能` → `mathematical_model: 无`（源文有 SE=R+A+B ✅）
+
+### 各节点类型要求速览
+
+| 类型 | bd 字段数 | 最少非"无" | 关键必填字段 |
+|:-----|:---------:|:----------:|:-------------|
+| concept | 33 | ≥30 | definition_sentence, term_definition, term_english |
+| ke | 19 | ≥16 | definition, definition_sentence, source |
+| entity | 17 | ≥14 | entity_type, term_definition, definition_sentence |
+| kp | 42 | ≥36 | solved_problem, learning_objectives, theoretical_basis |
+| sp | 32 | ≥26 | core_operation, skill_objectives |
+| scene | 28 | ≥22 | scenario_description, node_descriptions |
+| exercise | 5 | ≥4 | question |
+| solution | 18 | ≥14 | answer, principle_steps, characteristics, exam_points, common_mistakes, solving_tips, difficulty_1/2 |
+
+**完整字段映射、每字段的等级和填充要求** → [template-yaml-field-map.md](template-yaml-field-map.md)
 
 ### KP file 命名特殊规则
 
@@ -126,7 +140,6 @@ Solution（eval_template.md）有 18 个 bd 字段，至少填 14 个：
 - ✅ `solving_tips`: 解题技巧
 - ✅ `difficulty_N_title/content`: 难点解析（至少 2 组）
 - ✅ `related_concepts`: 关联知识点
-- 练习题部分（图表图等源自源文内容判断是否确实需要）
 
 **禁止**：所有字段均为"待后续AI Agent深度填充"或仅 answer 字段有内容。
 
@@ -136,7 +149,7 @@ Solution（eval_template.md）有 18 个 bd 字段，至少填 14 个：
 
 1. **chapter_toc**: `preprocess_toc.py` → 自动执行（或 `pipeline done chapter_toc`）
 2. **Agent 写 YAML**: 写入 `.dag/第N章/data/{concepts,kes,entities,kps,sps,scenes,exercises,solutions}.yaml`
-3. **pipeline auto**: 自动构建 → 检查 → 验证 → 标记 done
+3. **pipeline auto**: 自动构建 → 检查 → 验证 → 标记 done。注意：**exercises/solutions 由 template_writers.py 自动生成**（非 build_kb_files.py），如果 template_assembler.py 缺少 `__main__` 入口则会静默产生 0 文件。
 4. **修复循环**: pipeline auto 可能因 confidence/结构问题失败 → 手动修正 YAML → 回滚失败阶段 → 重新 pipeline auto
 5. **indexes**: l2_indices → l3_indices → l4_indices
 

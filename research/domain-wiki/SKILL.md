@@ -200,8 +200,9 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 || 92 | kps.yaml 的内容字段（solved_problem/learning_objectives 等）在顶层而非 bd 下 → build 说"数据未找到" | **v52.2**: 所有 YAML 必须 `{name, file, fm, bd}` 四字段。内容字段必须位于 `bd: {}` 内部，非顶层。 |
 || 93 | exercises.yaml/solutions.yaml 扁平结构（无 fm/bd） → build_kb_files 跳过该文件 | **v52.2**: 即使 exercises/solutions 结构简单，也必须包含 `fm: {source_chapter, confidence}` 和 `bd: {}`。 |
 || 94 | KP file 命名用 `第1章-知识点N`。build 产出 `50_知识点/第1章-知识点1.md`，文件名无意义 | **v52.2**: KP `file` 必须用知识点中文名（如 `EMC基本概念`）。schema 强制校验 file 字段不可含 `第.*章-知识点` 模式。参见 [template-yaml-field-map.md](references/template-yaml-field-map.md) KP 节。|
-|| 95 | Solution 仅 answer 有内容，其余 17 个 bd 字段全是"无"→ 解答"只有答案没有讲解" | **vN**: Solution 使用 eval_template.md（18 字段），至少填 14 个(principle_steps/characteristics/exam_points/solving_tips/difficulty 等)。Agent prompt 中必须列出 eval_template.md 的全部 bd 字段名。 |
+|| 95 | Solution 仅 answer 有内容，其余 17 个 bd 字段全是"无"→ 解答"只有答案没有讲解" | **v52.2**: Solution 使用 eval_template.md（18 字段），至少填 14 个(principle_steps/characteristics/exam_points/solving_tips/difficulty 等)。Agent prompt 中必须列出 eval_template.md 的全部 bd 字段名。对照 [template-yaml-field-map.md](references/template-yaml-field-map.md)。 |
 || 96 | 模板拆分时 template_assembler.py 的 CLI 入口被移到 template_writers.py 但未加 `__main__` 回调。`_auto_detect_and_build_exercises` 调用 `template_assembler.py` 执行了 0 行代码，习题永不被生成 🔥 | **v52.2**: 在 template_assembler.py 末尾添加 `if __name__ == "__main__": _tw_main()` 回调。修复 3 处调用点。 |
+|| 97 | 概念有源文公式但 `mathematical_model` 填"无"（如电磁干扰三要素的 S·C·R 模型, SE=R+A+B 公式） | **v52.2**: 写 YAML 前必须扫描源文 `$$...$$` 公式,有则提取。技能参考 yaml-generation-guide.md 新增"数学模型的强制要求"节。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 

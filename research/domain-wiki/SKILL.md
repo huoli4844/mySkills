@@ -63,14 +63,16 @@ python3 scripts/yaml_writer.py prompt --type kp --field theoretical_basis
 python3 scripts/yaml_writer.py skeleton --type concept
 ```
 
-**`self-instruct` 输出结构：**
+**`self-instruct` 输出结构（字段工作台模式）：**
 | 节 | 内容 |
 |---|------|
-| 章节源文 | `--book-dir` 指定时自动加载 20_正文/第N章.md 前 3000 字 |
-| 必填字段 | 每字段标注：模板所在节标题 + @prompt + schema约束 |
+| 章节源文 | 自动加载 20_正文/第N章.md，解析为按 `##`/`###` 标题分段的字典（50+节） |
+| 源文公式检测 | 自动扫描 `$$..$$` 公式块，提取行号和内容，注入到 mathematical_model 字段提示 |
+| 必填字段(字段工作台) | 每字段：进度编号(idx/总数) + 🔴必填/🟡可选 + 模板节标题 + schema约束 + @prompt + 源文片段（最多2条最匹配段） |
 | 可选字段 | 同上，注明"有内容写否则填无" |
-| 自动填充字段 | 引擎处理，Agent不需要写 |
-| 常见错误提醒 | confidence范围、字段位置、mermaid格式 |
+| 常见错误提醒 | confidence范围、字段位置、mermaid格式、列表格式 |
+
+**关键设计——字段工作台（v2.5新增）：** 每字段并行展示三列信息——模板位置+@prompt（格式规格）、源文片段（内容原料）、schema约束（校验条件）。Agent 不需要自己翻源文找对应的字段内容——系统已经把源文按关键词匹配到每个字段，Agent 只需逐字段填空。@prompt 解决"格式怎么控制"，源文片段解决"内容从哪里来"，schema约束解决"校验什么条件"。
 
 **设计意图：** 模板 @prompt 是通用写作指导（人工可控，改一次跨所有章节生效）。Agent 把 @prompt 当"原料"而非"指令"，结合当前章节源文自行形成一次性自指导提示词。这样 @prompt 成为人工控制输出质量的持久手段。
 

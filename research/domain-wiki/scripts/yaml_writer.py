@@ -424,7 +424,7 @@ def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
         section_title = _find_section_title(tpl_content, bd_name)
 
         # 匹配源文片段
-        matched_snippets = _match_field_to_source(bd_name, section_title, source_sections)
+        matched_snippets = _match_field_to_source(bd_name, section_title, source_sections, prompts.get(bd_name, ''))
 
         # 公式检测
         formula_hint = ''
@@ -632,48 +632,223 @@ for field_name in list(_FIELD_KEYWORDS.keys()):
         _FIELD_KEYWORDS[field_name] = parts
 
 
-def _match_field_to_source(bd_name: str, section_title: str, source_sections: dict) -> list:
-    """为字段匹配最相关的源文片段"""
+# ── 语义级源文匹配引擎 ──
+
+# 信号词：指示特定类型内容的标记词
+_SIGNAL_WORDS = {
+    'definition': ['是指', '定义为', '称为', '定义为', '表示', '指'],
+    'formula': ['$$', '公式', '方程', '等式'],
+    'number': ['dB', 'Hz', 'V/m', 'mm', 'MHz', 'GHz', 'kW', 'mW', 'A/m', 'Ω', '°'],
+    'example': ['例如', '如', '案例', '实例', '如图', '表'],
+    'structure': ['①', '②', '③', '步骤', '流程', '阶段', '要素'],
+    'negation': ['不要', '避免', '注意', '误区', '错误', '不能', '注意'],
+    'evolution': ['最早', '提出', '20世纪', '发展', '199', '200', '自'],
+}
+
+# 字段 → 内容特征描述（自动匹配信号词的配置）
+_FIELD_SIGNAL_PROFILES = {
+    'term_definition':  {'primary': 'definition', 'min_chars': 30},
+    'definition_sentence': {'primary': 'definition', 'min_chars': 30},
+    'mathematical_model': {'primary': 'formula', 'min_chars': 20, 'require_num': True},
+    'structure': {'primary': 'structure', 'min_chars': 40},
+    'key_parameters': {'primary': 'number', 'min_chars': 20, 'require_num': True},
+    'features': {'primary': 'definition', 'min_chars': 20},
+    'solved_problem': {'primary': 'definition', 'min_chars': 30},
+    'application_scenarios': {'primary': 'example', 'min_chars': 30},
+    'engineering_practices': {'primary': 'number', 'min_chars': 30, 'require_num': True},
+    'common_misconceptions': {'primary': 'negation', 'min_chars': 20},
+    'evolution': {'primary': 'evolution', 'min_chars': 30},
+    'prerequisite_knowledge': {'primary': 'definition', 'min_chars': 20},
+    'learning_objectives': {'primary': 'definition', 'min_chars': 10},
+    'self_check_questions': {'primary': 'definition', 'min_chars': 10},
+    'related_concepts_relations': {'primary': 'definition', 'min_chars': 20},
+    'confusion_compare': {'primary': 'definition', 'min_chars': 20},
+    'value': {'primary': 'definition', 'min_chars': 30},
+    'typical_systems': {'primary': 'definition', 'min_chars': 20},
+    'core_concept_map': {'primary': 'definition', 'min_chars': 10},
+    'core_concept_map_analysis': {'primary': 'definition', 'min_chars': 20},
+    'tech_classification': {'primary': 'definition', 'min_chars': 10},
+    'domain': {'primary': 'definition', 'min_chars': 5},
+    'classification': {'primary': 'definition', 'min_chars': 5},
+    'related_knowledge_elements': {'primary': 'definition', 'min_chars': 5},
+    'upstream_downstream': {'primary': 'definition', 'min_chars': 20},
+    'aliases': {'primary': 'definition', 'min_chars': 5},
+    'tags': {'primary': 'definition', 'min_chars': 5},
+}
+
+
+def _get_prompt_query(prompt_text: str) -> list:
+    """从 @prompt 提取关键查询词"""
+    import re as _re
+    if not prompt_text:
+        return []
+    # 提取中英文关键词（2字以上中文词，或字母数字词）
+    words = []
+    # 中文: 2字以上片段
+    cn_matches = _re.findall(r'[\u4e00-\u9fff]{2,}', prompt_text)
+    words.extend(cn_matches)
+    # 英文/数字: 字母数字组合
+    en_matches = _re.findall(r'[a-zA-Z][a-zA-Z0-9]{1,}', prompt_text)
+    words.extend(en_matches)
+    # 去停用词
+    stop_words = ['可以', '这个', '不是', '没有', '一个', '用于', '必须', '需要',
+                  '应该', '能够', '可能', '已经', '这些', '所有', '不得', '或', '的',
+                  '了', '在', '是', '和', '与', '及', '等', '从', '对', '以', '其',
+                  'the', 'is', 'and', 'or', 'of', 'to', 'in', 'for', 'with', 'that',
+                  'from']
+    return [w for w in words if w.lower() not in stop_words and len(w) >= 2]
+
+
+def _split_sentences(text: str) -> list:
+    """将文本拆分为句子列表，每句保留位置信息"""
+    import re as _re
+    if not text:
+        return []
+    # 按句号、问号、感叹号、换行后的数字序号拆分
+    parts = _re.split(r'(?<=[。！？；；\n])\s*', text)
+    sentences = []
+    for p in parts:
+        p = p.strip()
+        if len(p) >= 10:  # 至少10字才认为是一句
+            sentences.append(p)
+    return sentences
+
+
+def _score_sentence(sentence: str, keywords: list, bd_name: str, prompt_text: str) -> float:
+    """对句子进行多维评分"""
+    import re as _re
+    score = 0.0
+
+    # 1. 关键词匹配（基础分）
+    lower_sent = sentence.lower()
+    matched = sum(1 for kw in keywords if kw.lower() in lower_sent)
+    score += matched * 1.0
+    # 2. 精确匹配加分（整词匹配）
+    exact_matched = sum(1 for kw in keywords if len(kw) >= 3 and kw in sentence)
+    score += exact_matched * 0.5
+
+    # 3. 信号词匹配
+    profile = _FIELD_SIGNAL_PROFILES.get(bd_name, {})
+    primary_signal = profile.get('primary', 'definition')
+    signal_words = _SIGNAL_WORDS.get(primary_signal, [])
+    signal_hits = sum(1 for sw in signal_words if sw in sentence)
+    score += signal_hits * 1.5  # 信号词权重更高
+
+    # 4. 数字密度加分（如果字段需要数值内容）
+    if profile.get('require_num'):
+        numbers = _re.findall(r'\d+[\.\d]*', sentence)
+        num_hits = len(numbers)
+        score += num_hits * 0.3
+        # 检测单位词
+        units = _SIGNAL_WORDS.get('number', [])
+        unit_hits = sum(1 for u in units if u in sentence)
+        score += unit_hits * 1.0
+
+    # 5. 公式检测特殊加分
+    if bd_name == 'mathematical_model' or bd_name == 'mathematical_model':
+        if '$$' in sentence:
+            score += 5.0  # 公式包含加分极高
+
+    # 6. 长度惩罚：太短（<20字）的句子信息量不够
+    if len(sentence) < 20:
+        score -= 2.0
+    # 太长（>500字）的句子主题可能发散
+    if len(sentence) > 500:
+        score -= 1.0
+
+    return max(score, 0.0)
+
+
+def _match_field_to_source(bd_name: str, section_title: str,
+                           source_sections: dict, prompt_text: str = '') -> list:
+    """语义级源文匹配：从 @prompt + 字段名 + 信号词 综合评分，返回最相关句子"""
     if not source_sections:
         return []
 
-    # 1. 先尝试用字段特定的关键词匹配
-    keywords = _FIELD_KEYWORDS.get(bd_name, [bd_name.lower()])
-    # 也加上模板节标题的分词
-    section_keywords = _TEMPLATE_SECTION_KEYWORDS.get(section_title, [section_title])
-    all_keywords = keywords + section_keywords
+    # 1. 构建查询：字段名关键词 + @prompt 关键词 + 模板节标题关键词
+    query_terms = set()
 
-    scored_sections = []
+    # 字段名分拆
+    for part in bd_name.split('_'):
+        if len(part) >= 2:
+            query_terms.add(part)
+
+    # 模板节标题 - 提取中文词
+    import re as _re
+    cn_terms = _re.findall(r'[\u4e00-\u9fff]{2,}', section_title)
+    query_terms.update(cn_terms)
+
+    # @prompt 关键词
+    if prompt_text:
+        prompt_terms = _get_prompt_query(prompt_text)
+        query_terms.update(prompt_terms)
+
+    # 2. 按句子评分
+    scored = []  # [(score, heading, snippet)]
+    used_sentences = set()
+
     for heading, content in source_sections.items():
-        score = 0
-        matched_kw = []
-        for kw in all_keywords:
-            if not kw:
+        sentences = _split_sentences(content)
+        for sent in sentences:
+            # 去重
+            sent_key = sent[:50]
+            if sent_key in used_sentences:
                 continue
-            if kw in heading or kw in content:
-                score += 1
-                matched_kw.append(kw)
-        if score > 0:
-            # 优先短片段（更精确）
-            content_preview = content[:200].replace('\n', ' ').strip()
-            scored_sections.append((score, heading, content_preview, matched_kw))
+            used_sentences.add(sent_key)
 
-    # 按匹配分数降序排序
-    scored_sections.sort(key=lambda x: -x[0])
+            score = _score_sentence(sent, list(query_terms), bd_name, prompt_text)
+            if score > 0:
+                # 短片段优先（精确度更高）
+                snippet = sent[:300].replace('\n', ' ').strip()
+                scored.append((score, heading, snippet))
 
-    # 返回前 2 条匹配的片段
-    result = []
-    for score, heading, preview, matched_kw in scored_sections[:2]:
-        result.append(f"[{heading}] {preview}")
-
-    # 2. 如果字段是 mathematical_model 且源文有公式，特殊标记
-    if not result and bd_name == 'mathematical_model':
+    # 3. 字段 especial：mathematical_model 的公式兜底
+    if bd_name == 'mathematical_model' or bd_name == 'mathematical_model':
         for heading, content in source_sections.items():
             if '$$' in content:
-                preview = content[:200].replace('\n', ' ').strip()
-                result.append(f"[{heading}] {preview}")
+                # 提取公式附近文本
+                for line in content.split('\n'):
+                    if '$$' in line or any(kw in line for kw in ['公式', '方程', '模型', 'Maxwell']):
+                        snippet = line[:200].replace('\n', ' ').strip()
+                        if len(snippet) > 10:
+                            score = 10.0  # 公式行高优先级
+                            scored.append((score, heading, snippet))
 
-    return result
+    # 4. 排序去重取前2
+    scored.sort(key=lambda x: -x[0])
+
+    result = []
+    seen_headings = set()
+    for score, heading, snippet in scored:
+        result.append(f"[{heading}] {snippet}")
+        seen_headings.add(heading)
+        if len(result) >= 2:
+            break
+
+    # 如果前2来自同一个大节（同一主标题），优先展示不同大节的内容
+    if len(result) == 2:
+        h1 = result[0].split(']')[0].strip('[').split(' ')[0]  # 主节号
+        h2 = result[1].split(']')[0].strip('[').split(' ')[0]
+        if h1 == h2 and len(scored) > 2:
+            # 找不同主节的结果
+            for score, heading, snippet in scored[2:]:
+                h3 = heading.split(' ')[0]
+                if h3 != h1:
+                    result[1] = f"[{heading}] {snippet}"
+                    break
+
+    # 5. 如果仍无结果，降级到关键词匹配
+    if not result:
+        for heading, content in source_sections.items():
+            for kw in query_terms:
+                if len(kw) >= 3 and kw in heading:
+                    snippet = content[:200].replace('\n', ' ').strip()
+                    result.append(f"[{heading}] {snippet}")
+                    break
+            if len(result) >= 2:
+                break
+
+    return result[:2]
 
 
 def _find_section_title(tpl_content: str, field_name: str) -> str:

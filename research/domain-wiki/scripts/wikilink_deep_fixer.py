@@ -35,7 +35,7 @@ def read_frontmatter(path):
     try:
         with open(path, encoding="utf-8") as f:
             content = f.read()
-    except:
+    except (OSError, IOError):
         return {}, ""
     fm = {}
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)

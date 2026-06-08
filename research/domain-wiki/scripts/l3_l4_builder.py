@@ -193,6 +193,7 @@ def build_l4_index(book_dir: str, book_id: str):
     print("=" * 60)
 
     all_books = find_books(kb_root)
+    kb_name = os.path.basename(kb_root) or "知识库"
 
     # 按领域分组
     domains = defaultdict(list)
@@ -233,15 +234,15 @@ def build_l4_index(book_dir: str, book_id: str):
 template_engine: ok
 type: kb_overview
 overview_level: L4
-name: 电磁兼容知识库
-kb_id: emc-kb
+name: {kb_name}
+kb_id: auto-kb
 confidence: 0.85
 reviewer: system
 review_date: {today}
 tags: ["index"]
 ---
 
-# 电磁兼容知识库 — 知识库总揽（L4）
+# {kb_name} — 知识库总揽（L4）
 
 ## 知识库简介
 

@@ -26,18 +26,22 @@ metadata:
     yaml_writer.py self-instruct --type concept -c N --book-dir .
 ```
 
-## 核心文件（16 个脚本 + 1 验证脚本 + 1 测试套））
+## 核心文件（19 个脚本 + 1 验证脚本 + 1 测试套）
 
 | 文件 | 职责 |
 |------|------|
-| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门(Mermaid+wikilink) → 状态持久化。10子命令：phase-a, phase-b, quality-gate, status, build-indices, run, overview, review, review-fix |
+| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门 → 状态持久化。10子命令 |
+| `scripts/pipeline_fix.py` | review-fix 流程：调用 quality_reviewer → 解析JSON → 输出FIX指令 → 修复后重渲染+审查 |
 | `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 + self-instruct 自指导 |
 | `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 自动包裹 mermaid 图 → 剥离 @prompt 注释 |
 | `scripts/kg_builder.py` | 知识图谱引擎。从 .md frontmatter→nodes, wikilinks→edges, SQLite 存库。支持 build/query/search/trace/quality_check。接受 str 或 list[str] book_dir（领域级跨书扫描）。构造需 wiki_root(DB存放) + book_dir(扫描目录) 两个参数 |
 | `scripts/graph_analytics.py` | 图分析函数集。build_graph_section() 产出 8+ 板块：知识链连通率、节点连接性、图质量摘要、核心节点排名、Mermaid全景、章节分布、学习路径、待修复项 |
 | `scripts/index_builder.py` | L2 索引构建器（知识图谱驱动）。4步流程：构建 KGraph → 图分析 → 生成索引 YAML → 渲染到 10_总揽/。`--skip-kg` 跳过KG构建回退到文件扫描。被 pipeline_v2.py build-indices 子命令触发 |
-| `scripts/dag_state.py` | 状态管理器。ChapterState 支持 12 阶段追踪、依赖检查、断点续传(--resume)。phase_status_summary() 全书总览表。PipelineError 统一异常 |
+| `scripts/dag_state.py` | 状态管理器。ChapterState 支持 14 阶段追踪、依赖检查、断点续传(--resume)。phase_status_summary() 全书总览表。PipelineError 统一异常 |
 | `scripts/l3_l4_builder.py` | L3(领域总控)+L4(知识库总控) 索引构建。跨书/跨领域扫描，集成 KGraph。输出 领域总控/domain_overview.md + 知识库总控/kb_overview.md |
+| `scripts/quality_reviewer.py` | 质量审查引擎 v2.1（模块化）。T1结构/T2深度/T3交叉引用引擎。check-item子命令内联检查单项YAML（写一个过一件）。fix-manifest子命令生成修复清单。配置数据→review_field_depth.py，格式化→review_format.py |
+| `scripts/review_field_depth.py` | 配置数据层：FIELD_DEPTH(字段深度阈值)、FM_REQUIRED/OPTIONAL、TYPE_YAML_MAP。纯字典，零运行时依赖 |
+| `scripts/review_format.py` | 格式化输出层：format_report(人类报表)、build_json_output(Agent JSON+fix_manifest)、build_fix_manifest(修复清单)、print_fix_instructions(FIX_FILE指令) |
 | `scripts/validate_mermaid.py` | 批量验证概念文件的 Mermaid 图语法（括号引用、单行图） |
 | `scripts/wikilink_fixer.py` | 非对称链接自动补全（A→B 则 B 追加 ←A，解决 373+ 对不对称） |
 | `scripts/wikilink_deep_fixer.py` | 基于章节归属的出链=0节点智能补链（同章概念→KE→实体互联） |
@@ -46,7 +50,6 @@ metadata:
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
 | `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
 | `tests/test_core.py -v` | 12 个测试（状态管理/KG构建/pipeline CLI） |
-| `scripts/quality_reviewer.py` | 质量审查引擎 v2.0。三阶检查(T1结构/T2深度/T3交叉引用)。--json 输出Agent可消费JSON(含fix_manifest)。fix-manifest子命令生成文件级修复指令。check-item子命令内联检查单项YAML（写一个过一件）。--fix-threshold独立于exit阈值。引出 pipeline_v2.py review/review-fix |
 
 
 ## 核心设计原则
@@ -190,21 +193,39 @@ python3 scripts/quality_reviewer.py check-item \
 
 ## Quickstart
 
-**写 YAML → pipeline phase-a（自动完成校验+渲染+质量门）**（三步完成一章）：
+**优先级：内联检查（写一个过一件） > 事后批量审查（安全网）**
+
+### 第一步：生成 YAML 时做内联质量检查（推荐）
+
+在 delegate_task 中逐项生成时，每写完一个 YAML 项立即内联检查：
 
 ```bash
-# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）
-python3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path
+# 在子Agent中每生成一个YAML项后：
+python3 scripts/quality_reviewer.py check-item \
+  --type concept --threshold 0.9 \
+  --item '{"name":"概念名","fm":{"source_chapter":"N","confidence":0.95},"bd":{...}}'
+```
 
-# 1b. Agent 基于自指导提示词写 YAML
-python3 scripts/yaml_writer.py write --type concept \
-  --yaml-path .dag/第N章/data/concepts.yaml \
-  --items '[...]'
+子Agent流程：
+```
+for each_item:
+  ① 基于源文写 bd 字段
+  ② check-item --type concept --threshold 0.9
+     ├─ pass → 追加到 YAML → next
+     └─ fail → 按 issues[{field, target_len, action}] 丰富 → 回到 ②
+```
 
-# 2. 全量校验
+不通过当场丰富重检，通过后才追加到 `concepts.yaml`。详见 [inline-quality-workflow.md](references/inline-quality-workflow.md)
+
+### 第二步：全量校验 + Phase A 渲染（自动质量门）
+
+所有 YAML 写完后，全量校验 + 渲染 + 自动质量门：
+
+```bash
+# 1. 全量校验
 python3 scripts/yaml_writer.py validate-dir --dir .dag/第N章/data/
 
-# 3. 渲染 + 自动质量门（Step 3 自动完成以下检查）：
+# 2. 渲染 + 自动质量门（Step 3 自动完成以下检查）：
 #    ├─ 3a: Mermaid语法验证
 #    ├─ 3b: 章节关联wikilink修复（出链=0 → 同章关联）
 #    └─ 3c: 反向链接补全（A→B则B也→A）

@@ -60,6 +60,5 @@ python3 scripts/validate_mermaid.py --book-dir /path/to/book
 
 | 脚本 | 策略 | 适用场景 |
 |------|------|---------|
-| `link_audit.py --dry-run` | 检测孤立节点、非对称链接、枢纽节点 | 审计报告 |
 | `wikilink_deep_fixer.py` | 按 chapter_num 同章关联（概念→KE→实体→KP） | 首次构建后必跑，修复 0 出链节点 |
 | `wikilink_fixer.py` | 检测所有 A→B 但 B↛A，在 B 追加 ←A | 紧跟 deep_fixer 之后，修复非对称链接 |

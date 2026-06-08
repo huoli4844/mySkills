@@ -245,23 +245,19 @@ tags: ["index"]
     # ── 2. concept_index ──
     type_tag_groups = defaultdict(list)
     for e in all_concepts:
-        tag = "未分类"
-        # 从文件名猜测分类
-        fname = e["fname"]
-        if any(k in fname for k in ["EMC", "电磁兼容", "标准"]):
-            tag = "EMC标准与体系"
-        elif any(k in fname for k in ["屏蔽", "滤波", "接地", "搭接"]):
-            tag = "EMC控制技术"
-        elif any(k in fname for k in ["耦合", "传输", "天线", "场"]):
-            tag = "电磁耦合与传播"
-        elif any(k in fname for k in ["测试", "测量", "诊断"]):
-            tag = "EMC测试与诊断"
-        elif any(k in fname for k in ["仿真", "PCB", "设计"]):
-            tag = "EMC仿真与设计"
-        elif any(k in fname for k in ["分贝", "单位", "计算"]):
-            tag = "EMC基础概念"
+        tag = "其他概念"
+        fm = e.get("fm", {})
+        # 优先使用 frontmatter 中的 type_tag
+        fm_tag = fm.get("type_tag", "")
+        if fm_tag:
+            tag = fm_tag
+        # 否则按章节号归类
         else:
-            tag = "其他概念"
+            ch = fm.get("source_chapter", "")
+            if ch:
+                tag = f"第{ch}章概念"
+            else:
+                tag = "其他概念"
         type_tag_groups[tag].append(e)
 
     concept_ch_sections = []

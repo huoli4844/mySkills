@@ -199,6 +199,8 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 || 91 | exercise/solution 的 confidence 值误用 0.85（子代理从 concept 偷了模板），build 说"不符合允许值 {0.65}"，0 文件产出 | **vN**: exercise/solution 的允许值仅 `{0.65}`，非 0.85。写 YAML 前检查 schema JSON 中的 enum。 |
 || 92 | kps.yaml 的内容字段（solved_problem/learning_objectives 等）在顶层而非 bd 下 → build 说"数据未找到" | **vN**: 所有 YAML 必须 `{name, file, fm, bd}` 四字段。内容字段必须位于 `bd: {}` 内部，非顶层。 |
 || 93 | exercises.yaml/solutions.yaml 扁平结构（无 fm/bd） → build_kb_files 跳过该文件 | **vN**: 即使 exercises/solutions 结构简单，也必须包含 `fm: {source_chapter, confidence}` 和 `bd: {}`。 |
+|| 94 | KP file 命名用 `第1章-知识点N`。build 产出 `50_知识点/第1章-知识点1.md`，文件名无意义 | **vN**: KP `file` 必须用知识点中文名（如 `EMC基本概念`）。schema 强制校验 file 字段不可含 `第.*章-知识点` 模式。|
+|| 95 | Solution 仅 answer 有内容，其余 17 个 bd 字段全是"无"→ 解答"只有答案没有讲解" | **vN**: Solution 使用 eval_template.md（18 字段），至少填 14 个(principle_steps/characteristics/exam_points/solving_tips/difficulty 等)。Agent prompt 中必须列出 eval_template.md 的全部 bd 字段名。 |
 
 完整 80+ 条陷阱清单 → [pitfalls.md](references/pitfalls.md)
 

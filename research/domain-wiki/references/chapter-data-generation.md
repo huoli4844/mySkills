@@ -317,11 +317,12 @@ with open("path.yaml", "w") as f:
 
 1. **YAML `bd` 必须是字典** — 不是 `|` 块字符串。每个模板字段独立一行，公式/图字段内部再用 `|` 块
 2. **`fm` 必须包含 `confidence_note`** — 概念"精准释义逐字匹配出处原文"，其他"基于正文内容归纳生成"
-3. **`file` 是短名** — 纯中文，无 `.md`，无路径
+3. **`file` 是短名** — 纯中文，无 `.md`，无路径。KP 的 `file` **禁用** `第N章-知识点N` 格式，必须用知识点中文名
 4. **`source_chapter` 是字符串 `"3"`** — 不是数字
 5. **概念 ≤ 9 个** — 只提取最核心的，子主题归入 KE
 6. **输出正确 YAML 示例** — 在 context 中嵌入一个完整条目作为范文
 7. **模板字段名必须精确匹配** — Agent 提示词中的 bd 字段名必须与模板 `{{变量}}` 完全一致。⚠ 先用 `grep -o '{{[^}]*}}' assets/templates/<type>.md | sort -u` 获取正确字段名，不要凭记忆猜测。SP/Scene 字段名极易写错（如 `skill_description` 应为 `skill_objectives`，`scene_type` 应为 `scenario_type`）。完整对照表见 `references/yaml-field-mapping.md`。
+8. **内容深度（减少"无"）** — 每节点类型的 bd 字段至少填充 70-88%（见 yaml-generation-guide.md 内容深度要求表）。`definition_sentence`/`term_definition`/`answer`/`question` 等必填字段不得为"无"。Solution 的 `answer`、`principle_steps`、`characteristics`、`exam_points`、`solving_tips`、`difficulty_N_title/content`、`related_concepts` 等至少填 14/18 个。**禁止**仅 answer 有内容其余全"无"。
 
 ### 常见错误表
 

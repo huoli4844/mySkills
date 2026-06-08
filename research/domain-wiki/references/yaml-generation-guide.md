@@ -21,18 +21,21 @@
 
 ### 节点类型 vs 置信度对照表
 
-| 类型 | 文件名 | 置信度 | 说明 |
-|:-----|:-------|:------:|:-----|
-| concept | concepts.yaml | **0.95** | 固定值，仅此可接受 |
-| ke | kes.yaml | **0.85** | 允许值 `{0.85}` |
-| entity | entities.yaml | **0.85** | 允许值 `{0.85}` |
-| kp | kps.yaml | **0.85** | 允许值 `{0.85}` |
-| sp | sps.yaml | **0.75** | 允许值 `{0.75}` |
-| scene | scenes.yaml | **0.65** | 允许值 `{0.65}` |
-| exercise | exercises.yaml | **0.65** | 允许值 `{0.65}`（非 0.85！） |
-| solution | solutions.yaml | **0.65** | 允许值 `{0.65}` |
+| 类型 | 文件名 | 置信度 | file 字段命名规则 | 说明 |
+|:-----|:-------|:------:|:-----------------|:-----|
+| concept | concepts.yaml | **0.95** | 概念中文名（如 `电磁兼容`） | 固定值，仅此可接受 |
+| ke | kes.yaml | **0.85** | KE 中文名（如 `系统电磁兼容性`） | 允许值 `{0.85}` |
+| entity | entities.yaml | **0.85** | 实体名（如 `CISPR`） | 允许值 `{0.85}` |
+| kp | kps.yaml | **0.85** | KP 中文名（如 `EMC_EMI_EMD基本概念与定义`） | 允许值 `{0.85}`。**禁止**用 `第N章-知识点N` |
+| sp | sps.yaml | **0.75** | SP 中文名 | 允许值 `{0.75}` |
+| scene | scenes.yaml | **0.65** | 场景中文名 | 允许值 `{0.65}` |
+| exercise | exercises.yaml | **0.65** | `第N章-习题N`（标准化格式） | 允许值 `{0.65}`（非 0.85！） |
+| solution | solutions.yaml | **0.65** | `第N章-习题N-解答` | 允许值 `{0.65}` |
 
-**重要**：置信度必须精确匹配允许值中的某个值。0.95 ≠ 0.98，0.85 ≠ 0.95。`build_kb_files.py` 会逐文件检查 FrontMatter 中的 confidence 值，不符合直接跳过该文件。
+**重要**：
+- 置信度必须精确匹配允许值中的某个值。0.95 ≠ 0.98，0.85 ≠ 0.95。
+- KP 的 `file` 字段必须使用知识点名称（如 `EMC基本概念`），**禁止**使用 `第1章-知识点1` 格式。
+- 违反了上述规则的，`build_kb_files.py` 会逐文件检查 FrontMatter，不符合直接跳过该文件。
 
 ### 常见结构错误
 
@@ -82,6 +85,50 @@ with open(os.path.join(out_dir, "concepts.yaml"), 'w') as f:
 2. **计数检查**：`print(f\"{len(data_before)}→{len(data_after)}\")` — 确保没覆盖条目
 3. **字段名匹配模板**：`grep -o '{{[^}]*}}' assets/templates/<type>.md | sort -u` 核对 bd 字段名
 4. **confidence 值允许列表**：查看对应 schema JSON 中的 enum
+
+## 内容深度要求（减少"无"）
+
+Agent 写每个 YAML 条目时，**必须从源文精读提取内容**填充模板字段。以下规则适用所有节点类型：
+
+### bd 字段填充规则
+
+| 等级 | 要求 | 适用字段举例 |
+|:-----|:-----|:------------|
+| 🟢 必填 | 从源文逐字提取，不得为"无" | `definition_sentence`(concept), `term_definition`(concept/entity), `answer`(solution), `question`(exercise) |
+| 🟡 应填 | 从源文归纳，最多1个节可为"无" | `structure`, `application_scenarios`, `typical_systems`, `related_concepts_relations`, `engineering_practices`, `common_misconceptions`, `solved_problem`, `learning_objectives` |
+| 🔴 条件填 | 源文有时填，无则"无" | `mathematical_model`, `formula_references`, `core_concept_map`, `figure_references` |
+
+### 每节点类型最少填充数
+
+| 类型 | bd 总字段数 | 最少非"无"字段 | 说明 |
+|:-----|:----------:|:-------------:|:-----|
+| concept | 23 | ≥20 (87%) | 只有 mathematical_model/formula/图 可选"无" |
+| ke | 13 | ≥10 (77%) | definition/source/festures 不能为"无" |
+| entity | 10 | ≥7 (70%) | entity_type/term_definition/definition_sentence 不能"无" |
+| kp | 32 | ≥28 (88%) | theoretical_basis/engineering_practices/confusion_compare 等源自源文 |
+| sp | 20 | ≥16 (80%) | core_operation/operation_steps 不能为"无" |
+| scene | 18 | ≥14 (78%) | scenario_description/node_descriptions 不能为"无" |
+| exercise | 4 | ≥3 (75%) | question 必填 |
+| solution | 18 | ≥14 (78%) | answer/principles_steps/characteristics 从源文推导 |
+
+### KP file 命名特殊规则
+
+KP 的 `file` 字段**禁止**使用 `第N章-知识点N` 格式。必须用知识点中文名（如 `EMC_EMI_EMD基本概念与定义`）。
+
+### Solution 内容深度
+
+Solution（eval_template.md）有 18 个 bd 字段，至少填 14 个：
+- ✅ `answer`: 基于源文内容的详细解答
+- ✅ `principle_steps`: 解题原理的流程化拆解
+- ✅ `characteristics`: 题目涉及的技术特点归纳
+- ✅ `exam_points`: 核心考点分析
+- ✅ `common_mistakes`: 常见错误
+- ✅ `solving_tips`: 解题技巧
+- ✅ `difficulty_N_title/content`: 难点解析（至少 2 组）
+- ✅ `related_concepts`: 关联知识点
+- 练习题部分（图表图等源自源文内容判断是否确实需要）
+
+**禁止**：所有字段均为"待后续AI Agent深度填充"或仅 answer 字段有内容。
 
 ## 管道自动工作流（pipeline auto）
 

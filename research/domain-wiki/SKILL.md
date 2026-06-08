@@ -450,7 +450,11 @@ python3 scripts/index_builder.py /path/to/book \
 | 28 | **fix_manifest硬编码0.8阈值** → 审查脚本的exit阈值 0.5 和修复清单阈值 0.8 混用同一个参数。当exit阈值设为 0.9 时，fix_manifest用到同样的 0.9，修复强度不足 | **`--threshold` vs `--fix-threshold` 严格分离。** `quality_reviewer.py chapter --threshold 0.3 --fix-threshold 0.9` exit阻断用 0.3（低，不阻断），修复清单用 0.9（高，抓更多补内容）。`pipeline_v2.py` 的 `review-fix` 命令内部用 `--threshold 0.01 --fix-threshold 0.9` 确保不因exit code阻断，同时fix_manifest用高阈值。 |
 | 29 | **type级均分掩盖文件级低分** → `build_fix_manifest()` 原设计检查类型级评分（如concept=0.85≥0.8就跳过整个类型），忽略了类型内某些文件只有 0.70 的实际情况 | **fix_manifest必须按文件级评分检测。** 去掉类型级的 `if ts.get("score", 1.0) >= 0.8: continue` 过滤，全部由文件级 `fs.get("score", 1.0) >= threshold` 决定。|
 | 30 | **review-fix 命令认为 exit code 0=质量达标** → 整体评分 0.95 但概念分 0.85 低于修复阈值 0.9，修复指令有13个文件需要修复但被"质量达标"挡住 | **review_and_fix() 始终解析JSON的fix_manifest**，不以exit code判断。用极低 `--threshold 0.01` 运行 quality_reviewer 确保不exit 1，独立用 `--fix-threshold` 控制修复清单。|
-| **生成YAML时不做内联质量检查** → 全部写完后再跑review-fix，发现13个文件有问题，需要额外一轮回查修复 | **写一个过一件**：每生成一个YAML项，立即 `quality_reviewer.py check-item --item ... --type ... --threshold 0.9` 检查，不通过当场丰富重检再写入聚合YAML。见"内联质量检查流程"章节。|
+| | **生成YAML时不做内联质量检查** → 全部写完后再跑review-fix，发现13个文件有问题，需要额外一轮回查修复 | **写一个过一件**：每生成一个YAML项，立即 `quality_reviewer.py check-item --item ... --type ... --threshold 0.9` 检查，不通过当场丰富重检再写入聚合YAML。见"内联质量检查流程"章节。|
+| | **`load_yaml_list()` 使用 bare except** → 当 `pyyaml` 未安装时 `import yaml` 抛出 `ModuleNotFoundError`，被 bare `except Exception` 吞掉，静默返回 `[]`，导致全书审查显示 0 项、所有类型评分为 0 | **所有文件 I/O / 导入操作用显式 except 而非 bare except。** `load_yaml_list()` 应先检查 `os.path.isfile(path)`，然后独立 try/except `import yaml` 的 `ImportError`，再用 `except (yaml.YAMLError, OSError):` 处理加载错误。新增文件 I/O 函数必须经过此模式审计。参见 `quality_reviewer.py:load_yaml_list()` 的最终实现。 |
+| | **`.venv` 缺少关键依赖（pyyaml/pytest）** → 质量审查和测试静默失败、返回空结果。日常开发依赖变化不会自动传播到已有的 .venv | **初始 setup 和每次新增依赖后运行：** `python3 -m pip install pyyaml pytest`。pyproject.toml 的 `dependencies` 和 `[project.optional-dependencies] test` 必须反映实际运行时依赖。`python3 -m pip list` 验证。 |
+| | **SKILL.md 因多次 AI 编辑累积重复章节** → 两个"第一步：内联质量检查"、两个"第二步：全量校验"等，造成文档混乱 | 每次编辑 SKILL.md 后运行 `grep -c "^#" SKILL.md | sort | uniq -d` 检查关键标题唯一性。用 `git diff --stat SKILL.md` 观察新增量远大于删除量时要警觉。 |
+| | **`pyproject.toml` 遗留旧模块引用** → mypy overrides 列表含已删除的旧脚本名（`log_utils`, `yaml_auto_fill` 等），导致无效配置和混淆 | **每次重命名/删除脚本后同步清理 pyproject.toml。** 搜索 `pyproject.toml` 中是否还有对已删除模块的引用。`git rm` 后运行 `grep -rn "deleted_name" pyproject.toml` 确认零残留。 |
 
 ## 领域自适应设计原则
 

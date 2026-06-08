@@ -81,7 +81,7 @@ def check_structure(yaml_data: list[dict], rendered_dir: str, ptype: str) -> lis
     issues = []
     tpl_path = os.path.join(TEMPLATES_DIR, TYPE_YAML_MAP[ptype]["tpl"])
     tpl_content = read_file_content(tpl_path)
-    tpl_fields = set(re.findall(r"\{\{([a-z_]+)\}\}", tpl_content))
+    tpl_fields = set(re.findall(r"\{\{(\w+)\}\}", tpl_content))
 
     for item in yaml_data:
         name = item.get("name", item.get("file", "?"))

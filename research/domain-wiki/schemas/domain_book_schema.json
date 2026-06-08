@@ -692,7 +692,7 @@
         },
         "difficulty": {
           "type": "string",
-          "required": true,
+          "required": false,
           "auto_fill": false
         },
         "engineering_practices": {

@@ -84,9 +84,15 @@ TYPE_DIRS = {
 class KGraph:
     """知识图谱引擎"""
 
-    def __init__(self, wiki_root: str, book_dir: str | None = None, db_name: str = "knowledge_graph.db"):
+    def __init__(self, wiki_root: str, book_dir: str | None | list[str] = None,
+                 db_name: str = "knowledge_graph.db"):
         self.wiki_root = os.path.abspath(wiki_root)
-        self.book_dir = os.path.abspath(book_dir) if book_dir else self.wiki_root
+        if book_dir is None:
+            self.book_dirs = [self.wiki_root]
+        elif isinstance(book_dir, str):
+            self.book_dirs = [os.path.abspath(book_dir)]
+        else:
+            self.book_dirs = [os.path.abspath(d) for d in book_dir]
         self.db_path = os.path.join(self.wiki_root, ".dag", db_name)
 
     # ── 内部连接管理 ──────────────────────────────────────
@@ -170,19 +176,20 @@ class KGraph:
         """扫描所有类型目录下的 .md 文件"""
         files = []
         for node_type, rel_dir in TYPE_DIRS.items():
-            scan_dir = os.path.join(self.book_dir, rel_dir)
-            if not os.path.isdir(scan_dir):
-                continue
-            for fn in sorted(os.listdir(scan_dir)):
-                if not fn.endswith(".md"):
+            for bd in self.book_dirs:
+                scan_dir = os.path.join(bd, rel_dir)
+                if not os.path.isdir(scan_dir):
                     continue
-                path = os.path.join(scan_dir, fn)
-                files.append({
-                    "path": path,
-                    "fname": fn[:-3],
-                    "type": node_type,
-                    "dir": scan_dir,
-                })
+                for fn in sorted(os.listdir(scan_dir)):
+                    if not fn.endswith(".md"):
+                        continue
+                    path = os.path.join(scan_dir, fn)
+                    files.append({
+                        "path": path,
+                        "fname": fn[:-3],
+                        "type": node_type,
+                        "dir": scan_dir,
+                    })
         return files
 
     # ── 构建 ──────────────────────────────────────────────

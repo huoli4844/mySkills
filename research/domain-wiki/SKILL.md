@@ -30,17 +30,17 @@ metadata:
 
 | 文件 | 职责 |
 |------|------|
-| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine |
+| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门(Mermaid+wikilink)。4子命令：phase-a, phase-b, quality-gate, status |
 | `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 + self-instruct 自指导 |
 | `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 自动包裹 mermaid 图 → 剥离 @prompt 注释 |
 | `scripts/validate_mermaid.py` | 批量验证概念文件的 Mermaid 图语法（括号引用、单行图） |
-| `schemas/domain_book_schema.json` | 字段定义（类型/必填/constraints） |
-| `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
-| `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
-| `scripts/link_audit.py` | wikilink 审核（孤立节点/非对称链接检测） |
 | `scripts/wikilink_fixer.py` | 非对称链接自动补全（A→B 则 B 追加 ←A，解决 373+ 对不对称） |
 | `scripts/wikilink_deep_fixer.py` | 基于章节归属的出链=0节点智能补链（同章概念→KE→实体互联） |
 | `scripts/verify_domain_agnostic.sh` | 领域无关验证：扫描所有 .py 确认无硬编码领域专有词 |
+| `schemas/domain_book_schema.json` | 字段定义（类型/必填/constraints） |
+| `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
+| `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
+| `scripts/link_audit.py` | wikilink 审核（孤立节点/非对称链接检测，手动工具） |
 
 ## 核心设计原则
 
@@ -113,34 +113,32 @@ python3 scripts/yaml_writer.py skeleton --type concept
 
 ## Quickstart
 
-**写 YAML → 自指导 → 校验 → 渲染 → 链接网络修复 → 验证图 → 领域验证**（七步完成一章）：
+**写 YAML → pipeline phase-a（自动完成校验+渲染+质量门）**（三步完成一章）：
 
-```bash\n# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）\npython3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path\n\n# 1b. Agent 基于自指导提示词写 YAML\npython3 scripts/yaml_writer.py write --type concept \\\n  --yaml-path .dag/第N章/data/concepts.yaml \\\n  --items '[...]'
+```bash
+# 1. Agent 生成自指导提示词（模板@prompt + schema约束 + 源文上下文）
+python3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /path
+
+# 1b. Agent 基于自指导提示词写 YAML
+python3 scripts/yaml_writer.py write --type concept \
+  --yaml-path .dag/第N章/data/concepts.yaml \
+  --items '[...]'
 
 # 2. 全量校验
 python3 scripts/yaml_writer.py validate-dir --dir .dag/第N章/data/
 
-# 3. 渲染
+# 3. 渲染 + 自动质量门（Step 3 自动完成以下检查）：
+#    ├─ 3a: Mermaid语法验证
+#    ├─ 3b: 章节关联wikilink修复（出链=0 → 同章关联）
+#    └─ 3c: 反向链接补全（A→B则B也→A）
 python3 scripts/pipeline_v2.py phase-a \
   --book-dir /path/to/book \
   -c N \
   --book-id 01_书ID \
   --book-name "书名"
 
-# 4. 验证输出的 Mermaid 图语法
-`python3 scripts/validate_mermaid.py --book-dir /path/to/book`
-
-# 5. wikilink 网络修复（首次构建后必须执行）
-## 5a. 基于章节归属补全出链=0的节点（概念→KE→实体同章互联）
-`python3 scripts/wikilink_deep_fixer.py /path/to/book`
-## 5b. 补全非对称反向链接（A→B 则 B 追加 ←A）
-`python3 scripts/wikilink_fixer.py /path/to/book`
-
-# 6. 领域无关验证
-`bash scripts/verify_domain_agnostic.sh`
-
-# 7.（可选）再次验证 Mermaid，确认修复未破坏图语法
-`python3 scripts/validate_mermaid.py --book-dir /path/to/book`
+# 全书质量门（可选，批量检查所有已渲染章节）
+python3 scripts/pipeline_v2.py quality-gate --book-dir /path/to/book
 ```
 
 **整书预处理**（已有整书 MD 时）：
@@ -196,7 +194,7 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 5 | Agent 写的 `theoretical_basis` 太短（<150字）被拦截 | schema 中有 `min_chars` 约束。写之前用 `yaml_writer.py prompt --type kp --field theoretical_basis` 看要求 |
 | 6 | 内容质量的根因不是 prompt 不够细，而是源文不在上下文。prompt 只能解决"格式"，解决不了"深度" | Agent 写 YAML 前必须精读源文对应段落。prompt 命令只是锦上添花，不是雪中送炭。 |
 | 7 | `confidence` 值超出允许范围（如 exercise 写 0.85 但只允许 0.65） | schema.json 每类型有 `confidence.allowed` 枚举。`yaml_writer.py write` 在校验阶段直接 reject |
-| 8 | 换书：章节文件名、关键词、教材描述全硬编码 | `config/book_info.yaml` 和 `config/knowledge_keywords.yaml` 外置配置。 |
+|| 8 | 换书：章节文件名、关键词、教材描述全硬编码 | 所有领域信息已在 `_extract_domain_signals()` 中运行时自动提取。章节文件名通过 `get_source_path()` 自动发现（`f.startswith(f"第{chapter}章")`）。不再需要外部配置。详见 `scripts/verify_domain_agnostic.sh`。 |
 | 9 | 核心概念图的 `core_concept_map` 不含 ` ```mermaid ` fence → Obsidian 把 graph TD 当普通文字渲染，不显示图 | **引擎层防护**：`template_engine.py._auto_wrap_mermaid()` 自动检测 raw `graph TD/LR/flowchart/sequenceDiagram` 等 mermaid 语法并包裹代码块。**Agent 写 YAML 时的预防**：`core_concept_map` 只需写 `graph TD\n  A[label] --> B[label2]` 内容本身，不需要加 `` ```mermaid `` fence（引擎会加）。纯文字描述（如"接地是EMC四大技术之一"）不会被引擎转换，需重写为 graph 格式。 |
 | 10 | YAML 中存在 `\n`（字面反斜杠+n）而非真正的换行 → mermaid graph 渲染为一行 | YAML 中多行 graph 必须用 `|` block scalar：`core_concept_map: |-\n  graph TD\n    A[label] --> B[label2]`。`yaml.dump(..., default_flow_style=False)` 自动用块标量。 |
 | 11 | Mermaid 标签中的 `()` `,` 等特殊字符未用引号包裹 `A[label(内容)]` → 渲染报错 `Syntax error in graph` | 标签必须用 `A["label(内容)"]` 包裹。`scripts/validate_mermaid.py` 可批量检测。 |
@@ -206,6 +204,8 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 15 | 模板 `<!-- @prompt ... -->` 中的示例文本含领域专有词（如 `"电磁兼容/子领域"`、`"诊断EMC故障"`）→ 换本机械/化学教材这些示例词即成为误导 | **模板 @prompt 的示例必须用通用占位描述：** `"大领域/子领域"` 替代 `"电磁兼容/子领域"`，`"诊断故障"` 替代 `"诊断EMC故障"`。写示例时问自己"这句话放生物/金融/机械教材里会不会显得奇怪"。 |
 | 16 | `.py` 文件 docstring 中的示例命令行含领域特定值（如 `--book-name "工程电磁兼容第3版_路宏敏"`）→ 读者复制粘贴跑不通他自己的书 | **docstring 示例用占位符：** `--book-id 01_书籍ID --book-name "书籍名称" -c N`。全书搜 `工程电磁兼容`、`电磁兼容`、`EMC` 等词确认零出现在代码/docstring 中。 |
 | 17 | Phase A 渲染完成后不跑 wikilink 修复 → 概念/KE/实体之间约 60-80% 只有出链无人链，知识图谱呈单向森林状 | Phase A 渲染后必须顺序执行：`wikilink_deep_fixer.py`（同章关联）→ `wikilink_fixer.py`（反向补全）。实测可将孤立率从 84% 降至 13%，非对称链接 399→0。 |
+| 18 | 质量检查（Mermaid验证、wikilink修复）作为事后人工步骤 → 被遗忘，用户反馈后才补救 | **质量门必须集成到 pipeline 中，不能作为可选的手动步骤。** `pipeline_v2.py phase-a` 的 Step 3 自动完成：Mermaid验证 → 同章wikilink关联 → 反向链接补全。新增 `quality-gate` 子命令用于全书批检。任何新 Agent 在修改 pipeline 时不得移除 Step 3。 |
+| 19 | 多次修改后技能目录积累死脚本和过时配置文件 → 技能膨胀、后续 Agent 困惑、用户需要额外清理 | **每次提交前执行清理：** ① `grep -rl "dead_script_name" scripts/` 确认无引用后删除 ② 删除后运行 `grep -rn "dead_name" skill_dir/` 确保无断裂引用 ③ 删除不再被 pipeline 读取的 config/ 目录（旧 v52 配置如 book_info.yaml、knowledge_keywords.yaml） ④ `scripts/verify_domain_agnostic.sh` 确保仍在维护。参考 patterns: dead-code-cleanup。 |
 
 ## 领域自适应设计原则
 
@@ -221,14 +221,11 @@ python3 scripts/split_book_to_chapters.py prepare \
 
 | 需要时加载 | 内容 |
 |:-----------|:------|
-| [mermaid-graph-troubleshooting.md](references/mermaid-graph-troubleshooting.md) | Mermaid核心概念图语法问题调试指南（括号引用/单行图/YAML块标量） |
-| [yaml-multiline-escaping.md](references/yaml-multiline-escaping.md) | YAML 多行转义问题：`\n` 字面量污染排查方案 |
-| [template-prompt-convention.md](references/template-prompt-convention.md) | @prompt 写作指导约定：格式/原则/Agent 使用方式 |
-| [template-yaml-field-map.md](references/template-yaml-field-map.md) | 模板-YAML 字段映射表（8种类型的 bd 字段详细说明） |
-| [golden-kp-example.md](references/golden-kp-example.md) | KP YAML 金标范例 |
-| [golden-sp-example.md](references/golden-sp-example.md) | SP YAML 金标范例 |
-| [golden-scene-example.md](references/golden-scene-example.md) | Scene YAML 金标范例 |
-| [chapter-data-generation.md](references/chapter-data-generation.md) | Agent 写 YAML 指南 |
-| [yaml-generation-guide.md](references/yaml-generation-guide.md) | YAML 数据格式规范 |
-| [quality-gate-architecture.md](references/quality-gate-architecture.md) | 质量门架构 |\n| [link-audit-design.md](references/link-audit-design.md) | wikilink 审计设计 |\n| [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
-| [wikilink-fix-patterns.md](references/wikilink-fix-patterns.md) | wikilink 孤立节点和非对称链接批量修复指南 |
+|| [mermaid-graph-troubleshooting.md](references/mermaid-graph-troubleshooting.md) | Mermaid核心概念图语法问题调试指南（括号引用/单行图/YAML块标量） |
+|| [template-prompt-convention.md](references/template-prompt-convention.md) | @prompt 写作指导约定：格式/原则/Agent 使用方式 |
+|| [template-yaml-field-map.md](references/template-yaml-field-map.md) | 模板-YAML 字段映射表（8种类型的 bd 字段详细说明） |
+|| [golden-kp-example.md](references/golden-kp-example.md) | KP YAML 金标范例 |
+|| [golden-sp-example.md](references/golden-sp-example.md) | SP YAML 金标范例 |
+|| [golden-scene-example.md](references/golden-scene-example.md) | Scene YAML 金标范例 |
+|| [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
+|| [wikilink-fix-patterns.md](references/wikilink-fix-patterns.md) | wikilink 孤立节点和非对称链接批量修复指南 |

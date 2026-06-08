@@ -387,7 +387,7 @@ def score_issues(issues: list[dict]) -> dict:
     errs_per_file = len(errors) / n_files
     warns_per_file = len(warnings) / n_files
 
-    penalty = min(errs_per_file * 0.15, 0.7) + min(warns_per_file * 0.04, 0.25)
+    penalty = min(errs_per_file * 0.25, 0.7) + min(warns_per_file * 0.06, 0.25)
     score = max(0.0, min(1.0, 1.0 - penalty))
 
     return {
@@ -778,6 +778,124 @@ def build_fix_manifest(result: dict, threshold: float = 0.8) -> list[dict]:
 # Fix Manifest 指令输出 — 供Agent直接消费
 # ════════════════════════════════════════════════════════════
 
+def check_single_yaml_item(item: dict, ptype: str, threshold: float = 0.8) -> dict:
+    """内联检查单个YAML项的质量（不依赖渲染文件）
+
+    Args:
+        item: YAML项字典 {name, file, fm, bd}
+        ptype: 类型名 (concept/ke/kp/sp/scene/entity/solution)
+        threshold: 达标阈值
+
+    Returns:
+        {score, pass, issues: [{field, severity, current_len, target_len, action}], summary}
+    """
+    issues = []
+    name = item.get("name", "?")
+    fm = item.get("fm", {})
+    bd = item.get("bd", {})
+    depth_cfg = FIELD_DEPTH.get(ptype, {})
+
+    # T1: 顶层字段
+    if not item.get("name", ""):
+        issues.append({
+            "field": "name", "severity": "error", "category": "yaml_no_name",
+            "message": "YAML缺少顶层 name 字段",
+        })
+
+    # T1: FM必填字段
+    for f in FM_REQUIRED:
+        if f not in fm or not str(fm.get(f, "")).strip():
+            issues.append({
+                "field": f"fm.{f}", "severity": "error",
+                "category": "fm_missing",
+                "message": f"FM缺字段'{f}'",
+            })
+
+    # T2: bd字段深度
+    for field, content in bd.items():
+        if not isinstance(content, str):
+            continue
+        stripped = content.strip()
+        if not stripped or stripped in ("无", "（无）", "暂无", "待补充"):
+            if field in depth_cfg:
+                issues.append({
+                    "field": field, "severity": "error",
+                    "category": "field_empty",
+                    "message": f"字段'{field}'为空或占位符",
+                    "current_len": 0,
+                    "target_len": depth_cfg[field],
+                    "action": "fill",
+                })
+            continue
+
+        min_len = depth_cfg.get(field, 0)
+        if min_len > 0 and len(stripped) < min_len:
+            issues.append({
+                "field": field, "severity": "warning",
+                "category": "field_too_short",
+                "message": f"字段'{field}'仅{len(stripped)}字(<{min_len})",
+                "current_len": len(stripped),
+                "target_len": min_len,
+                "action": "enrich",
+            })
+
+    # T2: bloom_level
+    if ptype in ("kp", "sp"):
+        bloom = fm.get("bloom_level", "").strip()
+        if not bloom:
+            issues.append({
+                "field": "fm.bloom_level", "severity": "warning",
+                "category": "bloom_missing",
+                "message": "bloom_level未填写",
+                "action": "fill",
+            })
+
+    # KE英文术语
+    if ptype == "ke":
+        eng = bd.get("term_english", "").strip()
+        if not eng:
+            issues.append({
+                "field": "term_english", "severity": "info",
+                "category": "term_english_missing",
+                "message": "term_english未填写",
+                "action": "fill",
+            })
+
+    # Solution principle_steps
+    if ptype == "solution":
+        principle = bd.get("principle_steps", "").strip()
+        if len(principle) < 100:
+            issues.append({
+                "field": "principle_steps", "severity": "warning",
+                "category": "solution_shallow",
+                "message": f"principle_steps仅{len(principle)}字(<100)",
+                "current_len": len(principle),
+                "target_len": 100,
+                "action": "enrich",
+            })
+
+    # 评分
+    errors = [i for i in issues if i["severity"] == "error"]
+    warnings = [i for i in issues if i["severity"] == "warning"]
+
+    err_penalty = min(len(errors) * 0.25, 0.7)
+    warn_penalty = min(len(warnings) * 0.06, 0.25)
+    score = max(0.0, min(1.0, 1.0 - err_penalty - warn_penalty))
+
+    return {
+        "file": name,
+        "type": ptype,
+        "score": round(score, 2),
+        "pass": score >= threshold,
+        "issues": issues,
+        "summary": {
+            "error": len(errors),
+            "warning": len(warnings),
+            "info": len([i for i in issues if i["severity"] == "info"]),
+            "total": len(issues),
+        },
+    }
+
 def print_fix_instructions(result: dict, threshold: float = 0.8):
     """输出Agent可执行的修复指令
 
@@ -885,6 +1003,15 @@ def main():
     fm.add_argument("--json", action="store_true",
                     help="以JSON格式输出修复清单")
 
+    # ── check-item（内联质量检查）──
+    ci = sp.add_parser("check-item", help="内联检查单个YAML项质量（供Agent生成时使用）")
+    ci.add_argument("--item", required=True,
+                    help="YAML项JSON字符串")
+    ci.add_argument("--type", required=True,
+                    help="类型 (concept/ke/kp/sp/scene/entity/solution)")
+    ci.add_argument("--threshold", type=float, default=0.8,
+                    help="达标阈值(默认0.8)")
+
     a = p.parse_args()
 
     if a.cmd == "chapter":
@@ -943,6 +1070,20 @@ def main():
             else:
                 print_fix_instructions(result, thr)
         sys.exit(0)
+
+    elif a.cmd == "check-item":
+        try:
+            item = json.loads(a.item)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"❌ JSON解析失败: {e}", file=sys.stderr)
+            sys.exit(1)
+        ptype = a.type
+        result = check_single_yaml_item(item, ptype, a.threshold)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if result["pass"]:
+            sys.exit(0)
+        else:
+            sys.exit(1)
 
 
 def build_manifest_text(result: dict, threshold: float = 0.8) -> str:

@@ -30,7 +30,7 @@ metadata:
 
 | 文件 | 职责 |
 |------|------|
-| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门(Mermaid+wikilink) → 状态持久化。8子命令：phase-a, phase-b, quality-gate, status, build-indices, run, overview |
+| `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门(Mermaid+wikilink) → 状态持久化。10子命令：phase-a, phase-b, quality-gate, status, build-indices, run, overview, review, review-fix |
 | `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 + self-instruct 自指导 |
 | `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 自动包裹 mermaid 图 → 剥离 @prompt 注释 |
 | `scripts/kg_builder.py` | 知识图谱引擎。从 .md frontmatter→nodes, wikilinks→edges, SQLite 存库。支持 build/query/search/trace/quality_check。接受 str 或 list[str] book_dir（领域级跨书扫描）。构造需 wiki_root(DB存放) + book_dir(扫描目录) 两个参数 |
@@ -46,7 +46,7 @@ metadata:
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
 | `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
 | `tests/test_core.py -v` | 12 个测试（状态管理/KG构建/pipeline CLI） |
-| `scripts/quality_reviewer.py` | 质量审查引擎。三阶检查(T1结构/T2深度/T3交叉引用)，评分归一化(0-1)，--threshold 设阻断线。引出 pipeline_v2.py review 子命令 |
+| `scripts/quality_reviewer.py` | 质量审查引擎 v2.0。三阶检查(T1结构/T2深度/T3交叉引用)。--json 输出Agent可消费JSON(含fix_manifest)。fix-manifest子命令生成文件级修复指令。check-item子命令内联检查单项YAML（写一个过一件）。--fix-threshold独立于exit阈值。引出 pipeline_v2.py review/review-fix |
 
 
 ## 核心设计原则
@@ -111,6 +111,76 @@ python3 scripts/yaml_writer.py skeleton --type concept
 - **Phase A（纯代码）**：校验 YAML → 渲染模板输出。所有 8 种类型（concept/ke/entity/kp/sp/scene/exercise/solution）一次完成
 - **Phase B（可选，Agent 分析）**：`pipeline_v2.py phase-b` 输出当前章节的数据概况，供 Agent 判断是否需要调整 YAML 内容
 
+### 质量审查输出必须结构化供Agent消费
+
+质量审查的输出**不是给人看的报告**，而是供Agent解析并触发自动修复的结构化数据。
+
+| 原则 | 说明 |
+|:-----|:------|
+| **JSON是默认输出** | `--json` 输出含 `scope`/`type_scores`/`fix_manifest` 的结构化JSON。每项修复含 `{file, type, score, yaml_path, fields_to_fix: [{field, action, current_len, target_len}]}`。Agent直接解析JSON即可知道*哪个文件、哪个字段、缺多少字、从哪里补* |
+| **修复指令预格式化** | `review-fix` 命令输出 `FIX_FILE:`/`FIX_TYPE:`/`FIX_FIELDS:`/`FIX_SOURCE_DIR:` 行格式，Agent可以逐行解析后委托子Agent批量修复 |
+| **修复阈值独立** | `--fix-threshold`（修复清单阈值，默认0.8）与 `--threshold`（exit阻断阈值，默认0.5）解耦。高质量场景可以用 0.9 作为修复目标但不阻断pipeline |
+| **全局均分掩盖局部问题** | 全书评分90%时，概念类型可能只有70%。`fix_manifest` 按文件级评分检测（非类型级），避免高分掩盖局部低分 |
+| **内联检查优先于事后修复** | 在生成YAML项的**当时就地检查**，问题字段当场修复后再存入聚合YAML，而非事后批量回查。使用 `check-item` 子命令逐项检测，实现"写一个过一件" |
+
+### 内联质量检查流程（Agent生成YAML时使用）
+
+生成YAML项目时**逐个检查、逐个通过**后再写入聚合文件，而非全部生成后再回查。
+
+```
+for each YAML item to generate:
+  ① Agent 基于源文写定该项的 bd 字段内容
+  ② quality_reviewer.py check-item --item '...' --type concept --threshold 0.9
+     ↓
+     通过 → ③ 追加到 YAML 文件 → next item
+     失败 → ④ 逐字段按 fix_manifest 丰富 → 回到 ② 重检
+```
+
+**Agent 在 delegate_task 中的具体做法：**
+```python
+# 生成单项YAML内容后
+import subprocess, json
+
+item = {"name": "...", "fm": {...}, "bd": {...}}  # Agent写的内容
+
+# 内联质量检查
+r = subprocess.run([
+    "python3", "scripts/quality_reviewer.py", "check-item",
+    "--type", "concept",
+    "--item", json.dumps(item, ensure_ascii=False),
+], capture_output=True, text=True)
+
+result = json.loads(r.stdout)
+
+if result["pass"]:
+    write_to_yaml(item)  # 通过 → 写入
+else:
+    for issue in result["issues"]:
+        if issue["action"] == "enrich":
+            # 从源文补充内容
+            item["bd"][issue["field"]] = enrich_from_source(
+                item["bd"][issue["field"]],
+                source_text,
+                issue["target_len"]
+            )
+        elif issue["action"] == "fill":
+            item["bd"][issue["field"]] = fill_from_source(...)
+    # 重新检
+    r2 = subprocess.run([...], ...)
+    assert json.loads(r2.stdout)["pass"]
+    write_to_yaml(item)
+```
+
+**命令行用法：**
+```bash
+# 检查单个YAML项（概念）
+python3 scripts/quality_reviewer.py check-item \
+  --type concept --threshold 0.9 \
+  --item '{"name":"电场耦合","fm":{"source_chapter":"3","confidence":0.95},"bd":{"term_definition":"定义内容...","learning_objectives":"目标..."}}'
+
+# 返回JSON: {score, pass, issues: [{field, severity, current_len, target_len, action}]}
+```
+
 ### 工程 vs 内容边界原则
 
 | 归属 | 特征 | 由谁执行 |
@@ -148,19 +218,36 @@ python3 scripts/pipeline_v2.py phase-a \
 python3 scripts/pipeline_v2.py quality-gate --book-dir /path/to/book
 ```
 
-**质量审查**（T1结构完整性 + T2内容深度检查，可设阈值阻断）：
+**质量审查**（支持Agent可消费JSON输出 + 自动修复指令）：
+
 ```bash
-# 全书审查（输出章节+类型评分表）
-python3 scripts/pipeline_v2.py review \\
+# 全书审查（人类可读）
+python3 scripts/pipeline_v2.py review \
   --book-dir /path/to/book --book-id 01_书ID
 
 # 单章审查（含具体问题列表）
-python3 scripts/pipeline_v2.py review \\
+python3 scripts/pipeline_v2.py review \
   --book-dir /path/to/book --book-id 01_书ID -c 3 -v
 
+# 输出JSON供Agent消费（含fix_manifest修复清单）
+python3 scripts/pipeline_v2.py review \
+  --book-dir /path/to/book --book-id 01_书ID -c 3 --json
+
 # 设定阈值（低于则exit 1，可用作CI门禁）
-python3 scripts/pipeline_v2.py review \\
+python3 scripts/pipeline_v2.py review \
   --book-dir /path/to/book --book-id 01_书ID -c 3 --threshold 0.3
+
+# 审查+生成Agent可消费的修复指令（文件级精确字段修复）
+python3 scripts/pipeline_v2.py review-fix \
+  --book-dir /path/to/book --book-id 01_书ID -c 3 --threshold 0.9
+
+# 保存修复清单到JSON文件，供Agent批量处理
+python3 scripts/pipeline_v2.py review-fix \
+  --book-dir /path/to/book --book-id 01_书ID -c 3 --threshold 0.9 --output fix.json
+
+# Agent修复YAML后重新渲染+审查
+python3 scripts/pipeline_v2.py review-fix \
+  --book-dir /path/to/book --book-id 01_书ID -c 3 --re-render --apply
 
 **运行测试套件**（12个测试覆盖核心模块）：
 ```bash
@@ -181,7 +268,7 @@ python3 scripts/pipeline_v2.py overview \
   --book-dir /path/to/book --book-id 01_书ID
 ```
 
-**状态管理**：每章自动创建状态文件 `.dag/书籍ID_chN.json`，12 阶段追踪（chapter_toc→concepts→ke→entities→kp→sp→scene→exercises→solutions→l2_indices→l3_indices→l4_indices），支持断点续传：`phase-a --resume` 跳过已完成阶段。
+**状态管理**：每章自动创建状态文件 `.dag/书籍ID_chN.json`，14 阶段追踪（chapter_toc→concepts→ke→entities→kp→sp→scene→exercises→solutions→quality_review→auto_fix→l2_indices→l3_indices→l4_indices），支持断点续传：`phase-a --resume` 跳过已完成阶段。`run` 命令自动识别下一个待处理阶段。
 
 **整书预处理**（已有整书 MD 时）：
 ```bash
@@ -294,6 +381,10 @@ python3 scripts/index_builder.py /path/to/book \
 | 25 | **构建中途中止（如网络中断）→ 所有已完成的阶段信息丢失，需重头再来** → 浪费时间 | **使用状态管理 dag_state.py。** `pipeline_v2.py phase-a --resume` 跳过已完成阶段。`pipeline_v2.py run` 自动检测下一个待处理阶段。状态文件存储在 `.dag/书籍ID_chN.json`。每次成功完成阶段后自动 `state.save()`。 |
 | 26 | **只构建了 L2 索引（book_overview/concept_index 等），未构建 L3/L4（领域总控/知识库总控）** → 索引体系不完整 | Phase A 全部完成后，调用 `l3_l4_builder.py all`（L3+L4一次完成）或 `pipeline_v2.py run` 自动推进。L3 产出 `领域总控/domain_overview.md`（跨书），L4 产出 `知识库总控/kb_overview.md`（跨领域）。 |
 | 27 | **模板自身有重复节标题**（如 `## 学习目标` 和 `### 学习目标`）→ 渲染后出现视觉冗余 | 新增或修改模板后，先肉眼审查：每个 `##` 和 `###` 节标题是否在同一层级内唯一。`## 学习目标` 下不应再有 `### 学习目标`。通过第3章实测发现并修复。 |
+| 28 | **fix_manifest硬编码0.8阈值** → 审查脚本的exit阈值 0.5 和修复清单阈值 0.8 混用同一个参数。当exit阈值设为 0.9 时，fix_manifest用到同样的 0.9，修复强度不足 | **`--threshold` vs `--fix-threshold` 严格分离。** `quality_reviewer.py chapter --threshold 0.3 --fix-threshold 0.9` exit阻断用 0.3（低，不阻断），修复清单用 0.9（高，抓更多补内容）。`pipeline_v2.py` 的 `review-fix` 命令内部用 `--threshold 0.01 --fix-threshold 0.9` 确保不因exit code阻断，同时fix_manifest用高阈值。 |
+| 29 | **type级均分掩盖文件级低分** → `build_fix_manifest()` 原设计检查类型级评分（如concept=0.85≥0.8就跳过整个类型），忽略了类型内某些文件只有 0.70 的实际情况 | **fix_manifest必须按文件级评分检测。** 去掉类型级的 `if ts.get("score", 1.0) >= 0.8: continue` 过滤，全部由文件级 `fs.get("score", 1.0) >= threshold` 决定。|
+| 30 | **review-fix 命令认为 exit code 0=质量达标** → 整体评分 0.95 但概念分 0.85 低于修复阈值 0.9，修复指令有13个文件需要修复但被"质量达标"挡住 | **review_and_fix() 始终解析JSON的fix_manifest**，不以exit code判断。用极低 `--threshold 0.01` 运行 quality_reviewer 确保不exit 1，独立用 `--fix-threshold` 控制修复清单。|
+| **生成YAML时不做内联质量检查** → 全部写完后再跑review-fix，发现13个文件有问题，需要额外一轮回查修复 | **写一个过一件**：每生成一个YAML项，立即 `quality_reviewer.py check-item --item ... --type ... --threshold 0.9` 检查，不通过当场丰富重检再写入聚合YAML。见"内联质量检查流程"章节。|
 
 ## 领域自适应设计原则
 
@@ -318,3 +409,4 @@ python3 scripts/index_builder.py /path/to/book \
 || [golden-scene-example.md](references/golden-scene-example.md) | Scene YAML 金标范例 |
 || [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
 || [quality-review-metrics.md](references/quality-review-metrics.md) | 质量审查评分体系：T1/T2/T3检查项、评分公式、CLI用法 |
+|| [review-fix-workflow.md](references/review-fix-workflow.md) | Agent驱动修复流程：审查→结构化JSON→文件级修复指令→委托→重渲染→重审查 |

@@ -20,6 +20,8 @@ metadata:
 
 **工作模式偏好（v51.0）**：所有修复类任务严格按"**分析全部→一次性全部修复→最终验证**"模式执行。禁止逐个修复逐个验证。使用 `delegate_task` 并行分析不同维度（架构/UX/内容规范），汇总优先级矩阵，按 P0→P1→P2 批次修复。详见 [batch-analysis-pattern.md](references/batch-analysis-pattern.md)。
 
+**模板自携带 @prompt 写作指导原则（v2.2）**：所有模板 `.md` 文件中的每个 `{{field}}` 都应有对应的 `<!-- @prompt 写作要求 -->` 注释。这不仅是为 Agent 提供写作参考，更是字段定义的单一权威源——模板有什么 `{{xxx}}`，YAML 就该有什么字段。Agent 写 YAML 前执行 `yaml_writer.py prompt --type xxx` 即可看到全部字段的写作要求。template_engine.py 渲染时自动剥离 @prompt 注释，零泄漏到输出。
+
 **工程 vs 内容边界原则（v50.7）**：本技能的所有任务严格按以下原则分工：
 
 **根因分析原则（v52.1）**：当内容质量出现问题时，**必须回溯到数据处理链的源头修复**，绝不能在输出端修补。file2md 转换后的 20_正文/*.md 头部有 YAML frontmatter（--- {title, source, parser, sha256} ---）——这是元数据不是正文。如果 `_load_source_text` 不剥离它，脏数据就会进入 paragraph splitting 和 keyword scoring，最终不可逆地污染解答文件。**任何读取源文的函数必须在第一时间做前处理清理**，输出端擦除是错误方案。domain_words（领域术语集）同理——曾经硬编码在 `_detect_boilerplate` 中，换书必失效；正确方案是外置到 `config/knowledge_keywords.yaml`，无配置时降级为纯统计方法（跳过特异性检查）。
@@ -139,7 +141,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | `yaml_auto_fill.py analyze` | 分析所有模板字段分类（meta/auto/derived/llm） |
 | `yaml_auto_fill.py skeleton -t kp -n "名称" -c 1` | 生成完整 YAML 骨架（所有字段预填"待补充"） |
 | `yaml_auto_fill.py fill -w $DIR -t kp -c 1 -o .dag/.../kps.yaml` | 机械填充 YAML（自动填 meta + 源文提取 + 派生计算） |
-| `yaml_auto_fill.py llm-prompt -w $DIR -t kp -n "名称" -c 1` | 为 LLM 待填字段生成结构化 prompt + 源文片段 |
+| `yaml_auto_fill.py llm-prompt -w $DIR -t kp -n "名称" -c 1` | 为 LLM 待填字段生成结构化 prompt + 源文片段 |\n| `yaml_writer.py prompt --type concept` | **v2.2** — 从模板提取 @prompt 字段写作指导。Agent 写 YAML 前先看这个 |\n| `yaml_writer.py prompt --type kp --field theoretical_basis` | **v2.2** — 看单个字段的写作要求 |
 | `auto_fix_wikilinks(wiki_root, dry_run=False)` | **v50.5** — 扫描全库断裂 wikilink→fuzzy-match→自动替换。Python API: `from rules.wikilink import auto_fix_wikilinks; result = auto_fix_wikilinks('.')`。返回值 `{total_broken, fixed, skipped, details}`。`dry_run=True` 只报告不修改。EMC 实战：354→0 断裂 |
 | `增强内容` `enhance_solution_content(wiki_root, chapter)` | **v51.4** — 解答内容增强：检测通用模板文字→从题目关键词匹配源文相关段落→差异化生成。关键词映射从 `config/knowledge_keywords.yaml` 加载（领域无关，换书换文件）。 |
 | `知识链接审计` `link_audit.run_link_audit(wiki_root, auto_fix=True)` | **v52.0** — 替代 KGraph（1551行→266行）。纯文本扫描：孤立节点检测（入度=0）、反向链接补全（A→B 但 B↛A）、跨章引用统计（→L2枢纽节点）。集成到 pipeline auto scene→l2_indices 之间自动运行。 |
@@ -216,7 +218,7 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 || 96 | 模板拆分时 template_assembler.py 的 CLI 入口被移到 template_writers.py 但未加 `__main__` 回调。`_auto_detect_and_build_exercises` 调用 `template_assembler.py` 执行了 0 行代码，习题永不被生成 🔥 | **v52.2**: 在 template_assembler.py 末尾添加 `if __name__ == "__main__": _tw_main()` 回调。修复 3 处调用点。 |
 || 97 | 概念有源文公式但 `mathematical_model` 填"无"（如电磁干扰三要素的 S·C·R 模型, SE=R+A+B 公式） | **v52.2**: 写 YAML 前必须扫描源文 `$$...$$` 公式,有则提取。技能参考 yaml-generation-guide.md 新增"数学模型的强制要求"节。 |
 || 98 | SP/Scene 被跳过：sps.yaml/scenes.yaml 为空 → pipeline 标记为 done(0 文件) → 知识库缺失工程应用内容 | **v52.2**: 每章必须≥1 SP + ≥1 Scene。绪论章也有 SP(术语辨析)和 Scene(EMC评估)。写入 sps.yaml 后再重建。 |
-|| 99 | 模板字段未填导致"无"充斥输出文件（SP 17个无/Scene 12个无/KP 15个无） | **v52.5**: 1) template_assembler._assemble_one: auto-complete bd 所有缺失的模板占位符再 fill; 2) template_writers.assemble_md: 同上; 3) _strip_wu_sections 三遍扫描删除空节. |
+|| 99 | 模板字段未填导致"无"充斥输出文件（SP 17个无/Scene 12个无/KP 15个无） | **v52.5**: 1) template_assembler._assemble_one: auto-complete bd 所有缺失的模板占位符再 fill; 2) template_writers.assemble_md: 同上; 3) _strip_wu_sections 三遍扫描删除空节. |\n|| **100** | **模板字段 vs schema 字段不一致**：schema.json 定义了一些字段但模板根本没用到（浪费），或者模板有 {{xxx}} 但 schema 缺了（写 YAML 报错） | **v2.2**: 模板是字段的单一权威源。写模板时加 `<!-- @prompt ... -->`，然后 `yaml_writer.py prompt --type xxx` 自动提取。模板删了一个节 → schema 自动跟丢，不需要手动同步。模板新增 {{new_field}} → 加个 @prompt 就行。 |\n|| **101** | **@prompt 泄漏到渲染输出**：`<!-- @prompt ... -->` 被当成普通 HTML 注释保留在 .md 文件中 | **v2.2**: template_engine.py 的 `render_item()` 中 `re.sub(r'<!--.*?-->', '', result, flags=re.DOTALL)` 必须在替换完所有 {{xxx}} 后执行。已在 v2.2 修复。 |
 
  完整 80+ 条陷阱清单 →
 
@@ -257,4 +259,4 @@ python3.12 dag_controller.py pipeline auto -w $BOOK_DIR --book-id 01_xxx -c 1
 | [whole-book-prep-workflow.md](references/whole-book-prep-workflow.md) | **v52.1** — 整书 MD 预处理工作流：目录创建 + 图片复制 + 章节拆分（TOC 去重/标题格式兼容/文件名标准化） |
 | [yaml-generation-guide.md](references/yaml-generation-guide.md) | **v52.2** — YAML 数据文件生成规范：四字段结构 (name/fm/bd/file) + 节点类型 vs 置信度对照表 + 内容深度要求(最少填充数/字段分级) + 常见结构错误修复 + pipeline auto 工作流 |
 | [template-yaml-field-map.md](references/template-yaml-field-map.md) | **v52.3** — 模板-YAML 字段完整映射表(8节点类型)：每类型全部模板字段的 YAML bd 键、填充等级(必填/应填/条件填)、最少非无字段数。写 YAML 时对照此文档确保无遗漏。 |
-| [quality-gate-architecture.md](references/quality-gate-architecture.md) | **v52.3** — 质量闸门架构总览：yaml_pre_validate(11项检查+覆盖率阈值) → validate_phase_output → pipeline full validate(13项) → link_audit。含常见失败模式溯源指南和新增检查步骤。 |
+| [quality-gate-architecture.md](references/quality-gate-architecture.md) | **v52.3** — 质量闸门架构总览：yaml_pre_validate(11项检查+覆盖率阈值) → validate_phase_output → pipeline full validate(13项) → link_audit。含常见失败模式溯源指南和新增检查步骤。 |\n| [template-prompt-convention.md](references/template-prompt-convention.md) | **v2.2** — 模板 @prompt 写作指导约定：格式/原则/覆盖率。Agent 写 YAML 前先用 `yaml_writer.py prompt --type xxx` 看要求 |

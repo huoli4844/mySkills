@@ -162,8 +162,8 @@ def _auto_fill_value(field_name: str, item: dict,
         'bloom_level': item.get('fm', {}).get('bloom_level', ''),
         'entity_type': item.get('fm', {}).get('entity_type', ''),
         'bloom_progression_analysis': '',
-        'exercise_link': item.get('fm', {}).get('exercise_link', ''),
-        'exercise_name': item.get('fm', {}).get('exercise_name', ''),
+        'exercise_link': _gen_exercise_link(item, type_name, chapter_num),
+        'exercise_name': _gen_exercise_link(item, type_name, chapter_num),
         'source_chapter': chapter_num,
         'source_from': '',
     }
@@ -190,6 +190,13 @@ NODE_TAG_MAP = {
     'exercise': ['习题'],
     'solution': ['习题解答'],
 }
+
+
+def _gen_exercise_link(item: dict, type_name: str, chapter_num: str) -> str:
+    """从solution item的名称生成对应的习题链接名"""
+    name = item.get('name', '')
+    base_name = name.replace('-解答', '').replace(f'第{chapter_num}章-', f'第{chapter_num}章-')
+    return f"第{chapter_num}章-{base_name}" if not base_name.startswith(f'第{chapter_num}章') else base_name
 
 
 # ════════════════════════════════════════════════════════════

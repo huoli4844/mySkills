@@ -456,49 +456,14 @@ def mechanical_fill(node_type: str, name: str, book_id: str, ch: str,
 
 
 def generate_llm_prompt(item: dict, node_type: str,
-                        source_snippet: str,
-                        tpl_dir: str = "") -> str:
-    """为 LLM 生成结构化填充提示
-
-    从模板文件中读取 HTML 注释（如 <!-- 每场景 ≥50 字... -->）作为每个字段的
-    填充指引，附加到 LLM 提示中。
-    """
-    import re as _re
-
+                        source_snippet: str) -> str:
+    """为 LLM 生成结构化填充提示"""
     bd = item.get("bd", {})
     # 找出所有"待补充"的值 → LLM 需要填
     to_fill = {k: v for k, v in bd.items() if v == "待补充"}
 
     if not to_fill:
         return "# 无需 LLM 填充(所有字段已机械填满)\n"
-
-    # 从模板文件读取每个字段的 HTML 注释指引
-    field_guides = {}
-    if tpl_dir:
-        tpl_name = f"{node_type}_template.md"
-        tpl_path = os.path.join(tpl_dir, tpl_name)
-        if os.path.exists(tpl_path):
-            with open(tpl_path, encoding="utf-8") as _tf:
-                _tpl_text = _tf.read()
-            # 方案：直接在原始文本中，对每个 {{field}} 向前搜索最近的 HTML 注释
-            for _m in _re.finditer(r"\{\{([a-z_][a-z0-9_]*)\}\}", _tpl_text):
-                _fn = _m.group(1)
-                _pos = _m.start()
-                # 从 _pos 向前搜索 HTML 注释（最多向前看 300 个字符）
-                _search_start = max(0, _pos - 300)
-                _snippet = _tpl_text[_search_start:_pos]
-                # 找到 snippet 中最后一个完整的 <!-- ... -->
-                _cm = list(_re.finditer(r"<!--(.*?)-->", _snippet, _re.DOTALL))
-                if _cm:
-                    _last = _cm[-1]
-                    # 注释在 snippet 中的位置 → 转回原始文本位置
-                    _comment_end_in_orig = _search_start + _last.end()
-                    # 注释和 {{field}} 之间不应有其他 {{}}
-                    _between = _tpl_text[_comment_end_in_orig:_pos]
-                    if "{{" not in _between:
-                        _guide = _last.group(1).strip()
-                        if len(_guide) > 10:
-                            field_guides[_fn] = _guide
 
     lines = [
         f"# LLM 填充任务: {item['name']} ({node_type})",
@@ -514,11 +479,6 @@ def generate_llm_prompt(item: dict, node_type: str,
     for fname in sorted(to_fill.keys()):
         lines.append(f"### {fname}")
         lines.append(f"")
-        # 如果模板中有该字段的 HTML 注释指引，附加上
-        guide = field_guides.get(fname, "")
-        if guide:
-            lines.append(f"【模板指引】{guide}")
-            lines.append(f"")
         lines.append(f'(请根据上方的源文上下文,为该字段填写高质量内容。如源文无相关材料,填"无")')
         lines.append(f"")
 
@@ -653,7 +613,7 @@ def cmd_llm_prompt(args):
 
     # 生成 LLM 提示
     snippet = get_source_snippet(source_lines, args.name)
-    prompt = generate_llm_prompt(item, args.type, snippet, tpl_dir=tpl_dir)
+    prompt = generate_llm_prompt(item, args.type, snippet)
     print(prompt)
 
 

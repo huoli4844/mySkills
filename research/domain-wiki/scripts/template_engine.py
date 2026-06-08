@@ -143,6 +143,9 @@ def render_item(item: dict, type_name: str, schema: dict,
         if remaining:
             print(f"  ⚠️ 未替换的占位符: {', '.join(sorted(remaining))}", file=sys.stderr)
 
+    # 剥离 HTML 注释（包括 @prompt 写作指导）
+    result = re.sub(r'<!--.*?-->', '', result, flags=re.DOTALL)
+
     return result
 
 

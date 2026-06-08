@@ -402,6 +402,70 @@ def cmd_validate_dir(data_dir: str):
 
 
 # ════════════════════════════════════════════════════════════
+# cmd_prompt: 从模板提取 @prompt 写作指导
+# ════════════════════════════════════════════════════════════
+
+def cmd_prompt(type_name: str, field_name: str = None):
+    """从模板文件提取 @prompt 写作指导"""
+    import re as _re
+    schema = load_schema()
+    SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    if type_name not in schema['node_types']:
+        print(f"❌ 未知节点类型: {type_name}")
+        return
+
+    node = schema['node_types'][type_name]
+    tpl_path = os.path.join(SKILL_DIR, 'assets', 'templates', node['template'])
+    if not os.path.exists(tpl_path):
+        print(f"❌ 模板文件不存在: {tpl_path}")
+        return
+
+    with open(tpl_path, encoding='utf-8') as f:
+        content = f.read()
+
+    # Extract <!-- @prompt ... --> comments near {{field}} (within 200 chars)
+    prompts = {}
+    for m in _re.finditer(
+        r'<!--\s*@prompt\s+(.*?)-->[\s\S]{0,200}?\{\{(\w+)\}\}',
+        content
+    ):
+        prompts[m.group(2)] = m.group(1).strip()
+
+    if field_name:
+        if field_name in prompts:
+            print(f"\n{'='*60}")
+            print(f"📝 {type_name}.{field_name}")
+            print(f"{'='*60}\n")
+            print(prompts[field_name])
+        else:
+            print(f"❌ 字段 '{field_name}' 无 @prompt 指导")
+        return
+
+    # Print all fields
+    print(f"\n{'='*60}")
+    print(f"📋 {type_name.upper()} 字段写作指导（模板: {node['template']}）")
+    print(f"{'='*60}")
+    for fname in sorted(node['bd'].keys()):
+        bd_def = node['bd'][fname]
+        required = '必填' if bd_def.get('required') else '可选'
+        ftype = bd_def.get('type', 'string')
+        auto = '  [自动填充]' if bd_def.get('auto_fill') else ''
+        if fname in prompts:
+            print(f"\n{'─'*50}")
+            print(f"📌 {fname} [{required}/{ftype}]{auto}")
+            print(prompts[fname])
+        else:
+            cons = ''
+            c = bd_def.get('constraints', {})
+            if 'min_chars' in c:
+                cons += f' ≥{c["min_chars"]}字'
+            if c.get('formula_check'):
+                cons += ' 公式需$$包裹'
+            print(f"\n  ⚠️ {fname} [{required}/{ftype}]{auto}{cons}")
+
+
+# ════════════════════════════════════════════════════════════
 # Main
 # ════════════════════════════════════════════════════════════
 
@@ -431,6 +495,11 @@ def main():
     vd = sp.add_parser("validate-dir", help="批量校验整个目录")
     vd.add_argument("--dir", required=True, help="YAML目录路径")
 
+    # prompt
+    pr = sp.add_parser("prompt", help="从模板提取@prompt字段写作指导")
+    pr.add_argument("--type", required=True, help="节点类型（如 concept/kp/sp 等）")
+    pr.add_argument("--field", default=None, help="字段名（可选，不指定时输出全部）")
+
     a = p.parse_args()
 
     if not a.cmd:
@@ -447,6 +516,9 @@ def main():
         cmd_validate_file(a.yaml_path, getattr(a, 'explicit_type', None))
     elif a.cmd == "validate-dir":
         cmd_validate_dir(a.dir)
+
+    elif a.cmd == "prompt":
+        cmd_prompt(a.type, getattr(a, 'field', None))
 
 
 if __name__ == "__main__":

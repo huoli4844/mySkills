@@ -126,6 +126,13 @@ def render_item(item: dict, type_name: str, schema: dict,
     if 'name' not in replacements or not replacements.get('name'):
         replacements['name'] = item.get('name', '')
 
+    # 特殊字段后处理：mermaid 类字段自动包裹
+    MERMAID_FIELDS = {'core_concept_map', 'structure_diagram', 'principle_diagram', 'workflow_diagram',
+                      'solution_flowchart', 'application_scenario'}
+    for key in MERMAID_FIELDS:
+        if key in replacements and replacements[key]:
+            replacements[key] = _auto_wrap_mermaid(str(replacements[key]))
+
     # 执行替换
     result = template_content
     for key, val in replacements.items():
@@ -147,6 +154,21 @@ def render_item(item: dict, type_name: str, schema: dict,
     result = re.sub(r'<!--.*?-->', '', result, flags=re.DOTALL)
 
     return result
+
+
+def _auto_wrap_mermaid(value: str) -> str:
+    """自动为 mermaid 类字段添加代码块包裹（如果还不含）"""
+    if not value or value.strip() == '':
+        return value  # 空内容留空
+    stripped = value.strip()
+    # 检查是否已有代码块包裹或 init 配置
+    if stripped.startswith('```') or stripped.startswith('%%init'):
+        return value  # 已有 fences 或 init 配置，不重复包裹
+    # 如果是 raw mermaid 内容，用完整包裹
+    if any(stripped.startswith(prefix) for prefix in ('graph ', 'pie ', 'flowchart ', 'sequenceDiagram', 'classDiagram', 'stateDiagram', 'mindmap', 'gantt', 'journey', 'gitGraph', 'erDiagram', 'timeline', 'xychart')):
+        return f"```mermaid\n{stripped}\n```"
+    # 难以判断，则原样输出
+    return value
 
 
 def _auto_fill_value(field_name: str, item: dict,

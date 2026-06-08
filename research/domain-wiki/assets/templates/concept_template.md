@@ -46,11 +46,11 @@ tags: {{tags}}
 <!-- @prompt term_english: 标准英文术语，首字母大写。term_definition: 从源文摘抄标准定义，≥50字。用书名号引教材。 -->
 **{{name}}**（{{term_english}}）{{term_definition}}
 
-### 2、说明
+### 2、精确释义
 
-> <!-- @prompt definition_sentence: 一句话概括，≥30字。含"是指"结构。Markdown引文格式。 -->
+> <!-- @prompt definition_sentence: 从源文精确获取完整的定义。含"是指"结构。Markdown引文格式。 -->
 > {{definition_sentence}}
-> 来源：第{{source_chapter}}章 §{{source_from}} 节
+> 来源：第{{source_chapter}}章 §{{source_from}} 
 
 ### 3. 分类与学科归属
 

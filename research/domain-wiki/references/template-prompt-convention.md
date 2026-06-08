@@ -1,44 +1,53 @@
-# 模板 @prompt 写作指导约定
+# @prompt 写作指导约定
 
 ## 格式
 
-每个模板 `.md` 文件中的每个 `{{field}}` 附近，放置一条 `<!-- @prompt ... -->` 注释：
+模板中每个 `{{field}}` 前面或附近必须加一行：
 
 ```markdown
-### 数学模型
-
-<!-- @prompt 必须用$$...$$块级LaTeX包裹公式。从源文提取。无公式填"无"。 -->
-{{mathematical_model}}
+<!-- @prompt 写作要求。多长、什么格式、写什么内容、示例。 -->
+{{field}}
 ```
-
-`@prompt` 注释必须在 `{{field}}` 的 200 字符范围内（可以跨行）。注释中的内容是给 Agent 的写作指导，不是给最终用户的。
 
 ## 原则
 
-1. **模板是字段的单一权威源**。模板有什么 `{{xxx}}`，YAML 就该有什么字段。不再维护分离的字段映射表。
-2. **@prompt 只写"怎么写"，不写"是什么"**。字段名本身已经告诉 Agent 这是什么（如 `mathematical_model`）。@prompt 告诉 Agent 格式要求、字数、风格。
-3. **每个必填字段至少有一个 @prompt**。可选字段可以没有。
-4. **@prompt 自动剥离**。template_engine.py 的 `render_item()` 会在填充完所有 `{{xxx}}` 后执行 `re.sub(r'<!--.*?-->', '', result, flags=re.DOTALL)`，@prompt 注释不会泄露到输出文件。
+1. **模板自己就是完整的指南**，不需要任何外部对照表、schema 映射文档、提示词文档。改模板就等于改了所有。
+2. **`@prompt` 只写内容指导**（写什么、多长、什么格式），不写机械校验（类型/必填/confidence 等由 schema.json + yaml_writer.py 处理）。
+3. **`template_engine.py` 渲染时自动剥离 `<!-- ... -->`**，零泄漏到最终输出。
+4. 如果某个字段跟另一类型的同名字段要求不同（如 concept 的 `mathematical_model` 和 ke 的 `mathematical_model`），各自写各自的 `@prompt`。
 
-## 工具
+## 示例
 
-```bash
-# 列出某类型全部字段的 @prompt
-yaml_writer.py prompt --type concept
+```markdown
+### 2. 数学模型
 
-# 只看单个字段
-yaml_writer.py prompt --type kp --field theoretical_basis
+<!-- @prompt 必须用$$...$$块级LaTeX包裹公式。从源文提取。无公式填"无"。每公式下方标注来源。 -->
+{{mathematical_model}}
+
+### 3. 关键参数
+
+<!-- @prompt ≥3个关键参数。格式："参数名(符号/单位): 说明"。 -->
+{{key_parameters}}
 ```
 
-## 模板与字段覆盖
+## Agent 使用方式
 
-| 模板 | 字段数 | @prompt 数 | 覆盖率 |
-|------|--------|-----------|--------|
-| concept_template.md | 24 | 24 | 100% |
-| ke_template.md | 12 | 13 | 100% (含自动字段) |
-| entity_template.md | 12 | 12 | 100% |
-| knowledge_template.md | 21 | 21 | 100% |
-| skill_template.md | 23 | 23 | 100% |
-| scenario_template.md | 15 | 15 | 100% |
-| eval_template.md | 19 | 19 | 100% |
-| exercise_template.md | 2 | 2 | 100% |
+```bash
+# 看某类型全部字段要求
+python3 scripts/yaml_writer.py prompt --type concept
+
+# 只看一个字段
+python3 scripts/yaml_writer.py prompt --type kp --field theoretical_basis
+
+# 输出示例：
+# 📌 theoretical_basis [必填/string]
+# ≥200字。从底层原理讲起。用3+个[[wikilink]]引用核心概念。
+```
+
+## 重要性排序
+
+| 信息来源 | 优先级 | 说明 |
+|----------|--------|------|
+| 模板 `{{xxx}}` + `@prompt` | 最高 | 字段名和写作要求全部在这里 |
+| `schema.json` | 协助 | 辅助校验（类型/必填/constraints），不参与字段名映射 |
+| 其他 references | 参考 | 历史文档，不参与工具流程 |

@@ -160,7 +160,7 @@ def pipeline_init(args: PipelineArgs) -> None:
         log.info("\n🔍 Phase 0.5: YAML 内容预校验 (yaml_pre_validate)...")
         try:
             from yaml_pre_validate import validate_chapter_dir
-            pre_results = validate_chapter_dir(data_dir)
+            pre_results = validate_chapter_dir(data_dir, wr=wr, ch=ch)
             pre_errors = sum(r.get("errors_count", 0) for r in pre_results)
             pre_warns = sum(r.get("warnings", 0) for r in pre_results)
             if pre_errors > 0:

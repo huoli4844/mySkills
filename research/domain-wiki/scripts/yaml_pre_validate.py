@@ -1,8 +1,10 @@
 #!/usr/bin/env python3.12
 """yaml_pre_validate.py — Agent 写完 YAML 后秒级快速校验。
 
-不读源文件、不跑 build、不检查 wikilink 可达性。
-只检查 YAML 自身的结构和内容完整性。
+校验内容包括：
+- Schema 结构校验
+- Confidence/字段名/命名格式等业务规则
+- v52.2+: 源文公式交叉校验（需 --book-dir -c 参数）
 
 用法:
   python3.12 yaml_pre_validate.py .dag/第1章/data/concepts.yaml
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import yaml
 from typing import Any
@@ -242,6 +245,91 @@ def check_mathematical_model(items: list[dict], node_type: str) -> list[dict]:
     return errors
 
 
+# v52.2: 源文公式交叉校验
+# 破解误区: Agent 写 YAML 时常直接填 mathematical_model="无"
+# 而不去源文中检查是否存在 $$...$$ 公式。
+# 此函数打开源文件扫描，发现公式但 YAML 缺失时报警。
+def check_source_mathematical_model(items: list[dict], node_type: str, wr: str | None = None, ch: str = "") -> list[dict]:
+    """从源文件中提取公式，检查概念 YAML 的 mathematical_model 是否遗漏。
+
+    读 20_正文/第{ch}章*.md → 扫描 $$...$$ → 与 bd.mathematical_model 对比。
+    仅当 wr+ch 都提供时执行。
+    """
+    if node_type not in ("concept", "knowledge-element", "knowledge"):
+        return []
+    if not wr or not ch:
+        return []
+
+    import glob
+    src_dir = os.path.join(wr, "20_正文")
+    src_files = sorted(glob.glob(os.path.join(src_dir, f"第{ch}章*.md")))
+    if not src_files:
+        return []
+    src_path = src_files[0]
+
+    with open(src_path, encoding="utf-8") as f:
+        src_text = f.read()
+
+    # 提取所有 $$...$$ 公式
+    formulas = re.findall(r'\$\$(.*?)\$\$', src_text, re.DOTALL)
+    # 提取行内公式
+    inline_formulas = re.findall(r'(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)', src_text)
+    total_formula_count = len(formulas) + len(inline_formulas)
+
+    errors = []
+    for i, item in enumerate(items):
+        bd = item.get("bd", {})
+        mm = bd.get("mathematical_model", "")
+        mm_str = str(mm) if not isinstance(mm, (list, dict)) else ""
+        fr = bd.get("formula_references", "")
+        fr_str = str(fr) if not isinstance(fr, (list, dict)) else ""
+        name = item.get("name", "")
+        source_section = bd.get("source_from", "")
+
+        # 判断源文对应节段是否有公式
+        # 优先从 source_from 确定范围，无法确定时用全文件
+        has_formula_in_source = False
+        if source_section:
+            # 尝试从 source_section 定位节段
+            section_start = src_text.find(source_section)
+            if section_start >= 0:
+                section_end = min(section_start + 2000, len(src_text))
+                section_text = src_text[section_start:section_end]
+                if re.search(r'\$\$', section_text) or re.search(r'(?<!\$)\$(?!\$)[^$]+\$(?!\$)', section_text):
+                    has_formula_in_source = True
+            else:
+                # 用概念名称定位
+                name_start = src_text.find(name)
+                if name_start >= 0:
+                    section_end = min(name_start + 2000, len(src_text))
+                    section_text = src_text[name_start:section_end]
+                    if re.search(r'\$\$', section_text):
+                        has_formula_in_source = True
+        else:
+            # 无 source_from: 全文件扫描
+            has_formula_in_source = total_formula_count > 0
+
+        # 源文有公式但 YAML 没有 → 报警
+        if has_formula_in_source:
+            mm_has_math = bool(re.search(r'\$\$', mm_str))
+            fr_has_math = bool(re.search(r'\$\$', fr_str))
+
+            if not mm_has_math and not fr_has_math and mm_str.strip() in ("", "无", "none", "None"):
+                errors.append({
+                    "item": i, "field": "bd.mathematical_model",
+                    "message": f"'{name}' 的 source_from 节段含 $$ 公式，但 mathematical_model 和 formula_references 均为空。必须从源文提取公式。",
+                    "severity": "warning",
+                })
+            elif not mm_has_math and mm_str.strip() in ("", "无", "none", "None"):
+                errors.append({
+                    "item": i, "field": "bd.mathematical_model",
+                    "message": f"'{name}' 的源文有公式，但 mathematical_model 为 '{mm_str}'。应从源文提取 LaTeX 公式。",
+                    "severity": "warning",
+                })
+
+    return errors
+
+
 def check_template_field_names(items: list[dict], node_type: str) -> list[dict]:
     """v50.7: 检查 YAML bd 字段名是否与模板 {{xxx}} 占位符匹配。
 
@@ -333,7 +421,7 @@ def check_file_naming(items: list[dict], node_type: str) -> list[dict]:
     return errors
 
 
-def validate_file(yaml_path: str) -> dict[str, Any]:
+def validate_file(yaml_path: str, wr: str | None = None, ch: str = "") -> dict[str, Any]:
     """校验单个 YAML 文件，返回结构化结果"""
     node_type = _detect_type(yaml_path)
     if not node_type:
@@ -372,6 +460,9 @@ def validate_file(yaml_path: str) -> dict[str, Any]:
     all_results.extend(check_name_format(items, node_type))
     all_results.extend(check_mathematical_model(items, node_type))
     all_results.extend(check_file_naming(items, node_type))  # v50.0
+    # v52.2: 源文公式交叉校验（需 wr+ch）
+    if wr and ch:
+        all_results.extend(check_source_mathematical_model(items, node_type, wr, ch))
     # v50.7: 模板字段名校验 — Agent 自创字段名 vs 模板 {{xxx}}
     all_results.extend(check_template_field_names(items, node_type))
 
@@ -389,12 +480,12 @@ def validate_file(yaml_path: str) -> dict[str, Any]:
     }
 
 
-def validate_chapter_dir(chapter_data_dir: str) -> list[dict]:
+def validate_chapter_dir(chapter_data_dir: str, wr: str | None = None, ch: str = "") -> list[dict]:
     """校验整章 data 目录下所有 YAML"""
     results = []
     for fname in sorted(os.listdir(chapter_data_dir)):
         if fname.endswith((".yaml", ".yml")):
-            results.append(validate_file(os.path.join(chapter_data_dir, fname)))
+            results.append(validate_file(os.path.join(chapter_data_dir, fname), wr=wr, ch=ch))
     return results
 
 
@@ -407,7 +498,7 @@ def validate_book_chapter(book_dir: str, chapter: str) -> list[dict]:
         return [{"path": data_dir, "type": "", "errors": [{
             "item": 0, "field": "", "message": f"数据目录不存在: {data_dir}",
             "severity": "error"}], "errors_count": 1, "warnings": 0, "pass": False}]
-    return validate_chapter_dir(data_dir)
+    return validate_chapter_dir(data_dir, wr=book_dir, ch=chapter)
 
 
 def format_results(results: list[dict], verbose: bool = False) -> tuple[str, bool]:

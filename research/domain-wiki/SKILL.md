@@ -410,3 +410,4 @@ python3 scripts/index_builder.py /path/to/book \
 || [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
 || [quality-review-metrics.md](references/quality-review-metrics.md) | 质量审查评分体系：T1/T2/T3检查项、评分公式、CLI用法 |
 || [review-fix-workflow.md](references/review-fix-workflow.md) | Agent驱动修复流程：审查→结构化JSON→文件级修复指令→委托→重渲染→重审查 |
+|| [inline-quality-workflow.md](references/inline-quality-workflow.md) | 内联质量检查工作流（inline-before-batch）：生成时就地检查，写一个过一件，不留给事后 |

@@ -65,6 +65,9 @@ def _extract_wikilinks(content: str) -> list[str]:
 def check_orphan_nodes(wiki_root: str, min_nodes: int = 3) -> dict:
     """查找入度 = 0 的孤立节点。
 
+    注意：wikilink 目标可能带路径前缀（如 90_习题/解答/xxx），
+    统计时同时检查裸名和路径前缀变体。
+
     Returns:
         {"orphans": [文件名], "total_nodes": N, "orphan_pct": float}
     """
@@ -72,11 +75,25 @@ def check_orphan_nodes(wiki_root: str, min_nodes: int = 3) -> dict:
     if len(files) < min_nodes:
         return {"orphans": [], "total_nodes": 0, "orphan_pct": 0.0}
 
+    # 构建文件名 → 路径前缀 反向映射
+    name_to_prefix = {}  # {裸名: 路径前缀}
+    prefix_map = {}  # {带前缀的完整引用: 裸名}
+    for bare_name, fpath in files.items():
+        rel = os.path.relpath(fpath, wiki_root)
+        prefix = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        name_to_prefix[bare_name] = prefix
+        # 注册所有可能的路径变体
+        if prefix:
+            prefix_map[f"{prefix}/{bare_name}"] = bare_name
+        prefix_map[bare_name] = bare_name
+
     incoming = defaultdict(int)
     for fname, fpath in files.items():
         content = _read_content(fpath)
         for target in _extract_wikilinks(content):
-            incoming[target] += 1
+            # 尝试匹配裸名 → 增加计数
+            if target in prefix_map:
+                incoming[prefix_map[target]] += 1
 
     orphans = [f for f in files if incoming.get(f, 0) == 0]
     pct = round(len(orphans) / len(files) * 100, 1) if files else 0.0

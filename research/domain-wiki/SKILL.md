@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
 description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板自携带@prompt写作指导，yaml_writer.py pydantic校验，零对照表"
-version: "2.7"
+version: "3.0"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -26,7 +26,7 @@ metadata:
     yaml_writer.py self-instruct --type concept -c N --book-dir .
 ```
 
-**核心文件**（仅 7 个脚本，已全面清洗）：
+## 核心文件（仅 9 个脚本 + 1 验证脚本，已全面清洗）
 
 | 文件 | 职责 |
 |------|------|
@@ -205,7 +205,7 @@ python3 scripts/split_book_to_chapters.py prepare \
 | 16 | `.py` 文件 docstring 中的示例命令行含领域特定值（如 `--book-name "工程电磁兼容第3版_路宏敏"`）→ 读者复制粘贴跑不通他自己的书 | **docstring 示例用占位符：** `--book-id 01_书籍ID --book-name "书籍名称" -c N`。全书搜 `工程电磁兼容`、`电磁兼容`、`EMC` 等词确认零出现在代码/docstring 中。 |
 | 17 | Phase A 渲染完成后不跑 wikilink 修复 → 概念/KE/实体之间约 60-80% 只有出链无人链，知识图谱呈单向森林状 | Phase A 渲染后必须顺序执行：`wikilink_deep_fixer.py`（同章关联）→ `wikilink_fixer.py`（反向补全）。实测可将孤立率从 84% 降至 13%，非对称链接 399→0。 |
 | 18 | 质量检查（Mermaid验证、wikilink修复）作为事后人工步骤 → 被遗忘，用户反馈后才补救 | **质量门必须集成到 pipeline 中，不能作为可选的手动步骤。** `pipeline_v2.py phase-a` 的 Step 3 自动完成：Mermaid验证 → 同章wikilink关联 → 反向链接补全。新增 `quality-gate` 子命令用于全书批检。任何新 Agent 在修改 pipeline 时不得移除 Step 3。 |
-| 19 | 多次修改后技能目录积累死脚本和过时配置文件 → 技能膨胀、后续 Agent 困惑、用户需要额外清理 | **每次提交前执行清理：** ① `grep -rl "dead_script_name" scripts/` 确认无引用后删除 ② 删除后运行 `grep -rn "dead_name" skill_dir/` 确保无断裂引用 ③ 删除不再被 pipeline 读取的 config/ 目录（旧 v52 配置如 book_info.yaml、knowledge_keywords.yaml） ④ `scripts/verify_domain_agnostic.sh` 确保仍在维护。参考 patterns: dead-code-cleanup。 |
+| 19 | 多次修改后技能目录积累死脚本、过时配置文件和 reference 文档 → 技能膨胀、后续 Agent 困惑、用户需要额外清理 | **每次提交前执行清理：** ① `grep -rl "dead_script_name" scripts/` 确认无引用后删除 ② 删除后运行 `grep -rn "dead_name" skill_dir/` 确保无断裂引用 ③ 清理不再被 pipeline 读取的 config/ 目录和 references/ 中引用已删除脚本的过时文档 ④ 更新 SKILL.md 的 Reference Index 避免断裂链接 ⑤ `scripts/verify_domain_agnostic.sh` 确保仍在维护。参考 patterns: dead-code-cleanup。 |
 
 ## 领域自适应设计原则
 
@@ -221,6 +221,7 @@ python3 scripts/split_book_to_chapters.py prepare \
 
 | 需要时加载 | 内容 |
 |:-----------|:------|
+|| [wikilink-fix-patterns.md](references/wikilink-fix-patterns.md) | wikilink 孤立节点和非对称链接批量修复指南 |
 || [mermaid-graph-troubleshooting.md](references/mermaid-graph-troubleshooting.md) | Mermaid核心概念图语法问题调试指南（括号引用/单行图/YAML块标量） |
 || [template-prompt-convention.md](references/template-prompt-convention.md) | @prompt 写作指导约定：格式/原则/Agent 使用方式 |
 || [template-yaml-field-map.md](references/template-yaml-field-map.md) | 模板-YAML 字段映射表（8种类型的 bd 字段详细说明） |
@@ -228,4 +229,3 @@ python3 scripts/split_book_to_chapters.py prepare \
 || [golden-sp-example.md](references/golden-sp-example.md) | SP YAML 金标范例 |
 || [golden-scene-example.md](references/golden-scene-example.md) | Scene YAML 金标范例 |
 || [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
-|| [wikilink-fix-patterns.md](references/wikilink-fix-patterns.md) | wikilink 孤立节点和非对称链接批量修复指南 |

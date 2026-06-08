@@ -54,6 +54,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(SCRIPT_DIR)
 YAML_WRITER = os.path.join(SCRIPT_DIR, "yaml_writer.py")
 TEMPLATE_ENGINE = os.path.join(SCRIPT_DIR, "template_engine.py")
+INDEX_BUILDER = os.path.join(SCRIPT_DIR, "index_builder.py")
 WIKILINK_FIXER = os.path.join(SCRIPT_DIR, "wikilink_fixer.py")
 WIKILINK_DEEP_FIXER = os.path.join(SCRIPT_DIR, "wikilink_deep_fixer.py")
 VALIDATE_MERMAID = os.path.join(SCRIPT_DIR, "validate_mermaid.py")
@@ -197,6 +198,72 @@ def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str):
         print(f"\n✅ Phase A 完成 (有质量警告): 第{chapter}章")
 
     return ok_q and ok
+
+
+# ════════════════════════════════════════════════════════════
+# Index Building
+# ════════════════════════════════════════════════════════════
+
+def build_indices(book_dir: str, book_id: str, book_name: str):
+    """构建 L2/L3/L4 索引：扫描 .md 文件 → 生成索引 YAML → 渲染输出"""
+    from pathlib import Path
+
+    print("=" * 60)
+    print("Build Indices: 构建索引数据")
+    print("=" * 60)
+
+    # Step 1: 运行 index_builder.py 生成索引 YAML
+    ok = run_script(INDEX_BUILDER, [
+        book_dir,
+        "--book-id", book_id,
+        "--book-name", book_name,
+    ])
+    if not ok:
+        print("❌ 索引数据生成失败")
+        return False
+    print("  ✅ 索引YAML数据生成完成")
+
+    # Step 2: 渲染索引到 10_总揽
+    idx_dir = os.path.join(book_dir, ".dag", "index_data")
+    if not os.path.isdir(idx_dir):
+        print("❌ 索引数据目录不存在")
+        return False
+
+    output_dir = os.path.join(book_dir, "10_总揽")
+    os.makedirs(output_dir, exist_ok=True)
+
+    index_types = [
+        ("book_overview.yaml", "book_overview", "book_overview.md"),
+        ("concept_index.yaml", "concept_index", "concept_index.md"),
+        ("knowledge_index.yaml", "knowledge_index", "knowledge_index.md"),
+        ("skill_index.yaml", "skill_index", "skill_index.md"),
+        ("scenario_index.yaml", "scenario_index", "scenario_index.md"),
+    ]
+
+    rendered = 0
+    for yf, idx_type, template_file in index_types:
+        yp = os.path.join(idx_dir, yf)
+        if not os.path.isfile(yp):
+            print(f"  ⏳ 跳过 {yf}（不存在）")
+            continue
+
+        # 读取 YAML → 提取 body（frontmatter 之后的部分）→ 写为 .md
+        with open(yp, encoding="utf-8") as f:
+            raw = f.read()
+        body_match = re.split(r'^---\s*\n.*?\n---\s*\n', raw, maxsplit=1, flags=re.DOTALL)
+        md_body = body_match[1] if len(body_match) > 1 else raw
+
+        out_name = template_file.replace(".md", ".md")
+        out_path = os.path.join(output_dir, out_name)
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(md_body)
+        rendered += 1
+        print(f"  📄 {out_name} ({len(md_body)} chars)")
+
+    print(f"  ✅ 已渲染 {rendered} 个索引文件到 10_总揽/")
+    total = len([f for f in os.listdir(output_dir) if f.endswith('.md')])
+    print(f"  10_总揽 现有 {total} 个文件")
+    return True
 
 
 # ════════════════════════════════════════════════════════════
@@ -358,6 +425,12 @@ def main():
     qg = sp.add_parser("quality-gate", help="质量门：Mermaid验证 + wikilink修复")
     qg.add_argument("--book-dir", required=True)
 
+    # build-indices
+    bi = sp.add_parser("build-indices", help="构建L2/L3/L4索引（扫描扫描.md → 生成索引YAML → 渲染到10_总揽）")
+    bi.add_argument("--book-dir", required=True)
+    bi.add_argument("--book-id", required=True)
+    bi.add_argument("--book-name", required=True)
+
     # status
     st = sp.add_parser("status", help="显示章节构建状态")
     st.add_argument("--book-dir", required=True)
@@ -378,6 +451,9 @@ def main():
 
     elif a.cmd == "quality-gate":
         quality_gate(a.book_dir)
+
+    elif a.cmd == "build-indices":
+        build_indices(a.book_dir, a.book_id, a.book_name)
 
     elif a.cmd == "status":
         cmd_status(a.book_dir, a.chapter)

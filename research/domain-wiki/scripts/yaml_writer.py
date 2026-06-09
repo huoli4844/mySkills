@@ -236,6 +236,118 @@ def cmd_validate_dir(data_dir: str):
         print(f"\n⚠️  部分文件未通过")
 
 
+def cmd_build_prompt(type_name: str, chapter: str = "", book_dir: str = "", field: str = ""):
+    """从@prompt原料构建结构化Agent提示词"""
+    import os, sys, re as _re
+
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    TPL_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "assets", "templates")
+    TPL_MAP = {
+        "concept": "concept_template.md", "ke": "ke_template.md",
+        "entity": "entity_template.md", "kp": "knowledge_template.md",
+        "sp": "skill_template.md", "scene": "scenario_template.md",
+        "exercise": "exercise_template.md", "solution": "eval_template.md",
+    }
+
+    tpl_name = TPL_MAP.get(type_name)
+    if not tpl_name:
+        print(f"未知类型: {type_name}")
+        return
+
+    tpl_path = os.path.join(TPL_DIR, tpl_name)
+    if not os.path.exists(tpl_path):
+        print(f"模板不存在: {tpl_path}")
+        return
+
+    with open(tpl_path, encoding='utf-8') as _f:
+        _tpl = _f.read()
+
+    # 提取所有字段的@prompt
+    prompts = {}
+    for m in _re.finditer(r"<!--\s*@prompt\s+(.*?)-->[\s\S]{0,200}?\{\{(\w+)\}\}", _tpl):
+        prompts[m.group(2)] = m.group(1).strip()
+
+    # 提取所有{{xxx}}字段
+    all_fields = []
+    for m in _re.finditer(r"\{\{([a-z_][a-z0-9_]*)\}\}", _tpl):
+        if m.group(1) not in {"name", "book_id", "book_name", "chapter_num",
+                               "confidence", "confidence_note", "source_chapter",
+                               "source_from", "entity_type", "aliases", "tags",
+                               "type", "type_tag", "bloom_level", "difficulty",
+                               "exercise_link", "exercise_name",
+                               "bloom_progression_analysis"}:
+            all_fields.append(m.group(1))
+
+    # 读取FIELD_DEPTH字数阈值
+    _depth = {}
+    _depth_path = os.path.join(SCRIPT_DIR, "review_field_depth.py")
+    if os.path.exists(_depth_path):
+        with open(_depth_path, encoding='utf-8') as _f:
+            _dtxt = _f.read()
+        _dm = _re.search(rf'"{type_name}":\s*{{(.*?)}}', _dtxt, _re.DOTALL)
+        if _dm:
+            for _kv in _re.finditer(r'"([^"]+)":\s*(\d+)', _dm.group(1)):
+                _depth[_kv.group(1)] = int(_kv.group(2))
+
+    # 输出结构化提示词
+    print(f"# ══════════════════════════════════════════════════")
+    print(f"# 节点类型: {type_name}")
+    print(f"# 模板: {tpl_name}")
+    print(f"# 字段数: {len(all_fields)}")
+    print(f"# ══════════════════════════════════════════════════")
+    print()
+
+    if field:
+        # 单字段提示
+        if field in prompts:
+            print(f"## 字段: {field}")
+            print(f"  写作要求: {prompts[field]}")
+            if field in _depth:
+                print(f"  字数要求: ≥{_depth[field]}字")
+        else:
+            print(f"字段 {field} 无@prompt指导")
+        return
+
+    # 全类型提示
+    print("## 写作总则")
+    print('- 每个字段的内容必须从源文"精读"后提炼，不能凭空编造')
+    print("- 所有公式必须用 $$...$$ 块级 LaTeX 包裹")
+    print("- Mermaid 图必须用 graph TD 格式（不能 mindmap）")
+    print("- wikilink 必须指向真实存在的知识节点文件")
+    print()
+
+    print("## 逐字段写作要求")
+    for fname in all_fields:
+        prompt_text = prompts.get(fname, "")
+        min_chars = _depth.get(fname, 0)
+        print(f"### {fname}")
+        if prompt_text:
+            print(f"  📋 {prompt_text}")
+        if min_chars:
+            print(f"  📏 字数: ≥{min_chars}字 ({type_name}字段深度约束)")
+        if not prompt_text and not min_chars:
+            print(f"  （按字段名含义自然书写，无特殊约束）")
+        print()
+
+    print("## 输出格式")
+    print("每个 item 的结构：")
+    print("```yaml")
+    print("- name: 概念/节点名称")
+    print("  file: 节点名（不含.md后缀）")
+    print("  fm:")
+    print(f"    source_chapter: '{chapter}'")
+    print(f"    source_from: '第{chapter}章'")
+    print("    confidence_note: '系统自动填充'")
+    print("  bd:")
+    for fname in all_fields:
+        print(f"    {fname}: '填内容'")
+    print("```")
+    print()
+    print("## 质量检查")
+    print("写完后运行 `yaml_writer.py validate --yaml-path FILE --type {type_name}`")
+    print("修复所有错误直至 PASS")
+
+
 def main():
     p = argparse.ArgumentParser(description="YAML 写入工具 (v2.1 模块化)")
     sp = p.add_subparsers(dest="cmd")
@@ -266,6 +378,12 @@ def main():
     pm.add_argument("--type", required=True)
     pm.add_argument("--field")
 
+    bp = sp.add_parser("build-prompt", help="从@prompt原料构建Agent提示词")
+    bp.add_argument("--type", required=True)
+    bp.add_argument("-c", "--chapter")
+    bp.add_argument("--book-dir")
+    bp.add_argument("--field")
+
     a = p.parse_args()
     if not a.cmd:
         p.print_help()
@@ -285,9 +403,11 @@ def main():
         elif a.cmd == "validate-dir":
             cmd_validate_dir(a.dir)
         elif a.cmd == "self-instruct":
-            cmd_self_instruct(a.type, a.chapter or "", a.book_dir)
+            cmd_self_instruct(a.type, a.chapter or "", a.book_dir or "")
         elif a.cmd == "prompt":
             cmd_prompt(a.type, a.field)
+        elif a.cmd == "build-prompt":
+            cmd_build_prompt(a.type, a.chapter or "", a.book_dir or "", a.field or "")
     except Exception as e:
         print(f"❌ 错误: {e}")
         sys.exit(1)

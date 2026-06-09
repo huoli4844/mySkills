@@ -9,9 +9,10 @@ post_generation_check.py — 章节生成后自动质量检查 + 修复
   1. 公式LaTeX语法（花括号平衡、\left/\right对称、无空\frac）
   2. 公式全编号（每个$$块必须有\tag，编号连续无重复无跳跃）
   3. Mermaid语法校验（7项：类型/关键字/引号/subgraph/emoji/init/classDef）
-  4. Wikilink检查（教材禁止[[...]]交叉引用）
-  5. 常见拼写错误检查
-  6. 自动修复：缺编号→补编号、编号跳跃→重新编号、重复→去重、
+  4. \\tag{}放置检查（检测$$块外部的孤立\\tag，避免渲染失败）
+  5. Wikilink检查（教材禁止[[...]]交叉引用）
+  6. 常见拼写错误检查
+  7. 自动修复：缺编号→补编号、编号跳跃→重新编号、重复→去重、
      Mermaid非法关键字移除
 
 用法：
@@ -77,9 +78,9 @@ def check_formulas(text: str, chapter_n: int, verbose: bool = False) -> list:
             issues.append((start_line + 1, 'ERROR', f'花括号不平衡(差{braces}个"}}")', True,
                           lambda t, s=start_line, e=end_line: t))
 
-        # 2b. \left/\right 匹配
-        lefts = full_text.count('\\left')
-        rights = full_text.count('\\right')
+        # 2b. \\left/\\right 匹配（使用正则防误报：\\rightarrow→\\right 子串问题）
+        lefts = len(re.findall(r'\\\\left(?![a-zA-Z])', full_text))
+        rights = len(re.findall(r'\\\\right(?![a-zA-Z])', full_text))
         if lefts != rights:
             issues.append((start_line + 1, 'ERROR', f'\\left({lefts})与\\right({rights})不匹配', True,
                           lambda t, s=start_line, e=end_line: t))
@@ -218,6 +219,14 @@ def check_mermaid(text: str, verbose: bool = False) -> list:
             continue
 
         first_line = block_lines[0].strip()
+        # 跳过 %%{init} 配置行，找第一个非init行为图表类型
+        init_skipped = 0
+        for bl in block_lines:
+            if bl.strip().startswith('%%{init'):
+                init_skipped += 1
+                continue
+            first_line = bl.strip()
+            break
         chart_type = first_line.split()[0] if first_line else ''
 
         # ── 检查1：图表类型是否合法 ──
@@ -232,7 +241,7 @@ def check_mermaid(text: str, verbose: bool = False) -> list:
             valid_kw = {'title', 'x-axis', 'y-axis', 'bar', 'line'}
             found_kw = set()
             invalid_kw = set()
-            for bline in block_lines[1:]:  # 跳过首行（"xychart-beta"本身不是关键字）
+            for bline in block_lines[init_skipped + 1:]:  # 跳过图表类型行（xychart-beta本身不是关键字）
                 kw = bline.strip().split()[0] if bline.strip() else ''
                 if kw and kw not in valid_kw:
                     invalid_kw.add(kw)
@@ -339,6 +348,25 @@ def check_wikilinks(text: str) -> list:
         line_num = text[:m.start()].count('\n') + 1
         issues.append((line_num, 'ERROR',
                        f'行{line_num}: 发现[[{m.group(1)}]] → 教材正文禁用wikilink'))
+    return issues
+
+
+def check_tag_placement(text: str) -> list:
+    """检查\\tag{}是否放在$$块外部（渲染失败的根本原因之一），返回问题列表"""
+    issues = []
+    lines = text.split('\n')
+    in_math = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == '$$':
+            in_math = not in_math
+            continue
+        # 在 $$ 块外部发现 \\tag{...} → 孤立标签
+        if not in_math and re.match(r'^\\tag\{\d+-\d+\}$', stripped):
+            issues.append((i + 1, 'ERROR',
+                           f'L{i+1}: \\tag{stripped[5:]} 在$$块外部 → '
+                           f'渲染失败，必须移入$$...$$内部',
+                           True, lambda t: t))  # 可标记但自动修复用clean_formula_numbers
     return issues
 
 
@@ -458,6 +486,17 @@ def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> d
             total_issues += 1
     else:
         print(f"    ✅ 无[[wikilink]]残留")
+
+    # ── 3.5 \\tag{}放置检查 ──
+    print(f"\n  🏷️  \\tag{{}}放置检查")
+    tag_place_issues = check_tag_placement(text)
+    if tag_place_issues:
+        for line, severity, desc, _, _ in tag_place_issues:
+            prefix = '❌' if severity == 'ERROR' else '⚠️'
+            print(f"    {prefix} [{severity}] {desc}")
+            total_issues += 1
+    else:
+        print(f"    ✅ 所有\\tag{{}}在$$块内部")
 
     # ── 4. 拼写检查 ──
     print(f"\n  ✏️  拼写检查")

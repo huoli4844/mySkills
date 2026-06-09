@@ -215,11 +215,13 @@ python3 scripts/post_generation_check.py output/第N章-*.md --fix --verbose
 | 6 | **`%%{init}` 格式** | 必须双引号JSON + 闭合 `}%%` | 否 |
 | 7 | **classDef 定义覆盖** | 所有 `:::xxx` 引用必须有对应 `classDef` | 否 |
 
-本脚本执行4类检查：
+本脚本执行6类检查：
 1. 公式LaTeX语法（花括号平衡、\left/\right对称、无空\frac）
 2. 公式全编号（每个$$块必须有\tag，编号连续无重复无跳跃）
 3. **Mermaid图语法校验（7项，详见上表）**
-4. 常见拼写错误检查
+4. **Wikilink检查（教材禁止[[...]]交叉引用）**
+5. 常见拼写错误检查
+6. **自动修复管线**：缺编号→补编号、编号跳跃→重新编号、重复→去重、Mermaid非法关键字移除
 
 ### 六维编号审计（铁律——写完后必须逐项执行）
 
@@ -321,7 +323,7 @@ for _,line in enumerate(lines,1):
 图编号:    XX张 (N-1~N-XX)  连续✅
 例题编号:  XX个 (N-1~N-XX)  连续✅
 表编号:    XX个 (N-1~N-XX)  连续✅
-语法平衡:  $$平衡✅  Mermaid平衡✅
+语法平衡:  $$平衡✅  Mermaid平衡✅  \\tag{}在$$内部✅
 Mermaid emoji: 0处✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 体量:  XX行 / XXKB / XX公式 / XX图 / XX例
@@ -480,11 +482,15 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 
 23. **xychart-beta 在 Obsidian 中不支持多系列柱状图** → 即使语法正确（4个 `bar` 或 `line` 系列），Obsidian内置的Mermaid版本对 xychart-beta 的 Render 支持有限，多系列图表渲染为空白。修复：不要用 xychart-beta 做多系列对比，改用 `graph LR` 或 `flowchart TD` 的分组节点/颜色编码方式展示对比数据。
 
+24. **子代理写出的\\tag{}在$$块外部** → `delegate_task` 的子代理写出的公式经常出现 `\tag{2-XX}` 独占一行但在 `$$` 块外部的情况（孤立标签），导致渲染失败。质量检查的"缺编号"检测无法捕获此问题因为 `\tag{}` 确实存在。修复流程：第一步、运行 `post_generation_check.py --fix` 补全内部缺编号；第二步、运行 `clean_formula_numbers.py output/文件.md` 删除所有孤立 `\tag{}` 并重新编号；第三步、如果跨文件编号（如案例文件从上一案例末尾继续），用 `python3 -c` 重排偏移（例：`re.sub(r'\\\\tag\{2-(\d+)\}', lambda m: f'\\\\tag{{2-{int(m.group(1))+56}}}', c)`）。
+
+25. **子代理不写公式的$$包装** → `delegate_task` 的子代理经常把显示公式写成纯文本 LaTeX 而不包裹 `$$...$$`，导致质量检查完全跳过该公式（不检测语法、不分配编号）。策略：子代理的 context 中必须显式包含约束"每个独立占一行的显示公式必须用 $$...$$ 包裹，\\tag{...} 必须在 $$ 内部"。如果文件已写完发现公式缺 `$$`，用 `clean_formula_numbers.py` 只能重排已有 `$$` 块的编号，无法补 `$$`。此时需要进行结构性修复，手动为每个 `\frac{` 开头的公式行补 `$$` 包裹。
+
 ## Reference Index
 
 | 需要时加载 | 内容 |
 |:-----------|:------|
-| `references/volume-standards.md` | **体量铁律 + 13条军规逐项勾选清单 + 公式全编号检查** |
+| `references/case-writing-template.md` | **8大模块案例编写模板** — 工程背景→测试诊断→根因分析(6步推导)→方案设计→验证→经验→拓展→思考题 |\n| `references/volume-standards.md` | **体量铁律 + 13条军规逐项勾选清单 + 公式全编号检查** |
 | `references/chapter-writing-standard.md` | **三书融合写作法 + 章首/正文/章末完整模板** |
 | `references/chapter-writing-workflow.md` | **Phase 0.5 四步研读流程**（必读） |
 | `references/textbook-style-guide.md` | 教材学术叙事风格指南（三本已出版教材分析） |
@@ -492,7 +498,7 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 | `references/six-elements.md` | 教材质量综合检查清单（13项+自审评分表） |
 | `references/derivation-example-107.md` | **L3逐步推导模板（107推导六步法）** |
 | `references/formula-derivation-standard.md` | **公式推导铁律 + 六步结构详解 + 4个实战实例 + 审计规则** |
-| `references/mermaid-guide.md` | Mermaid图绘制规范与注意事项 |
+| `references/mermaid-guide.md` | Mermaid图绘制规范与注意事项 |\n| `references/mermaid-troubleshooting.md` | **Mermaid错误排查速查表（Obsidian版）** — 错误信号→根因→修复方案 |
 | `references/textbook-pipeline.md` | 教材编写管线整合指南 |
 | `references/pitfalls.md` | 完整陷阱列表（35+条） |
 | `references/changelog.md` | 版本更新历史 |

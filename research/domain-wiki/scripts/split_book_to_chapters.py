@@ -186,6 +186,25 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
     # 使用 filtered 替代 by_number
     by_number = filtered
 
+    # 从TOC条目中收集章节完整标题，用于为无标题的内容章节补全名称
+    toc_titles = {}
+    for start, text in chapter_starts:
+        if TOC_ENTRY_PATTERN.match(text):
+            m = CHAPTER_NUM_PATTERN.search(text)
+            if m:
+                cn = m.group(1)
+                # 清理页码标记
+                clean = re.sub(r'\s*……\s*\d+\s*$', '', text).strip()
+                toc_titles[cn] = clean
+
+    # 为内容章节补全名称
+    for ch_num in list(by_number.keys()):
+        start, text = by_number[ch_num]
+        # 如果当前标题无章节名（如"第2章"无后续文字）
+        has_name = bool(re.search(r'章\s+\S', text))
+        if not has_name and ch_num in toc_titles:
+            by_number[ch_num] = (start, toc_titles[ch_num])
+
     # 如果第一个内容章节不是第1章，从前言内容自动创建第1章
     if by_number:
         first_ch = min(by_number.keys(), key=lambda x: by_number[x][0])
@@ -201,7 +220,8 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
                 ch1_start = toc_start + 1
             # 确保第1章不与第2章重叠
             if ch1_start < first_start:
-                by_number["1"] = (ch1_start, f"第1章 概述")
+                ch1_title = toc_titles.get("1", "第1章 概述")
+                by_number["1"] = (ch1_start, ch1_title)
 
     sorted_starts = sorted(by_number.items(), key=lambda x: int(x[1][0]))
 

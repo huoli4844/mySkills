@@ -305,18 +305,33 @@ for each_item:
 
 不通过当场丰富重检，通过后才追加到 `concepts.yaml`。详见 [inline-quality-workflow.md](references/inline-quality-workflow.md)
 
-### 第二步：全量校验 + Phase A 渲染（自动质量门）
+### 第二步：全量校验 + Phase A 渲染（自动质量门 + Preflight）
 
 所有 YAML 写完后，全量校验 + 渲染 + 自动质量门：
 
 ```bash
+# 0. Preflight（可选，v3.0+ 集成在 phase-a 中）
+#    写入 YAML 后/渲染前的完整性闸门：
+#    ├─ 8种YAML文件存在性+语法+字段缺失/多余
+#    ├─ confidence范围、LaTeX公式格式
+#    ├─ 概念覆盖度、习题-解答配对
+#    自动作为 Phase A Step 0 执行，发现问题只报告不阻断。
+#    也可独立运行检查：
+python3 scripts/pipeline_v2.py phase-a \
+  --book-dir /path/to/book -c N --book-id 01_书ID --book-name "书名"
+# 其 Step 0 会自动完成 preflight
+
 # 1. 全量校验
 python3 scripts/yaml_writer.py validate-dir --dir .dag/第N章/data/
 
-# 2. 渲染 + 自动质量门（Step 3 自动完成以下检查）：
-#    ├─ 3a: Mermaid语法验证
-#    ├─ 3b: 章节关联wikilink修复（出链=0 → 同章关联）
-#    └─ 3c: 反向链接补全（A→B则B也→A）
+# 2. 渲染 + 自动质量门（Step 0→3 自动完成以下检查）：
+#    ├─ Step 0: Preflight — YAML完整性闸门
+#    ├─ Step 1: YAML schema校验
+#    ├─ Step 2: 模板渲染
+#    ├─ Step 3a: Mermaid语法验证
+#    ├─ Step 3b: 章节关联wikilink修复（出链=0 → 同章关联）
+#    ├─ Step 3c: 反向链接补全（A→B则B也→A）
+#    └─ Step 4: 质量审查
 python3 scripts/pipeline_v2.py phase-a \
   --book-dir /path/to/book \
   -c N \
@@ -528,6 +543,7 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 | | **run 无限循环: auto_fix/l4_indices 未设 status=done** | auto_fix 原本设 status=pending（等 Agent）→ 循环。l4_indices 缺 state.set_status+state.save → 索引完成但不推进。auto_fix 设 done（不阻断），l4_indices 补上状态保存。 |
 | | **run state 对象在 phase_a 后不刷新** | cmd_run 的 state 实例在 phase_a（内部创建独立 ChapterState 存盘）后仍持有旧内存数据 → next_pending 读脏数据。phase_a 返回后执行 state = ChapterState(...) 从磁盘重新加载。 |
 | | **YAML `file` 字段含 `.md` 后缀 → 6 种非习题类型输出 `.md.md` 双后缀文件**（`第3章 屏蔽.md.md`），质量审查也查不到这些文件因为同样用了 `{file}.md` 拼接 | **三层防线：**（①防御性 strip）`template_engine.py:get_output_filename()` 中 `file_base.endswith('.md')` 时 strip 掉再追加。`quality_reviewer.py:90` 同样处理。（②Agent 指导）`yaml_writer.py:self-instruct` 输出开头必须提示 `file` 字段不含 `.md` 后缀，设为节点名而非源文件名。（③渲染后审计）Phase A 完成后 grep 全书 `*.md.md` 文件报告。详见 [md-double-extension-fix.md](references/md-double-extension-fix.md)。 |
+| | **`split_book_to_chapters.py` 正则 `.+?` 不匹配无标题章节** → `# 第2章`（只有章节号无标题文本）未被 `CHAPTER_PATTERN` 捕获，内容章节丢失。（2026-06-09 处理 `21K行` 新书时发现） | CHAPTER_PATTERN 的 `.+?`（至少1字符）改为 `.*?`（0字符也可）：`r"^(#{1,2})\\s*(第\\s*\\d+\\s*章\\s*.*?)(?:\\s*)$"`。同时 `by_number` 字典（OrderedDict）用 `by_number[ch_num] = (start, text)` **覆盖**方式保存最后一次匹配（正文版本），消除TOC重复。|
 
 ## 领域自适应设计原则
 
@@ -554,3 +570,4 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 || [quality-review-metrics.md](references/quality-review-metrics.md) | 质量审查评分体系：T1/T2/T3检查项、评分公式、CLI用法 |
 || [review-fix-workflow.md](references/review-fix-workflow.md) | Agent驱动修复流程：审查→结构化JSON→文件级修复指令→委托→重渲染→重审查 |
 || [inline-quality-workflow.md](references/inline-quality-workflow.md) | 内联质量检查工作流（inline-before-batch）：生成时就地检查，写一个过一件，不留给事后 |
+|| [domain-book-wiki-pitfalls-migration.md](references/domain-book-wiki-pitfalls-migration.md) | 从旧技能迁移时发现的陷阱和修复记录（bare except/循环bug/文件红线/吸纳功能） |

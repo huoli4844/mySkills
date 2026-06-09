@@ -45,8 +45,10 @@ BOOK_DIRS = [
 ]
 
 # ── 章节标题检测模式 ──
-CHAPTER_PATTERN = re.compile(r"^(#{1,2})\s*(第\s*\d+\s*章\s*.+?)(?:\s*$)")
+CHAPTER_PATTERN = re.compile(r"^(?:#{1,2})\s*(第\s*\d+\s*章\s*.*?)(?:\s*)$")
 CHAPTER_NUM_PATTERN = re.compile(r"第\s*(\d+)\s*章")
+# 无#前缀的章节标题（如 "第6章 电缆及连接器的设计 ..."）
+CHAPTER_BARE_PATTERN = re.compile(r"^(第\s*\d+\s*章\s*.*?)(?:\s*)$")
 
 
 # =============================================================
@@ -109,8 +111,10 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
     chapter_starts = []
     for i, line in enumerate(lines):
         m = CHAPTER_PATTERN.match(line)
+        if not m:
+            m = CHAPTER_BARE_PATTERN.match(line)
         if m:
-            text = m.group(2).strip()
+            text = m.group(1).strip()
             chapter_starts.append((i, text))
 
     if not chapter_starts:

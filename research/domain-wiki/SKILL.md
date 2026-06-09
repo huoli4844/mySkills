@@ -584,9 +584,10 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 | | **run 无限循环: auto_fix/l4_indices 未设 status=done** | auto_fix 原本设 status=pending（等 Agent）→ 循环。l4_indices 缺 state.set_status+state.save → 索引完成但不推进。auto_fix 设 done（不阻断），l4_indices 补上状态保存。 |
 | | **run state 对象在 phase_a 后不刷新** | cmd_run 的 state 实例在 phase_a（内部创建独立 ChapterState 存盘）后仍持有旧内存数据 → next_pending 读脏数据。phase_a 返回后执行 state = ChapterState(...) 从磁盘重新加载。 |
 | | **YAML `file` 字段含 `.md` 后缀 → 6 种非习题类型输出 `.md.md` 双后缀文件**（`第3章 屏蔽.md.md`），质量审查也查不到这些文件因为同样用了 `{file}.md` 拼接 | **三层防线：**（①防御性 strip）`template_engine.py:get_output_filename()` 中 `file_base.endswith('.md')` 时 strip 掉再追加。`quality_reviewer.py:90` 同样处理。（②Agent 指导）`yaml_writer.py:self-instruct` 输出开头必须提示 `file` 字段不含 `.md` 后缀，设为节点名而非源文件名。（③渲染后审计）Phase A 完成后 grep 全书 `*.md.md` 文件报告。详见 [md-double-extension-fix.md](references/md-double-extension-fix.md)。 |
-| | **`split_book_to_chapters.py` 正则 `.+?` 不匹配无标题章节** → `# 第2章`（只有章节号无标题文本）未被 `CHAPTER_PATTERN` 捕获，内容章节丢失。（2026-06-09 处理 `21K行` 新书时发现） | CHAPTER_PATTERN 的 `.+?`（至少1字符）改为 `.*?`（0字符也可）：`r"^(#{1,2})\\s*(第\\s*\\d+\\s*章\\s*.*?)(?:\\s*)$"`。同时 `by_number` 字典（OrderedDict）用 `by_number[ch_num] = (start, text)` **覆盖**方式保存最后一次匹配（正文版本），消除TOC重复。|
+| | **`split_book_to_chapters.py` 正则 `.+?` 不匹配无标题章节** → `# 第2章`（只有章节号无标题文本）未被 `CHAPTER_PATTERN` 捕获，内容章节丢失。（2026-06-09 处理 `21K行` 新书时发现） | CHAPTER_PATTERN 的 `.+?`（至少1字符）改为 `.*?`（0字符也可）：`r"^(?:#{1,2})?\s*(第\s*\d+\s*章\s*.*?)(?:\s*)$"`。同时新增 `CHAPTER_BARE_PATTERN` 匹配无 `#` 前缀的章节（`第6章 电缆...`）。|
 
-| | **整书拆分 TOC 与内容章节混淆** → TOC 条目被当作内容章节写入，产生空文件或极短文件（如 `第1章` 仅 90 行 TOC 目录）。原因：`CHAPTER_PATTERN` 同时匹配 TOC 条目和内容章节标题，`by_number` 按最后出现保留，但仅出现在 TOC 中的章节无内容版本可覆盖。| **三层过滤：** ① 检测 `## 目录` 块边界 ② 过滤 TOC 块内的所有章节 ③ 内容章节要求行区间≥100行。详见 [toc-detection-design.md](references/toc-detection-design.md)。`split_book_to_chapters.py` 的 `discover_chapter_ranges()` 内置完整逻辑。|
+| | **`split_book_to_chapters.py` TOC 块过滤过严 → 章节编号不连续** | 保留所有章节，仅跳过 <15行的TOC片段。TOC条目是章节存在形式。详见 [toc-detection-design.md](references/toc-detection-design.md)。 |
+| | **大文件一次读入内存压力** | `discover_chapter_ranges()` 改 `for i, line in enumerate(f)` 逐行遍历一趟完成，不用 `readlines()` |
 
 ## 领域自适应设计原则
 

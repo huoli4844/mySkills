@@ -186,6 +186,23 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
     # 使用 filtered 替代 by_number
     by_number = filtered
 
+    # 如果第一个内容章节不是第1章，从前言内容自动创建第1章
+    if by_number:
+        first_ch = min(by_number.keys(), key=lambda x: by_number[x][0])
+        first_idx = int(first_ch)
+        if first_idx > 1:
+            # 第一个内容章节之前的内容作为第1章
+            first_start = by_number[first_ch][0]
+            # 找到真正的开头（从正文内容开始，跳过封面/版权/目录等）
+            # 使用 toc_start 之后的第一个非TOC段落作为第1章的开始
+            ch1_start = 0
+            if toc_start is not None:
+                # 从目录末尾之后开始（跳过封面/版权页）
+                ch1_start = toc_start + 1
+            # 确保第1章不与第2章重叠
+            if ch1_start < first_start:
+                by_number["1"] = (ch1_start, f"第1章 概述")
+
     sorted_starts = sorted(by_number.items(), key=lambda x: int(x[1][0]))
 
     ranges = []
@@ -208,7 +225,10 @@ def normalize_filename(heading_text: str) -> str:
         ch_name = m.group(2).strip()
         ch_name = re.sub(r'\s*……\s*\d+\s*$', '', ch_name)
         ch_name = re.sub(r'\s+', ' ', ch_name)
-        return f"第{ch_num}章 {ch_name}.md"
+        if ch_name:
+            return f"第{ch_num}章 {ch_name}.md"
+        else:
+            return f"第{ch_num}章.md"
     safe = heading_text.lstrip('#').strip().replace('/', '／')
     return f"{safe}.md"
 

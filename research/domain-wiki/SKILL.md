@@ -574,6 +574,8 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 | | **YAML `file` 字段含 `.md` 后缀 → 6 种非习题类型输出 `.md.md` 双后缀文件**（`第3章 屏蔽.md.md`），质量审查也查不到这些文件因为同样用了 `{file}.md` 拼接 | **三层防线：**（①防御性 strip）`template_engine.py:get_output_filename()` 中 `file_base.endswith('.md')` 时 strip 掉再追加。`quality_reviewer.py:90` 同样处理。（②Agent 指导）`yaml_writer.py:self-instruct` 输出开头必须提示 `file` 字段不含 `.md` 后缀，设为节点名而非源文件名。（③渲染后审计）Phase A 完成后 grep 全书 `*.md.md` 文件报告。详见 [md-double-extension-fix.md](references/md-double-extension-fix.md)。 |
 | | **`split_book_to_chapters.py` 正则 `.+?` 不匹配无标题章节** → `# 第2章`（只有章节号无标题文本）未被 `CHAPTER_PATTERN` 捕获，内容章节丢失。（2026-06-09 处理 `21K行` 新书时发现） | CHAPTER_PATTERN 的 `.+?`（至少1字符）改为 `.*?`（0字符也可）：`r"^(#{1,2})\\s*(第\\s*\\d+\\s*章\\s*.*?)(?:\\s*)$"`。同时 `by_number` 字典（OrderedDict）用 `by_number[ch_num] = (start, text)` **覆盖**方式保存最后一次匹配（正文版本），消除TOC重复。|
 
+| | **整书拆分 TOC 与内容章节混淆** → TOC 条目被当作内容章节写入，产生空文件或极短文件（如 `第1章` 仅 90 行 TOC 目录）。原因：`CHAPTER_PATTERN` 同时匹配 TOC 条目和内容章节标题，`by_number` 按最后出现保留，但仅出现在 TOC 中的章节无内容版本可覆盖。| **三层过滤：** ① 检测 `## 目录` 块边界 ② 过滤 TOC 块内的所有章节 ③ 内容章节要求行区间≥100行。详见 [toc-detection-design.md](references/toc-detection-design.md)。`split_book_to_chapters.py` 的 `discover_chapter_ranges()` 内置完整逻辑。|
+
 ## 领域自适应设计原则
 
 | 原则 | 说明 |
@@ -595,7 +597,7 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 || [golden-kp-example.md](references/golden-kp-example.md) | KP YAML 金标范例 |
 || [golden-sp-example.md](references/golden-sp-example.md) | SP YAML 金标范例 |
 || [golden-scene-example.md](references/golden-scene-example.md) | Scene YAML 金标范例 |
-|| [dag-flow-optimization.md](references/dag-flow-optimization.md) | DAG流程分析与改进方案（P0/P1/P2优化路线图） |
+|| [toc-detection-design.md](references/toc-detection-design.md) | 整书拆分时 TOC 块自动检测逻辑（三层过滤：目录块边界+章节过滤+行数阈值） |
 || [quality-review-metrics.md](references/quality-review-metrics.md) | 质量审查评分体系：T1/T2/T3检查项、评分公式、CLI用法 |
 || [review-fix-workflow.md](references/review-fix-workflow.md) | Agent驱动修复流程：审查→结构化JSON→文件级修复指令→委托→重渲染→重审查 |
 || [inline-quality-workflow.md](references/inline-quality-workflow.md) | 内联质量检查工作流（inline-before-batch）：生成时就地检查，写一个过一件，不留给事后 |

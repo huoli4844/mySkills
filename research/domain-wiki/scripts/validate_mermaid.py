@@ -66,6 +66,15 @@ def validate_book(book_dir: str, fix: bool = False) -> int:
             if len(parts) >= 2 and parts[0] == parts[1]:
                 file_issues.append(f"  ❌ graph 方向关键字重复: `{parts[0]} {parts[0]}`（应为 `{parts[0]}`）")
 
+        # 3. 菱形节点内的 < 和 >（Mermaid 渲染问题）
+        for i, line in enumerate(lines, 1):
+            if '{' in line:
+                # 检测 {xxx<xxx} 模式
+                for m in re.finditer(r'\{([^}]*[<>][^}]*)\}', line):
+                    label = m.group(1)
+                    if '<' in label or '>' in label:
+                        file_issues.append(f"  L{i}: 菱形节点内含 '<' 或 '>'（应用 #lt;/#gt; 替代）: {label[:30]}")
+
         # 2. 各行检查
         for i, line in enumerate(lines, 1):
             if '[' in line and ']' in line:

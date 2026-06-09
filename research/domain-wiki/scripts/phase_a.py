@@ -20,8 +20,10 @@ SKILL_DIR = os.path.dirname(SCRIPT_DIR)
 YAML_WRITER = os.path.join(SCRIPT_DIR, "yaml_writer.py")
 TEMPLATE_ENGINE = os.path.join(SCRIPT_DIR, "template_engine.py")
 VALIDATE_MERMAID = os.path.join(SCRIPT_DIR, "validate_mermaid.py")
-WIKILINK_FIXER = os.path.join(SCRIPT_DIR, "wikilink_fixer.py")
+VALIDATE_RENDERED = os.path.join(SCRIPT_DIR, "validate_rendered.py")
+WIKILINK_FIXER = os.path.join(SCRIPT_DIR, "fix_wikilinks.py")
 WIKILINK_DEEP_FIXER = os.path.join(SCRIPT_DIR, "wikilink_deep_fixer.py")
+
 QUALITY_REVIEWER = os.path.join(SCRIPT_DIR, "quality_reviewer.py")
 
 sys.path.insert(0, SCRIPT_DIR)
@@ -353,6 +355,9 @@ def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str,
 
     mr = run_script(VALIDATE_MERMAID, ['--book-dir', book_dir])
     print(f"  {'✅' if mr else '⚠️'} Mermaid验证")
+
+    rr = run_script(VALIDATE_RENDERED, ['--book-dir', book_dir])
+    print(f"  {'✅' if rr == 0 else '❌'} 公式+Mermaid语法验证 ({rr if rr else 0} 错误)")
 
     wf1 = run_script(WIKILINK_DEEP_FIXER, [book_dir])
     print(f"  {'✅' if wf1 else '⚠️'} 章节关联wikilink")

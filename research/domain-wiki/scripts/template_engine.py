@@ -57,8 +57,8 @@ DIR_MAP = {
 
 # 习题/解答特殊处理（filename 不同）
 EXERCISE_FILENAME_MAP = {
-    'exercise': lambda item, ch: f"{item['name']}.md" if item['name'].startswith(f'第{ch}章') else f"第{ch}章-{item['name']}.md",
-    'solution': lambda item, ch: f"{item['name']}.md" if item['name'].startswith(f'第{ch}章') else f"第{ch}章-{item['name']}-解答.md",
+    'exercise': lambda item, ch: sanitize_filename(f"{item['name']}.md" if item['name'].startswith(f'第{ch}章') else f"第{ch}章-{item['name']}.md"),
+    'solution': lambda item, ch: sanitize_filename(f"{item['name']}.md" if item['name'].startswith(f'第{ch}章') else f"第{ch}章-{item['name']}-解答.md"),
 }
 
 
@@ -228,6 +228,11 @@ def _gen_exercise_link(item: dict, type_name: str, chapter_num: str) -> str:
 # 输出文件名生成
 # ════════════════════════════════════════════════════════════
 
+def sanitize_filename(name: str) -> str:
+    """清理文件名中的不安全字符（/ → -）"""
+    return name.replace("/", "-")
+
+
 def get_output_filename(item: dict, type_name: str, chapter_num: str) -> str:
     """根据item和类型生成输出文件名"""
     # exercise/solution 有特殊命名
@@ -235,7 +240,7 @@ def get_output_filename(item: dict, type_name: str, chapter_num: str) -> str:
         return EXERCISE_FILENAME_MAP[type_name](item, chapter_num)
 
     # 其他类型使用 file 字段
-    file_base = item.get('file', item.get('name', 'unnamed'))
+    file_base = sanitize_filename(item.get('file', item.get('name', 'unnamed')))
     # 防御性去除已有 .md 后缀，防止 Agent 误将 source_from 值（含 .md）写入 file 字段导致 .md.md
     if file_base.endswith('.md'):
         file_base = file_base[:-3]

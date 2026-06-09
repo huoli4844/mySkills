@@ -94,7 +94,7 @@ grep -rn "EMC\|dB\|MHz\|GHz\|PCB\|FDTD" scripts/ --include="*.py"
 | `scripts/verify_domain_agnostic.sh` | 领域无关验证：扫描所有 .py 确认无硬编码领域专有词 |
 | `schemas/domain_book_schema.json` | 字段定义（类型/必填/constraints） |
 | `assets/templates/*.md` | 15 个模板（含 @prompt 写作指导） |
-| `scripts/split_book_to_chapters.py` | 整书 MD 拆分 |
+| `scripts/split_book_to_chapters.py` | 整书 MD 拆分 + content_list_v2.json 正文重建。prepare/split/reconstruct 三子命令 |
 | `tests/test_core.py -v` | 12 个测试（状态管理/KG构建/pipeline CLI） |
 
 
@@ -406,11 +406,18 @@ python3 scripts/pipeline_v2.py overview \
 
 **状态管理**：每章自动创建状态文件 `.dag/书籍ID_chN.json`，14 阶段追踪（chapter_toc→concepts→ke→entities→kp→sp→scene→exercises→solutions→quality_review→auto_fix→l2_indices→l3_indices→l4_indices），支持断点续传：`phase-a --resume` 跳过已完成阶段。`run` 命令自动识别下一个待处理阶段。
 
-**整书预处理**（已有整书 MD 时）：
+**整书预处理**（已有整书 MD 时，带已有 `content_list_v2.json` 的自动重建正文）：
 ```bash
 python3 scripts/split_book_to_chapters.py prepare \
   --raw-dir /path/to/raw/书籍名/ \
   -w $BOOK_DIR --split
+
+# 若章节文件仅含标题无正文（源文件缺失），从 content_list_v2.json 重建：
+python3 scripts/split_book_to_chapters.py reconstruct \
+  -w $BOOK_DIR \
+  --v2-path /path/to/raw/书籍名/书籍名_content_list_v2.json
+# reconstruct 命令利用每页的 page_header（如"第3章"）确定章节边界，
+# 提取标题+正文段落重建章节文件。零硬编码，通用中文教材。
 ```
 **构建 L2/L3/L4 索引**（全量Phase A完成后执行）：
 
@@ -588,7 +595,7 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 
 | | **`split_book_to_chapters.py` TOC 块过滤过严 → 章节编号不连续** | 保留所有章节，仅跳过 <15行的TOC片段。TOC条目是章节存在形式。详见 [toc-detection-design.md](references/toc-detection-design.md)。 |
 | | **`split_book_to_chapters.py` 不报告各章内容质量 → 源文件缺失正文的章节静默生成瘦文件** | `split_book()` 中按文件大小分级输出 `✅有正文(>20KB)／⚠️少量(2-20KB)／❌仅标题(<2KB)`，让用户明确知道哪些章节有实质内容、哪些仅为标题大纲。对于 `❌` 级别的章节，根因通常是源文件本身缺失正文（OCR/MinerU提取遗漏），不是拆分工具的问题。 |
-| | **大文件一次读入内存压力** | `discover_chapter_ranges()` 改 `for i, line in enumerate(f)` 逐行遍历一趟完成，不用 `readlines()`。`split_book()` 仍需 `readlines()` 一次供切片。详见 [book-split-workflow.md](references/book-split-workflow.md)。 |
+| | **源文件部分章节缺失正文（MinerU/OCR提取遗漏）** → 拆分后部分章节只有标题大纲(<2KB)，无段落文字。根因不是拆分工具而是源文件本身。 | 检查源文件目录是否有 `_content_list_v2.json`（MinerU/常规提取器的按页内容清单）。用 `split_book_to_chapters.py reconstruct -w BOOK --v2-path RAW/xxx_content_list_v2.json` 按页眉章节边界重建正文。reconstruct 命令提取每页的 `page_header`（如"第3章"）确定章节归属，然后提取 `title(标题)+paragraph(正文)` 内容重组章节文件。实测7章从0-4KB恢复至11-84KB。无 page_header 的 PDF 提取文件不适用此方法。 |
 
 ## 领域自适应设计原则
 

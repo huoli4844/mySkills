@@ -1,7 +1,7 @@
 ---
 name: kb-qa
 description: "知识库问答+自动补齐闭环（KBQA v3.5）：纯 Markdown 输出（无 JSON 数据块），6 Phase 闭环工作流。v3.5 引用来源表新增「章节来源」列，每个召回条目须标注出处文件和详细章节号。对 domain-wiki 格式知识库检索、自动补齐、审阅确认、链式补齐、纠错回写、连通验证。与 professional-textbook-compilation 形成生成→KB 双向同步。"
-version: 3.5.0
+version: 3.6.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -1013,10 +1013,54 @@ verify-concept-definitions.py 验证
 - `llm-wiki` — 自动补齐策略的参考来源
 - `file2md` — PDF/DOCX → Markdown，用于升级管道
 
-## 参考文件
+## 搜索脚本：kb_search.py（推荐使用）
 
-- `scripts/kb_search.py` — domain-wiki 自适应搜索引擎（支持多级嵌套搜索，7 种节点类型，三种输出格式）
-- `scripts/validate-graph-json.py` — JSON 图谱自校验脚本
+`scripts/kb_search.py` 是 domain-wiki 格式知识库的搜索引擎，支持三种输出格式（text/json/material）。它是 kb-qa 检索的核心引擎，book-build 的 `gen_prompt.py` 依赖它。
+
+### domain-wiki 目录映射
+
+知识库使用带编号前缀的目录名，说明如下：
+
+| 逻辑名 | 目录前缀 | 搜索优先级 |
+|:-------|:---------|:----------:|
+| kp（知识点） | `50_知识点` / `知识点` | 1（最高） |
+| concept（核心概念） | `30_核心概念` / `概念` | 2 |
+| ke（知识要素） | `40_知识要素` / `知识要素` | 3 |
+| sp（技能点） | `60_技能点` / `技能点` | 4 |
+| scene（应用场景） | `70_应用场景` / `场景` | 5 |
+| entity（实体） | `80_实体` / `实体` | 6 |
+| exercise（习题） | `90_习题` / `习题解答` / `习题` | 7 |
+
+脚本自动检测知识库结构，适配三种布局：根目录直接放子目录、`电磁兼容领域/{书名}/` 嵌套、`01_领域/{书名}/` 嵌套。
+
+### 搜索策略（三阶段）
+
+1. **domain-wiki 子目录搜索**：按优先级在 `30_核心概念/` `40_知识要素/` `50_知识点/` 等目录中按文件名+内容评分
+2. **嵌套书籍搜索**：在 `电磁兼容领域/{书籍名}/` 下搜索所有子目录
+3. **正文降级搜索**：在 `20_正文/` 中按 `##` 分节提取，匹配最高分节返回（而非整章匹配）
+
+### 关键词智能拆分
+
+`_extract_keywords()` 将长中文复合词（≥6字）按技术标记词拆分：
+- "电磁兼容定义内涵" → `['电磁兼容定义', '定义', '内涵']`  
+- "电快速瞬变脉冲群" → `['电快速瞬变脉冲', '脉冲']`
+- 兜底：2字滑动窗口（当拆分无结果时）
+
+### 用法
+
+```bash
+# 写入素材包（默认，供 gen_prompt.py 消费）
+python3 kb_search.py /path/to/kb "搜索词"
+
+# JSON 输出（供程序消费）
+python3 kb_search.py /path/to/kb "搜索词" --format json
+
+# 限定类型
+python3 kb_search.py /path/to/kb "搜索词" --types concept,ke,kp
+
+# 限制返回数
+python3 kb_search.py /path/to/kb "搜索词" --max-results 10
+```
 - `references/chain-rules.md` — 链式补齐的规则表（概念→KE→KP 映射）
 - `references/kb-data-quality.md` — 知识库数据质量标准参考
 - `references/kbqa-log-analysis.md` — 操作日志分析方法

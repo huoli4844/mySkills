@@ -279,6 +279,18 @@ python3 scripts/quality_reviewer.py check-item \
 | 工程化 | 确定性输入→输出 | Python 脚本：模板渲染、格式校验、YAML schema 校验 |
 | 内容 | 需语义理解 | Agent (LLM)：概念抽取、内容写作、教学质量 |
 
+### 跨章一致性检查（v3.0+）
+
+`quality_reviewer.py` 中的 `check_cross_references()` 在 book 级审查时自动执行三遍扫描：
+1. 收集所有节点名称→文件映射
+2. 检测同名概念跨类型/跨文件冲突（`cross_chapter_conflict`）
+3. 验证 wikilink 目标是否存在（`wikilink_broken`）
+
+```bash
+# 触发方式：在 book 级审查中自动执行
+python3 scripts/pipeline_v2.py review --book-dir /path --book-id 01_ID
+```
+
 ## Quickstart
 
 **优先级：内联检查（写一个过一件） > 事后批量审查（安全网）**

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """split_book_to_chapters.py — 书籍预处理：创建目录结构 + 复制图片 + 按章节拆分
 
-整个工作流（Prepare → Split → Pipeline）：
+整个工作流（Prepare → Split → Pipeline）:
   1. prepare: 创建 book_dir 的标准目录结构 + 复制图片
   2. split:   从整书 md 按章节拆分为 20_正文/ 独立文件
   3. 然后走 domain-wiki 标准 pipeline
@@ -18,7 +18,8 @@
 设计说明:
   自动检测章节标题: # 或 ## 开头 + 第N章 模式。
   自动消除 TOC 重复：如果同一章节号出现两次（TOC + 正文），只保留正文版本。
-  标准化文件名为: 第N章 章节名.md（匹配 discover_chapters() 的 re 模式）。
+  标准化文件名为: 第N章 名称.md（匹配 discover_chapters() 的 re 模式）。
+  逐行扫描：不将整个文件读入内存，适合大文件处理。
 """
 
 import argparse
@@ -98,29 +99,45 @@ def prepare_book(
 
 
 # =============================================================
-# Phase 2: 按章节拆分
+# Phase 2: 按章节拆分（逐行扫描，不读入整个文件）
 # =============================================================
+
+def count_lines(filepath: str) -> int:
+    """逐行统计文件总行数（不将文件读入内存）"""
+    n = 0
+    with open(filepath, 'rb') as f:
+        for _ in f:
+            n += 1
+    return n
+
 
 def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
     """扫描文件，返回 [(start_line, end_line, heading_text, chapter_num), ...]
 
     Lines are 0-indexed. end_line is exclusive (the next chapter's start).
-    如果同一章节号出现多次（TOC + 正文），只保留最后一次（正文版本）。
+    同一章节号出现多次时保留最后一次（正文版本优先于TOC版本）。
+    单遍扫描：逐行读取，不将整个文件读入内存。
     """
-    with open(filepath, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-
     chapter_starts = []
-    for i, line in enumerate(lines):
-        m = CHAPTER_PATTERN.match(line)
-        if not m:
-            m = CHAPTER_BARE_PATTERN.match(line)
-        if m:
-            text = m.group(1).strip()
-            chapter_starts.append((i, text))
+    toc_start = None
+
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            # 检测 ## 目录 标记
+            if toc_start is None and re.match(r"^#{1,2}\s*目录\s*$", line.strip()):
+                toc_start = i
+            # 检测章节标题
+            m = CHAPTER_PATTERN.match(line)
+            if not m:
+                m = CHAPTER_BARE_PATTERN.match(line)
+            if m:
+                text = m.group(1).strip()
+                chapter_starts.append((i, text))
 
     if not chapter_starts:
         return []
+
+    total_lines = count_lines(filepath)
 
     # 按章节号分组：优先保留内容版本（非TOC条目）
     by_number: dict[str, tuple[int, str]] = OrderedDict()
@@ -129,95 +146,56 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
         if m:
             ch_num = m.group(1)
             is_toc = bool(TOC_ENTRY_PATTERN.match(text))
-            # 如果已有该章节：
             if ch_num in by_number:
                 old_start, old_text = by_number[ch_num]
                 old_is_toc = bool(TOC_ENTRY_PATTERN.match(old_text))
-                # 新条目是内容且旧条目是TOC → 替换
-                if not is_toc and old_is_toc:
+                if not is_toc and old_is_toc:  # 内容替换TOC
                     by_number[ch_num] = (start, text)
-                # 新条目是内容且旧条目也是内容 → 替换（保留最后的）
-                elif not is_toc and not old_is_toc:
-                    by_number[ch_num] = (start, text)
-                # 新条目是TOC且旧条目是内容 → 跳过（保留内容版本）
-                elif is_toc and not old_is_toc:
+                elif is_toc and not old_is_toc:  # TOC不替换内容
                     pass
-                # 都是TOC → 替换（保留最后的TOC条目）
-                else:
+                else:  # 同类型保留最后
                     by_number[ch_num] = (start, text)
             else:
                 by_number[ch_num] = (start, text)
 
-    # 过滤掉只有TOC条目且无实际内容的章节
-    # 检测目录块：从 ## 目录 到第一个 # 第N章 内容标题
-    toc_start = None
-    first_content_line = None
-    for i, line in enumerate(lines):
-        if re.match(r"^#{1,2}\s*目录\s*$", line.strip()):
-            toc_start = i
-            break
-    if toc_start is None:
-        # 回退：找第一个 TOC 条目的起始行
-        for start, text in chapter_starts:
-            if TOC_ENTRY_PATTERN.match(text):
-                toc_start = start
-                break
-    for start, text in chapter_starts:
-        # 内容章节：非TOC条目且其后有足够内容行
-        if not TOC_ENTRY_PATTERN.match(text) and CHAPTER_NUM_PATTERN.search(text):
-            # 估算该章节的行区间：下一个chapter_starts 或文件末尾
-            next_start = len(lines)
-            for s2, t2 in chapter_starts:
-                if s2 > start:
-                    next_start = s2
-                    break
-            span = next_start - start
-            if span >= 100:  # 100行以上才是真实内容
-                first_content_line = start
-                break
-    
-    filtered = OrderedDict()
-    for ch_num, (start, text) in by_number.items():
-        filtered[ch_num] = (start, text)
-    # 使用 filtered 替代 by_number
-    by_number = filtered
-
-    # 从TOC条目中收集章节完整标题，用于为无标题的内容章节补全名称
+    # 从TOC条目中收集章节完整标题，补全无标题的内容章节
     toc_titles = {}
     for start, text in chapter_starts:
         if TOC_ENTRY_PATTERN.match(text):
             m = CHAPTER_NUM_PATTERN.search(text)
             if m:
                 cn = m.group(1)
-                # 清理页码标记
                 clean = re.sub(r'\s*……\s*\d+\s*$', '', text).strip()
                 toc_titles[cn] = clean
 
-    # 为内容章节补全名称
     for ch_num in list(by_number.keys()):
         start, text = by_number[ch_num]
-        # 如果当前标题无章节名（如"第2章"无后续文字）
         has_name = bool(re.search(r'章\s+\S', text))
         if not has_name and ch_num in toc_titles:
             by_number[ch_num] = (start, toc_titles[ch_num])
 
     # 如果第一个内容章节不是第1章，从前言内容自动创建第1章
+    first_content_line = None
+    for start, text in chapter_starts:
+        if not TOC_ENTRY_PATTERN.match(text) and CHAPTER_NUM_PATTERN.search(text):
+            next_start = total_lines
+            for s2, t2 in chapter_starts:
+                if s2 > start:
+                    next_start = s2
+                    break
+            span = next_start - start
+            if span >= 100:
+                first_content_line = start
+                break
+
     if by_number:
         first_ch = min(by_number.keys(), key=lambda x: by_number[x][0])
         first_idx = int(first_ch)
         if first_idx > 1:
-            # 第一个内容章节之前的内容作为第1章
             first_start = by_number[first_ch][0]
-            # 找到真正的开头（从正文内容开始，跳过封面/版权/目录等）
-            # 使用 toc_start 之后的第一个非TOC段落作为第1章的开始
-            ch1_start = 0
-            if toc_start is not None:
-                # 从目录末尾之后开始（跳过封面/版权页）
-                ch1_start = toc_start + 1
-            # 确保第1章不与第2章重叠
-            if ch1_start < first_start:
+            if toc_start is not None and (toc_start + 1) < first_start:
                 ch1_title = toc_titles.get("1", "第1章 概述")
-                by_number["1"] = (ch1_start, ch1_title)
+                by_number["1"] = (toc_start + 1, ch1_title)
 
     sorted_starts = sorted(by_number.items(), key=lambda x: int(x[1][0]))
 
@@ -227,15 +205,14 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
         if j + 1 < len(items):
             end = items[j + 1][1][0]
         else:
-            end = len(lines)
+            end = total_lines
         ranges.append((start, end, text, ch_num))
 
     return ranges
 
 
 def normalize_filename(heading_text: str) -> str:
-    """标准化文件名: 第N章 名称.md"""
-    # 清理页码标记（尾部数字 或 …… 标记）
+    """标准化文件名: 第N章 名称.md（清理页码伪影）"""
     clean = re.sub(r'\s*……\s*\d*\s*$', '', heading_text)
     clean = re.sub(r'\s+\d+\s*$', '', clean)
     m = re.match(r'[#]*\s*第\s*(\d+)\s*章\s*(.*)', clean)
@@ -257,7 +234,7 @@ def split_book(
     output_dir: str,
     force: bool = False,
 ) -> list[dict]:
-    """拆分整书为章节文件。"""
+    """拆分整书为章节文件（逐章写入，不缓存全部内容到内存）"""
     os.makedirs(output_dir, exist_ok=True)
 
     if not os.path.isfile(book_path):
@@ -267,7 +244,6 @@ def split_book(
     ranges = discover_chapter_ranges(book_path)
     if not ranges:
         print(f"[ERROR] 未检测到任何章节标题 ({book_path})")
-        print("  支持的格式: # 第1章 xxx 或 ## 第N章 xxx")
         return []
 
     print(f"发现 {len(ranges)} 个章节（已消除 TOC 重复）:")
@@ -275,14 +251,14 @@ def split_book(
     results = []
     with open(book_path, 'r', encoding='utf-8') as f:
         all_lines = f.readlines()
-    # ------------------ 漂亮打印分割线 ------------------
+
     for start, end, heading_text, ch_num in ranges:
         chapter_lines = all_lines[start:end]
         fname = normalize_filename(heading_text)
         total_lines = len(chapter_lines)
         is_toc = bool(TOC_ENTRY_PATTERN.match(heading_text))
 
-        # 跳过明显的TOC短条目（仅 sub-section 列表，无正文内容）
+        # 跳过极小的TOC片段（<15行的纯目录子节列表）
         if total_lines < 15 and is_toc:
             print(f"  ⏭ 跳过（目录条目，仅 {total_lines} 行）: {fname}")
             results.append({"file": fname, "lines": total_lines, "ok": False})
@@ -291,15 +267,15 @@ def split_book(
 
         if os.path.exists(out_path) and not force:
             print(f"  ⚠ 跳过（文件已存在）: {fname}")
-            results.append({"file": fname, "lines": len(chapter_lines), "ok": False})
+            results.append({"file": fname, "lines": total_lines, "ok": False})
             continue
 
         content = ''.join(chapter_lines).strip() + '\n'
         with open(out_path, 'w', encoding='utf-8') as f:
             f.write(content)
 
-        print(f"  ✓ {fname} (行 {start+1}–{end}, {len(chapter_lines)} 行)")
-        results.append({"file": fname, "lines": len(chapter_lines), "ok": True})
+        print(f"  ✓ {fname} (行 {start+1}–{end}, {total_lines} 行)")
+        results.append({"file": fname, "lines": total_lines, "ok": True})
 
     return results
 
@@ -319,16 +295,14 @@ def cmd_prepare(args):
     print(f"准备书籍目录: {book_dir}")
     result = prepare_book(book_dir, raw_dir=args.raw_dir)
 
-    # 如果有 raw_dir 且指定了自动拆分
     if args.raw_dir and args.split:
-        # 自动寻找书籍 md
         md_files = [f for f in os.listdir(args.raw_dir) if f.endswith('.md') and os.path.isfile(os.path.join(args.raw_dir, f))]
         if len(md_files) == 1:
             book_md = os.path.join(args.raw_dir, md_files[0])
             print(f"\n自动拆分章节: {book_md}")
             split_book(book_md, os.path.join(book_dir, "20_正文"), force=args.force)
         elif len(md_files) > 1:
-            print(f"\n⚠ raw 目录下多个 .md 文件，请手动指定: python3 split_book_to_chapters.py split <file.md> -w <book_dir>")
+            print(f"\n⚠ raw 目录下多个 .md 文件，请手动指定")
 
 
 def cmd_split(args):
@@ -354,14 +328,12 @@ def main():
     p = argparse.ArgumentParser(description="书籍预处理工具：创建目录 + 复制图片 + 拆分章节")
     sp = p.add_subparsers(dest="cmd", required=True)
 
-    # prepare 子命令
     prep = sp.add_parser("prepare", help="创建书籍标准目录结构 + 复制图片")
     prep.add_argument("-w", "--wiki-root", required=True, help="书籍根目录（目标目录）")
     prep.add_argument("--raw-dir", help="raw 源文件目录（含 images/）")
     prep.add_argument("--split", action="store_true", help="目录创建后自动拆分章节")
     prep.add_argument("--force", action="store_true", help="覆盖已有章节文件")
 
-    # split 子命令
     spl = sp.add_parser("split", help="按章节拆分整书 Markdown")
     spl.add_argument("book_path", help="整书 Markdown 文件路径")
     spl.add_argument("-o", "--output-dir", help="输出目录（20_正文/），优先级高于 -w")

@@ -81,19 +81,25 @@ def detect_kb_structure(kb_dir: str) -> dict:
                     actual_dirs[logical] = str(p)
                     break
 
-    # 2. 搜索嵌套结构（domain-wiki 常见布局）
-    book_dirs = []
-    for subdir in kb_path.iterdir():
-        if subdir.is_dir():
-            # 检查子目录下是否有 30_核心概念 等
-            for logical, (label, prefixes) in DOMAIN_WIKI_MAP.items():
-                for prefix in prefixes:
-                    if (subdir / prefix).is_dir():
-                        book_dirs.append(str(subdir))
-                        break
-                if book_dirs and book_dirs[-1] == str(subdir):
-                    break
-
+    # 2. 从 actual_dirs 反推书籍目录
+    book_dirs = set()
+    for logical, dir_path in actual_dirs.items():
+        p = Path(dir_path)
+        # 向上找 20_正文 或与 30_核心概念 同级的书籍目录
+        # 格式: .../书籍名/30_核心概念 → 书籍名
+        parent = p.parent
+        if parent.name.startswith(('30_', '40_', '50_', '60_', '70_', '80_', '90_')):
+            parent = parent.parent
+        # 检查 parent 下是否有 20_正文
+        if (parent / '20_正文').is_dir():
+            book_dirs.add(str(parent))
+        else:
+            # 再向上一级检查
+            grandparent = parent.parent
+            for child in grandparent.iterdir():
+                if child.is_dir() and (child / '20_正文').is_dir():
+                    book_dirs.add(str(child))
+    
     # 3. 检测 20_正文 目录
     body_dirs = []
     if (kb_path / '20_正文').is_dir():
@@ -177,49 +183,40 @@ def search_kb(kb_dir: str, query: str, max_results: int = 5,
                 })
 
     # === 策略2：嵌套书籍子目录搜索（电磁兼容领域/{book}/30_核心概念/）===
-    if not type_filter or 'kp' in type_filter or 'concept' in type_filter:
-        for bd in struct.get('book_dirs', []):
-            book_path = Path(bd)
-            for logical in SEARCH_PRIORITY:
-                if type_filter and logical not in type_filter:
+    for bd in struct.get('book_dirs', []):
+        book_path = Path(bd)
+        for subdir in book_path.iterdir():
+            if not subdir.is_dir():
+                continue
+            for f in subdir.glob('*.md'):
+                if f.name in seen:
                     continue
-                prefixes = [p for _, prefixes in DOMAIN_WIKI_MAP.values() for p in prefixes[:1]]
-                for prefix in [DOMAIN_WIKI_MAP.get((k,)) for k in [logical]]:
-                    # Actually let me just search all subdirs
-                    pass
-            # 搜索 book_dir 下所有子目录的 .md 文件
-            for subdir in book_path.iterdir():
-                if not subdir.is_dir():
-                    continue
-                for f in subdir.glob('*.md'):
-                    if f.name in seen:
-                        continue
-                    fstr = str(f)
-                    score = _score_file(f, keywords)
-                    if score > 0:
-                        seen.add(f.name)
-                        # 判断类型
-                        logical = 'other'
-                        for l, (label, prefixes) in DOMAIN_WIKI_MAP.items():
-                            for p in prefixes:
-                                if p in fstr:
-                                    logical = l
-                                    break
-                            if logical != 'other':
+                fstr = str(f)
+                score = _score_file(f, keywords)
+                if score > 0:
+                    seen.add(f.name)
+                    # 判断类型
+                    logical = 'other'
+                    for l, (label, prefixes) in DOMAIN_WIKI_MAP.items():
+                        for p in prefixes:
+                            if p in fstr:
+                                logical = l
                                 break
-                        preview = _get_preview(f)
-                        results.append({
-                            "path": fstr,
-                            "score": score,
-                            "match_type": "nested",
-                            "keyword": keywords[0],
-                            "logical_type": logical,
-                            "label": DOMAIN_WIKI_MAP.get(logical, ['其他'])[0],
-                            "filename": f.name,
-                            "content_preview": preview,
-                        })
+                        if logical != 'other':
+                            break
+                    preview = _get_preview(f)
+                    results.append({
+                        "path": fstr,
+                        "score": score,
+                        "match_type": "nested",
+                        "keyword": keywords[0],
+                        "logical_type": logical,
+                        "label": DOMAIN_WIKI_MAP.get(logical, ['其他'])[0],
+                        "filename": f.name,
+                        "content_preview": preview,
+                    })
 
-    # === 策略3：20_正文 降级搜索 ===
+    # === 策略3：20_正文 降级搜索（支持节级别提取）===
     if len(results) < max_results:
         for bd in struct.get('body_dirs', []):
             body_path = Path(bd)
@@ -227,18 +224,49 @@ def search_kb(kb_dir: str, query: str, max_results: int = 5,
                 if f.name in seen:
                     continue
                 fstr = str(f)
-                score = _score_file(f, keywords) * 0.7  # 正文降权
-                if score > 0:
+                try:
+                    text = f.read_text('utf-8', errors='ignore')
+                except:
+                    continue
+                    
+                # 从正文文件中搜索匹配的节（按 ## 标题分节）
+                body_clean = re.sub(r'^---\n.*?\n---\n', '', text, flags=re.DOTALL)
+                sections_in_file = re.split(r'\n(?=##\s)', body_clean)
+                
+                matched_sections = []
+                for sec_text in sections_in_file:
+                    sec_text = sec_text.strip()
+                    if not sec_text:
+                        continue
+                    # 对该节评分
+                    sec_first_line = sec_text.split('\n')[0] if sec_text else ''
+                    sec_score = 0.0
+                    for kw in keywords:
+                        kw_lower = kw.lower()
+                        if kw_lower in sec_first_line.lower():
+                            sec_score += 5.0  # 节标题匹配
+                        count = sec_text.lower().count(kw_lower)
+                        if count > 0:
+                            sec_score += min(count * 0.8, 8.0)  # 节内内容匹配
+                    if sec_score > 0:
+                        # 提取该节的前300字作为预览
+                        preview = sec_text[:300]
+                        matched_sections.append((sec_score, sec_first_line, preview, sec_text))
+                
+                if matched_sections:
                     seen.add(f.name)
-                    preview = _get_preview(f)
+                    # 取匹配度最高的节
+                    best_sec = max(matched_sections, key=lambda x: x[0])
+                    sec_score, sec_title, preview, full_sec = best_sec
                     results.append({
                         "path": fstr,
-                        "score": score,
-                        "match_type": "body-text",
+                        "score": sec_score,
+                        "match_type": "body-section",
                         "keyword": keywords[0],
                         "logical_type": "body",
                         "label": "正文",
                         "filename": f.name,
+                        "section_title": sec_title.lstrip('#').strip(),
                         "content_preview": preview,
                     })
 
@@ -253,15 +281,47 @@ def search_kb(kb_dir: str, query: str, max_results: int = 5,
 
 
 def _extract_keywords(query: str) -> list[str]:
-    """从查询字符串提取关键词"""
+    """从查询字符串提取关键词（支持中文复合词智能拆分）"""
     cleaned = re.sub(r'^[\d.]+\s*', '', query)
     cleaned = re.sub(r'^\d+\.\d+\.\d+\s*', '', cleaned)
     cleaned = re.sub(r'^第[一二三四五六七八九十\d]+[章节部分]\s*', '', cleaned)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return [query]
+    
+    # 1. 按分隔符拆分
     parts = re.split(r'[与和、,，；;]', cleaned)
     keywords = [p.strip() for p in parts if len(p.strip()) >= 2]
-    if cleaned.strip() and cleaned.strip() not in keywords:
-        keywords.insert(0, cleaned.strip())
-    return keywords
+    
+    # 2. 对长复合词（≥6字）智能拆分
+    #    常见中文技术词汇边界
+    split_markers = r'(概念|技术|方法|原理|定义|分析|设计|应用|系统|特性|分类|模型|内涵|特点|研究|发展|基础|理论|简介|概述|要素|途径|结构|类型|参数|指标|措施|方式|目的|意义|脉冲|干扰|抑制|耦合|耦合|屏蔽|滤波|接地|搭接|测量|预测|标准|实验|试验|整改|诊断|防护)'
+    expanded = set(keywords)
+    has_sub = False
+    for kw in keywords:
+        if len(kw) >= 6:
+            sub_parts = re.split(split_markers, kw)
+            for i in range(0, len(sub_parts) - 1, 2):
+                combined = sub_parts[i] + sub_parts[i + 1]
+                if len(combined) >= 2 and combined not in expanded:
+                    expanded.add(combined)
+                    has_sub = True
+            for m in re.findall(split_markers, kw):
+                if m not in expanded:
+                    expanded.add(m)
+    
+    # 3. 如果扩展后仍然只有一个词且长度≥4，按2字滑动窗口拆分
+    if len(expanded) <= 1 and len(cleaned) >= 4:
+        for i in range(0, len(cleaned) - 1):
+            sub = cleaned[i:i+2]
+            if sub not in expanded and len(sub) >= 2:
+                expanded.add(sub)
+    
+    # 4. 原词放最前面
+    result = [cleaned] if cleaned not in expanded else []
+    result.extend(k for k in expanded if k != cleaned)
+    
+    return result
 
 
 def _score_file(f: Path, keywords: list[str]) -> float:

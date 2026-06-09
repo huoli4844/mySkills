@@ -74,7 +74,11 @@ Phase F: 总结分析（定期触发）← v3.0 新增
 
 ### 检索方法
 
-> **搜索优先级（从高到低）**：知识点/ → 概念/ → 知识要素/ → 技能点/ → 场景/ → 习题解答/
+> **搜索优先级（从高到低）**：知识点/50_知识点→ 核心概念/30_核心概念→ 知识要素/40_知识要素→ 技能点/60_技能点→ 应用场景/70_应用场景→ 习题/90_习题
+>
+> 实际目录名通过 `scripts/kb_search.py` 自动检测适配：
+>   domain-wiki（30_核心概念/）← 自动映射 ← 逻辑名（concept）
+>   emc-textbook-wiki（概念/）← 自动映射 ← 逻辑名（concept）
 
 ```text
 
@@ -483,11 +487,11 @@ JSON 内部图谱数据仅在 Agent 内部用于知识空白检测和链式补�
 
 ### 检测范围
 
-| 节点类型 | 检查条件 | 缺失则标记 |
+| 节点类型 | 检查条件（自动检测 KB 目录结构） | 缺失则标记 |
 |:---------|:---------|:-----------|
-| 概念 | 回答中核心技术术语 → `概念/{term}.md` 是否存在 | concept_gap |
-| 知识要素 | 回答中涉及公式/方法 → `知识要素/{term}.md` 是否存在 | ke_gap |
-| 知识点 | 回答中完整专题 → `知识点/{term}.md` 是否存在 | kp_gap |
+| 概念 | 回答中核心技术术语 → 搜索 `{kb}/30_核心概念/` 或 `{kb}/概念/` | concept_gap |
+| 知识要素 | 回答中涉及公式/方法 → 搜索 `{kb}/40_知识要素/` 或 `{kb}/知识要素/` | ke_gap |
+| 知识点 | 回答中完整专题 → 搜索 `{kb}/50_知识点/` 或 `{kb}/知识点/` | kp_gap |
 
 ### 检测步骤
 
@@ -668,13 +672,13 @@ def detect_chain_gaps(wiki_dir, primary_gaps, existing_refs):
 
 ### 执行补齐
 
-按用户确认的清单创建页面，遵循 domain-wiki 模板规范：
+按用户确认的清单创建页面，遵循 domain-wiki 模板规范，使用 kb_search.py 的目录映射自动确定输出路径：
 
-- 概念 → `概念/{term}.md`（5层模板，无内容填"无"）
-- 知识要素 → `知识要素/{term}.md`（3层模板）
-- 知识点 → `知识点/{term}.md`（4层模板，简版）
-- 全部 frontmatter 标记 `confidence: 0.65`, `source: "kbqa-v3-complete"`, `verified: false`
-- 不含 `sources` 字段（无出处原文）
+- 概念 → 30_核心概念/ 或 概念/（依 KB 结构）
+- 知识要素 → 40_知识要素/ 或 知识要素/
+- 知识点 → 50_知识点/ 或 知识点/
+- 全部 frontmatter 标记 confidence: 0.65，source: kbqa-v3-complete，verified: false
+- 不含 sources 字段（无出处原文）
 
 #### 实践验证 Pitfalls（2026-05-20 会话实测）
 
@@ -1011,5 +1015,10 @@ verify-concept-definitions.py 验证
 
 ## 参考文件
 
-- `references/chain-rules.md` — 链式补齐的规则表（概念→KE→KP 映射）
+- `scripts/kb_search.py` — domain-wiki 自适应搜索引擎（支持多级嵌套搜索，7 种节点类型，三种输出格式）
 - `scripts/validate-graph-json.py` — JSON 图谱自校验脚本
+- `references/chain-rules.md` — 链式补齐的规则表（概念→KE→KP 映射）
+- `references/kb-data-quality.md` — 知识库数据质量标准参考
+- `references/kbqa-log-analysis.md` — 操作日志分析方法
+
+> 快速使用：`python3 scripts/kb_search.py /path/to/kb "查询词" --format material`

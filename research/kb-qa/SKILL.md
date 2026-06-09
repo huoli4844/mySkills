@@ -1,6 +1,6 @@
 ---
 name: kb-qa
-description: "知识库问答+自动补齐闭环（KBQA v3.5）：纯 Markdown 输出（无 JSON 数据块），6 Phase 闭环工作流。v3.5 引用来源表新增「章节来源」列，每个召回条目须标注出处文件和详细章节号。对 emc-textbook-wiki 知识库检索、自动补齐、审阅确认、链式补齐、纠错回写、连通验证。与 professional-textbook-compilation 形成生成→KB 双向同步。"
+description: "知识库问答+自动补齐闭环（KBQA v3.5）：纯 Markdown 输出（无 JSON 数据块），6 Phase 闭环工作流。v3.5 引用来源表新增「章节来源」列，每个召回条目须标注出处文件和详细章节号。对 domain-wiki 格式知识库检索、自动补齐、审阅确认、链式补齐、纠错回写、连通验证。与 professional-textbook-compilation 形成生成→KB 双向同步。"
 version: 3.5.0
 author: Hermes Agent
 license: MIT
@@ -9,12 +9,12 @@ metadata:
   hermes:
     tags: [knowledge-base, QA, retrieval, wiki, search, auto-complete, closed-loop]
     category: research
-    related_skills: [emc-textbook-wiki, professional-textbook-compilation, llm-wiki]
+    related_skills: [domain-wiki, professional-textbook-compilation, llm-wiki]
 ---
 
 # 知识库问答技能（KBQA v3.0 — 闭环版）
 
-对 emc-textbook-wiki 格式的结构化知识库进行问答检索，并在问答中**自动补齐**缺失的 KB 节点。
+对 domain-wiki 格式的结构化知识库进行问答检索，并在问答中**自动补齐**缺失的 KB 节点。
 
 **v3.0 核心升级——从单向操作到全闭环：**
 
@@ -33,7 +33,7 @@ v3.0:  提问 → 检索 → 合成回答 → 审阅确认 → 链式补齐 → 
 
 ## 前置条件
 
-- 知识库目录符合 emc-textbook-wiki 的目录结构
+- 知识库目录符合 domain-wiki 的目录结构
 - 需要有 `index.md` 和 `log.md`（自动创建）
 - **用户愿意参与审阅**——v3.0 不是静默操作
 
@@ -668,7 +668,7 @@ def detect_chain_gaps(wiki_dir, primary_gaps, existing_refs):
 
 ### 执行补齐
 
-按用户确认的清单创建页面，遵循 emc-textbook-wiki 模板规范：
+按用户确认的清单创建页面，遵循 domain-wiki 模板规范：
 
 - 概念 → `概念/{term}.md`（5层模板，无内容填"无"）
 - 知识要素 → `知识要素/{term}.md`（3层模板）
@@ -968,7 +968,7 @@ def analyze_log(wiki_dir):
   ↓
 用户提供出处 PDF/DOCX
   ↓
-emc-textbook-wiki Step 4-5 重新提取
+domain-wiki Step 4-5 重新提取
   ↓
 verify-concept-definitions.py 验证
   ↓
@@ -1004,7 +1004,7 @@ verify-concept-definitions.py 验证
 
 ## 相关技能
 
-- `emc-textbook-wiki` — 将 0.65 的自动补齐页面升级为 0.95 的出处原文验证
+- `domain-wiki` — 将 0.65 的自动补齐页面升级为 0.95 的出处原文验证
 - `professional-textbook-compilation` — 教材生成消费方，实现生成→KB 双向同步
 - `llm-wiki` — 自动补齐策略的参考来源
 - `file2md` — PDF/DOCX → Markdown，用于升级管道

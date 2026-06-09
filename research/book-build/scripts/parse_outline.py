@@ -44,6 +44,95 @@ def chn_to_arabic(cn: str) -> str:
     return cn
 
 
+SEC_pat = re.compile(r'^\s*(\d+\.\d+)\s+(.*)')
+SUB_pat = re.compile(r'^\s*(\d+\.\d+\.\d+)\s+(.*)')
+PART_pat = re.compile(r'第\s*(\d+|[一二三四五六七八九十]+)\s*部分\s*(.*)')
+CASE_pat = re.compile(r'案例\s*(\d+)')
+EXP_pat = re.compile(r'实验\s*(\d+)')
+
+
+def parse_docx(docx_path: str) -> dict:
+    """从 .docx 解析大纲（支持无 Heading 样式的纯文本编号大纲）"""
+    from docx import Document
+    doc = Document(str(Path(docx_path).expanduser().resolve()))
+    
+    # 第一步：提取所有段落并分类
+    entries = []  # [(type, number, title, paragraph_index)]
+    for i, p in enumerate(doc.paragraphs):
+        text = p.text.strip()
+        if not text:
+            continue
+        bold = any(r.bold for r in p.runs if r.bold)
+        
+        m = re.match(r'第\s*(\d+|[一二三四五六七八九十]+)\s*章\s*(.*)', text)
+        if m:
+            ch_num = m.group(1).strip()
+            ch_title = m.group(2).strip()
+            ch_arabic = chn_to_arabic(ch_num)
+            entries.append(('chapter', ch_arabic, f'第{ch_arabic}章 {ch_title}', i))
+            continue
+        
+        m = PART_pat.match(text)
+        if m:
+            pt_num = m.group(1).strip()
+            pt_title = m.group(2).strip()
+            pt_arabic = chn_to_arabic(pt_num)
+            entries.append(('part', pt_arabic, f'第{pt_arabic}部分 {pt_title}', i))
+            continue
+        
+        m = SUB_pat.match(text)
+        if m:
+            entries.append(('subsection', m.group(1), m.group(2).strip(), i))
+            continue
+        
+        m = SEC_pat.match(text)
+        if m:
+            entries.append(('section', m.group(1), m.group(2).strip(), i))
+            continue
+        
+        m = CASE_pat.match(text)
+        if m:
+            entries.append(('case', m.group(1), text, i))
+            continue
+        
+        m = EXP_pat.match(text)
+        if m:
+            entries.append(('experiment', m.group(1), text, i))
+            continue
+    
+    # 第二步：构建章节树
+    chapters = []
+    current_chapter = None
+    current_section = None
+    
+    for entry in entries:
+        t, num, title, idx = entry
+        
+        if t == 'chapter':
+            current_chapter = {'number': num, 'title': title, 'sections': []}
+            chapters.append(current_chapter)
+            current_section = None
+        
+        elif t == 'section' and current_chapter is not None:
+            current_section = {'number': num, 'title': title, 'subsections': []}
+            current_chapter['sections'].append(current_section)
+        
+        elif t == 'subsection' and current_section is not None:
+            current_section['subsections'].append({'number': num, 'title': title})
+    
+    # 书名：取第一个加粗的短段落（不含章/部分）
+    title = ""
+    for p in doc.paragraphs:
+        text = p.text.strip()
+        if not text: continue
+        bold = any(r.bold for r in p.runs if r.bold)
+        if bold and len(text) <= 30 and '章' not in text and '部分' not in text:
+            title = text
+            break
+    
+    return {"title": title, "chapters": chapters}
+
+
 def parse_text(text: str) -> dict:
     lines = text.strip().split('\n')
     title = ""
@@ -124,17 +213,10 @@ def main():
     input_path = Path(args.input)
 
     if args.input.endswith('.docx'):
-        try:
-            from docx import Document
-        except ImportError:
-            print("❌ 需要 python-docx: pip install python-docx", file=sys.stderr)
-            sys.exit(1)
-        doc = Document(str(input_path))
-        text = '\n'.join(p.text for p in doc.paragraphs if p.text.strip())
+        outline = parse_docx(args.input)
     else:
         text = input_path.read_text('utf-8', errors='replace') if input_path.exists() else sys.stdin.read()
-
-    outline = parse_text(text)
+        outline = parse_text(text)
 
     ch_nums = [int(c["number"]) for c in outline["chapters"] if c["number"].isdigit()]
     if ch_nums:

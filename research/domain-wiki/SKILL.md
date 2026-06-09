@@ -631,3 +631,4 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 || [domain-book-wiki-pitfalls-migration.md](references/domain-book-wiki-pitfalls-migration.md) | 从旧技能迁移时发现的陷阱和修复记录（bare except/循环bug/文件红线/吸纳功能） |
 || [book-split-workflow.md](references/book-split-workflow.md) | 整书按章节拆分工作流：TOC检测、内容优先、章节名补全、逐行扫描、页码清理 |
 || [batch-chapter-workflow.md](references/batch-chapter-workflow.md) | 批量章节处理工作流：delegate_task写YAML → pipeline_v2.py run 逐章全自动 |
+|| [delegate-yaml-writing.md](references/delegate-yaml-writing.md) | delegate_task 写YAML标准工作流：build-prompt注入→validate→pipeline run |

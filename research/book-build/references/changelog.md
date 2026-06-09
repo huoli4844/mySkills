@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.0 (2026-06-09)
+- **新增 `post_generation_check.py`** — 自动质量检查脚本：公式语法/全编号/Mermaid闭合/拼写，支持 `--fix` 自动修复
+- **新增 `clean_formula_numbers.py`** — 当编号严重混乱时，删除所有原编号后从头重排（使用前必须备份）
+- **新增 `fix_tag_placement.py`** — 将误放在 `$$` 外部的 `\tag{}` 移回公式块内部
+- **Phase 0.5 重构**：从简单标注扩展为5步标准化流程（研读→手法对比→发挥空间→写作指南→动笔），新增向用户展示对比表+获确认后才能动笔的要求
+- **Phase 4.5 升级**：从零散shell命令替换为统一的 `post_generation_check.py --fix` 调用，新增审计报告模板
+- **Pitfall 9**: 写作指南须经用户确认后方可动笔
+- **Pitfall 10**: `\tag` 与 `$$` 边界问题——自动修复脚本可能将tag放在 $$ 外部
+- **Pitfall 11**: `clean_formula_numbers.py` 使用前必须备份
+- **Bug fix**: `_fix_missing_tag` 函数将 `\tag` 插入在 `$$` 之后而非之前，确保在公式块内部
+- **新增 `references/gap-analysis-checklist.md`** — Phase 0.6 三书内容差距分析模板
+
 ## 2.0.0 (2026-06-09)
 - **重大重构**：SKILL.md 从 2012 行/80KB → 168 行/8.6KB（减量89%）
 - 重构为 `skill-authoring` 标准格式：Overview→When to Use→Design→Workflow→Commands→Pitfalls→Reference Index

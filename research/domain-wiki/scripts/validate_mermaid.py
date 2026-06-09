@@ -51,11 +51,13 @@ def validate_book(book_dir: str, fix: bool = False) -> int:
         file_issues = []
         lines = block.split('\n')
 
-        # 1. 首行必须是 graph / flowchart / sequenceDiagram
+        # 1. 首行必须是 graph / sequenceDiagram
         first = lines[0] if lines else ''
         if first.startswith('%%{init:') and len(lines) > 1:
             first = lines[1]
-        if not (first.startswith('graph ') or first.startswith('flowchart ') or first.startswith('sequenceDiagram')):
+        if first.startswith('flowchart '):
+            file_issues.append(f"  ⚠️ 使用 flowchart（建议改用 graph TD，Obsidian 不兼容）")
+        elif not (first.startswith('graph ') or first.startswith('sequenceDiagram')):
             file_issues.append(f"  首行不是graph/flowchart: {first[:40]}")
 
         # 2. 各行检查

@@ -587,7 +587,8 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 | | **`split_book_to_chapters.py` 正则 `.+?` 不匹配无标题章节** → `# 第2章`（只有章节号无标题文本）未被 `CHAPTER_PATTERN` 捕获，内容章节丢失。（2026-06-09 处理 `21K行` 新书时发现） | CHAPTER_PATTERN 的 `.+?`（至少1字符）改为 `.*?`（0字符也可）：`r"^(?:#{1,2})?\s*(第\s*\d+\s*章\s*.*?)(?:\s*)$"`。同时新增 `CHAPTER_BARE_PATTERN` 匹配无 `#` 前缀的章节（`第6章 电缆...`）。|
 
 | | **`split_book_to_chapters.py` TOC 块过滤过严 → 章节编号不连续** | 保留所有章节，仅跳过 <15行的TOC片段。TOC条目是章节存在形式。详见 [toc-detection-design.md](references/toc-detection-design.md)。 |
-| | **大文件一次读入内存压力** | `discover_chapter_ranges()` 改 `for i, line in enumerate(f)` 逐行遍历一趟完成，不用 `readlines()` |
+| | **`split_book_to_chapters.py` 不报告各章内容质量 → 源文件缺失正文的章节静默生成瘦文件** | `split_book()` 中按文件大小分级输出 `✅有正文(>20KB)／⚠️少量(2-20KB)／❌仅标题(<2KB)`，让用户明确知道哪些章节有实质内容、哪些仅为标题大纲。对于 `❌` 级别的章节，根因通常是源文件本身缺失正文（OCR/MinerU提取遗漏），不是拆分工具的问题。 |
+| | **大文件一次读入内存压力** | `discover_chapter_ranges()` 改 `for i, line in enumerate(f)` 逐行遍历一趟完成，不用 `readlines()`。`split_book()` 仍需 `readlines()` 一次供切片。详见 [book-split-workflow.md](references/book-split-workflow.md)。 |
 
 ## 领域自适应设计原则
 
@@ -615,3 +616,4 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 || [review-fix-workflow.md](references/review-fix-workflow.md) | Agent驱动修复流程：审查→结构化JSON→文件级修复指令→委托→重渲染→重审查 |
 || [inline-quality-workflow.md](references/inline-quality-workflow.md) | 内联质量检查工作流（inline-before-batch）：生成时就地检查，写一个过一件，不留给事后 |
 || [domain-book-wiki-pitfalls-migration.md](references/domain-book-wiki-pitfalls-migration.md) | 从旧技能迁移时发现的陷阱和修复记录（bare except/循环bug/文件红线/吸纳功能） |
+|| [book-split-workflow.md](references/book-split-workflow.md) | 整书按章节拆分工作流：TOC检测、内容优先、章节名补全、逐行扫描、页码清理 |

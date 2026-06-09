@@ -324,6 +324,68 @@ def cmd_split(args):
     print(f"输出目录: {output_dir}/")
 
 
+def cmd_reconstruct(args):
+    """从 content_list_v2.json 重建章节正文"""
+    import json as _json, re as _re
+    src_dir = os.path.join(args.wiki_root, "20_正文")
+    if not os.path.isdir(src_dir):
+        print(f"[ERROR] 20_正文 不存在: {src_dir}"); sys.exit(1)
+    if not os.path.exists(args.v2_path):
+        print(f"[ERROR] v2文件不存在: {args.v2_path}"); sys.exit(1)
+
+    with open(args.v2_path, encoding='utf-8') as _f:
+        _pages = _json.load(_f)
+
+    def _ext(it):
+        t, c = it.get("type",""), it.get("content",{})
+        if t=="title" and isinstance(c,dict):
+            pts=[tc.get("content","") for tc in c.get("title_content",[])]
+            txt=" ".join(p for p in pts if p.strip())
+            return f"{'#'*min(c.get('level',1),3)} {txt}","heading"
+        if t=="paragraph" and isinstance(c,dict):
+            pts=[pc.get("content","") for pc in c.get("paragraph_content",[]) if isinstance(pc,dict)]
+            if pts: txt=" ".join(pts)
+            if len(txt)>10: return txt,"body"
+        return None,None
+
+    pg_ch={}
+    for pi,pg in enumerate(_pages):
+        for it in pg:
+            if it.get("type")=="page_header":
+                for hc in it.get("content",{}).get("page_header_content",[]):
+                    m=_re.search(r"第\s*(\d+)\s*章",hc.get("content",""))
+                    if m: pg_ch[pi]=int(m.group(1))
+    if not pg_ch: print("  ⚠ 未找到页眉章节信息"); return
+
+    ch_pgs: dict[int,list[int]]={}
+    for pi,ch in sorted(pg_ch.items()): ch_pgs.setdefault(ch,[]).append(pi)
+
+    total=0; total_kb=0
+    for ch in sorted(ch_pgs):
+        pgs=ch_pgs[ch]; sp=min(pgs); ep=len(_pages)
+        for c2 in sorted(ch_pgs):
+            if c2>ch and ch_pgs[c2]: ep=ch_pgs[c2][0]; break
+        lines=[]
+        for pi in range(sp,ep):
+            for it in _pages[pi]:
+                txt,tt=_ext(it)
+                if txt: lines.append(f"\n{txt}" if tt=="heading" else txt)
+        body=_re.sub(r'^#+\s*$','',"\n\n".join(lines),flags=_re.MULTILINE).strip()
+        if not body: continue
+
+        fname=None
+        for f in os.listdir(src_dir):
+            if f.startswith(f"第{ch}章") and f.endswith(".md"): fname=f; break
+        if not fname: fname=f"第{ch}章.md"
+        fpath=os.path.join(src_dir,fname)
+        old=os.path.getsize(fpath)//1024 if os.path.exists(fpath) else 0
+        with open(fpath,"w",encoding='utf-8') as _f: _f.write(body+"\n")
+        nw=os.path.getsize(fpath)//1024
+        if nw>old*1.5: print(f"  ✅ 第{ch}章: {old}KB→{nw}KB")
+        total+=1; total_kb+=nw
+    print(f"\n完成: {total}章重建, 共{total_kb}KB")
+
+
 def main():
     p = argparse.ArgumentParser(description="书籍预处理工具：创建目录 + 复制图片 + 拆分章节")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -340,12 +402,18 @@ def main():
     spl.add_argument("-w", "--wiki-root", help="书籍根目录（自动追加 20_正文/）")
     spl.add_argument("--force", action="store_true", help="覆盖已有文件")
 
+    rec = sp.add_parser("reconstruct", help="从 content_list_v2.json 重建缺失章节正文")
+    rec.add_argument("-w", "--wiki-root", required=True, help="书籍根目录")
+    rec.add_argument("--v2-path", required=True, help="content_list_v2.json 路径")
+
     args = p.parse_args()
 
     if args.cmd == "prepare":
         cmd_prepare(args)
     elif args.cmd == "split":
         cmd_split(args)
+    elif args.cmd == "reconstruct":
+        cmd_reconstruct(args)
 
 
 if __name__ == "__main__":

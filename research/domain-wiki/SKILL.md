@@ -474,15 +474,44 @@ python3 scripts/index_builder.py /path/to/book \
 | exercise | exercise_template.md | 0.65 | 2 | 习题原文 |
 | solution | eval_template.md | 0.65/0.85 | 19 | 解答（步骤+考点+难点+闭环） |
 
-## 🛑 FORCED VERIFICATION BEFORE ANY EDIT (READ THIS FIRST)
+## ⚠️ CRITICAL: VERIFY SKILL IDENTITY BEFORE ANY ACTION
 
-**Before editing any file in this skill, you MUST run the following (this is not optional):**
+**This skill has a DEADLY LOOKALIKE: `research/domain-book-wiki/` (a v52.x backup).**
+Every edit, every command, every `cd` MUST verify you're in the right directory.
+
+### Automated Identity Check (MANDATORY before any edit)
 
 ```bash
+# === IDENTITY CHECK (run this BEFORE any edit) ===
 grep -c '@prompt' ~/.hermes/skills/research/domain-wiki/assets/templates/concept_template.md
-# Expected: 24 — if 0, you're in research/domain-book-wiki/ (the BACKUP).
-# STOP, SWITCH to domain-wiki.
+# Expected: 24 — if 0, you are in domain-book-wiki (the BACKUP).
+# STOP IMMEDIATELY. Switch to domain-wiki.
 ```
+
+### The "No Ad-Hoc Scripts" Rule
+
+This skill is designed to be fully automatic through its documented commands. **DO NOT write temporary Python scripts** to work around pipeline steps. The documented commands are:
+- `pipeline_v2.py phase-a` — validate + render
+- `pipeline_v2.py run` — fully automatic pipeline (14 phases)
+- `pipeline_v2.py quality-gate` — Mermaid + wikilink
+- `pipeline_v2.py review / review-fix` — quality
+- `pipeline_v2.py build-indices` — L2/L3/L4
+- `yaml_writer.py validate / self-instruct / prompt` — YAML tools
+- `split_book_to_chapters.py prepare / split` — book prep
+
+If you need to do something and no skill command exists, fix the SKILL or use the existing commands — do not write a one-off script.
+
+### Run Fully Automatically, Do Not Ask
+
+The `pipeline_v2.py run` command processes ALL pending phases automatically. When the user asks to process a book:
+1. Prepare: `split_book_to_chapters.py prepare --raw-dir RAW -w BOOK --split`
+2. Write YAML (Agents via `yaml_writer.py`)
+3. Run: `pipeline_v2.py run --book-dir BOOK -c N --book-id ID --book-name NAME`
+4. Quality: `pipeline_v2.py quality-gate --book-dir BOOK`
+5. Review: `pipeline_v2.py review --book-dir BOOK --book-id ID`
+6. Indices: `pipeline_v2.py build-indices --book-dir BOOK --book-id ID --book-name NAME`
+
+**Do NOT ask the user "should I proceed?" or "what next?" — just do the next step.**
 
 **Why this matters:** There are TWO near-identically-named skills:
 - `research/domain-wiki/` — **ACTIVE** (v3.0, `pipeline_v2.py`, 24 `@prompt`) ← USE THIS

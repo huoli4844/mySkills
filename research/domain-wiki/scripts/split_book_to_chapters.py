@@ -49,6 +49,8 @@ CHAPTER_PATTERN = re.compile(r"^(?:#{1,2})\s*(第\s*\d+\s*章\s*.*?)(?:\s*)$")
 CHAPTER_NUM_PATTERN = re.compile(r"第\s*(\d+)\s*章")
 # 无#前缀的章节标题（如 "第6章 电缆及连接器的设计 ..."）
 CHAPTER_BARE_PATTERN = re.compile(r"^(第\s*\d+\s*章\s*.*?)(?:\s*)$")
+# 检测是否为目录条目（带页码标记 ……N）
+TOC_ENTRY_PATTERN = re.compile(r"第\s*\d+\s*章.*……\s*\d+\s*$")
 
 
 # =============================================================
@@ -120,13 +122,69 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
     if not chapter_starts:
         return []
 
-    # 按章节号分组，保留最后一个（正文版本）
+    # 按章节号分组：优先保留内容版本（非TOC条目）
     by_number: dict[str, tuple[int, str]] = OrderedDict()
     for start, text in chapter_starts:
         m = CHAPTER_NUM_PATTERN.search(text)
         if m:
             ch_num = m.group(1)
-            by_number[ch_num] = (start, text)
+            is_toc = bool(TOC_ENTRY_PATTERN.match(text))
+            # 如果已有该章节：
+            if ch_num in by_number:
+                old_start, old_text = by_number[ch_num]
+                old_is_toc = bool(TOC_ENTRY_PATTERN.match(old_text))
+                # 新条目是内容且旧条目是TOC → 替换
+                if not is_toc and old_is_toc:
+                    by_number[ch_num] = (start, text)
+                # 新条目是内容且旧条目也是内容 → 替换（保留最后的）
+                elif not is_toc and not old_is_toc:
+                    by_number[ch_num] = (start, text)
+                # 新条目是TOC且旧条目是内容 → 跳过（保留内容版本）
+                elif is_toc and not old_is_toc:
+                    pass
+                # 都是TOC → 替换（保留最后的TOC条目）
+                else:
+                    by_number[ch_num] = (start, text)
+            else:
+                by_number[ch_num] = (start, text)
+
+    # 过滤掉只有TOC条目且无实际内容的章节
+    # 检测目录块：从 ## 目录 到第一个 # 第N章 内容标题
+    toc_start = None
+    first_content_line = None
+    for i, line in enumerate(lines):
+        if re.match(r"^#{1,2}\s*目录\s*$", line.strip()):
+            toc_start = i
+            break
+    if toc_start is None:
+        # 回退：找第一个 TOC 条目的起始行
+        for start, text in chapter_starts:
+            if TOC_ENTRY_PATTERN.match(text):
+                toc_start = start
+                break
+    for start, text in chapter_starts:
+        # 内容章节：非TOC条目且其后有足够内容行
+        if not TOC_ENTRY_PATTERN.match(text) and CHAPTER_NUM_PATTERN.search(text):
+            # 估算该章节的行区间：下一个chapter_starts 或文件末尾
+            next_start = len(lines)
+            for s2, t2 in chapter_starts:
+                if s2 > start:
+                    next_start = s2
+                    break
+            span = next_start - start
+            if span >= 100:  # 100行以上才是真实内容
+                first_content_line = start
+                break
+    
+    filtered = OrderedDict()
+    for ch_num, (start, text) in by_number.items():
+        # 跳过位于目录块内的所有章节（目录行 ~ 第一个内容标题）
+        if toc_start is not None and first_content_line is not None:
+            if start >= toc_start and start < first_content_line:
+                continue
+        filtered[ch_num] = (start, text)
+    # 使用 filtered 替代 by_number
+    by_number = filtered
 
     sorted_starts = sorted(by_number.items(), key=lambda x: int(x[1][0]))
 
@@ -178,10 +236,18 @@ def split_book(
     results = []
     with open(book_path, 'r', encoding='utf-8') as f:
         all_lines = f.readlines()
-
+    # ------------------ 漂亮打印分割线 ------------------
     for start, end, heading_text, ch_num in ranges:
         chapter_lines = all_lines[start:end]
         fname = normalize_filename(heading_text)
+
+        # 跳过 TOC 条目（行数 < 100 且含页码标记 ……）
+        is_toc = bool(TOC_ENTRY_PATTERN.match(heading_text))
+        total_lines = len(chapter_lines)
+        if is_toc and total_lines < 100:
+            print(f"  ⏭ 跳过（目录条目，仅 {total_lines} 行）: {fname}")
+            results.append({"file": fname, "lines": total_lines, "ok": False})
+            continue
         out_path = os.path.join(output_dir, fname)
 
         if os.path.exists(out_path) and not force:

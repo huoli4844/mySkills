@@ -160,6 +160,11 @@ python3 scripts/yaml_writer.py self-instruct --type concept -c N --book-dir /pat
 python3 scripts/yaml_writer.py prompt --type concept
 python3 scripts/yaml_writer.py prompt --type kp --field theoretical_basis
 
+# C（推荐用于delegate_task）：从@prompt原料构建结构化Agent提示词
+python3 scripts/yaml_writer.py build-prompt --type concept -c N
+#    输出: 写作总则 + 逐字段要求(@prompt+字数) + 输出格式 + 质量检查
+#    将此输出直接注入 delegate_task context 作为Agent的写作指引
+
 # C：生成YAML骨架，只写值不写字段名
 python3 scripts/yaml_writer.py skeleton --type concept
 ```
@@ -515,7 +520,7 @@ This skill is designed to be fully automatic through its documented commands. **
 - `pipeline_v2.py quality-gate` — Mermaid + wikilink
 - `pipeline_v2.py review / review-fix` — quality
 - `pipeline_v2.py build-indices` — L2/L3/L4
-- `yaml_writer.py validate / self-instruct / prompt` — YAML tools
+- `yaml_writer.py validate / self-instruct / prompt / build-prompt` — YAML tools
 - `split_book_to_chapters.py prepare / split` — book prep
 
 If you need to do something and no skill command exists, fix the SKILL or use the existing commands — do not write a one-off script.
@@ -556,6 +561,7 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 | 4 | 解答 `question` 太短（<20字）被 schema 拦截 | solution 的 `question` 字段有 `min_chars: 20` 约束。直接从习题 YAML 复制原文 |
 | 5 | Agent 写的 `theoretical_basis` 太短（<150字）被拦截 | schema 中有 `min_chars` 约束。写之前用 `yaml_writer.py prompt --type kp --field theoretical_basis` 看要求 |
 | 6 | 内容质量的根因不是 prompt 不够细，而是源文不在上下文。prompt 只能解决"格式"，解决不了"深度" | Agent 写 YAML 前必须精读源文对应段落。prompt 命令只是锦上添花，不是雪中送炭。 |
+| 7 | **子代理写 YAML 时未拿到 @prompt 指引**（仅用了 `skeleton` 看字段名）→ 内容质量差：字数不足、无LaTeX公式、Mermaid格式错误、字段内容空洞 | delegate_task context 中必须包含 `yaml_writer.py build-prompt --type TYPE -c N` 的输出。模板 `<!-- @prompt ... -->` 是**原料**，需用 `build-prompt` 加工成结构化提示词（写作总则+逐字段要求+字数约束+格式规范+输出模板+校验指令）后注入 context。不要只给子代理 `skeleton` 输出（字段名清单不含任何写作指导）。 |
 | 7 | `confidence` 值超出允许范围（如 exercise 写 0.85 但只允许 0.65） | schema.json 每类型有 `confidence.allowed` 枚举。`yaml_writer.py write` 在校验阶段直接 reject |
 | 8 | 换书：章节文件名、关键词、教材描述全硬编码 | 所有领域信息已在 `_extract_domain_signals()` 中运行时自动提取。章节文件名通过 `get_source_path()` 自动发现（`f.startswith(f"第{chapter}章")`）。不再需要外部配置。详见 `scripts/verify_domain_agnostic.sh`。 |
 | 9 | 核心概念图的 `core_concept_map` 不含 ` ```mermaid ` fence → Obsidian 把 graph TD 当普通文字渲染，不显示图 | **引擎层防护**：`template_engine.py._auto_wrap_mermaid()` 自动检测 raw `graph TD/LR/flowchart/sequenceDiagram` 等 mermaid 语法并包裹代码块。**Agent 写 YAML 时的预防**：`core_concept_map` 只需写 `graph TD\n  A[label] --> B[label2]` 内容本身，不需要加 `` ```mermaid `` fence（引擎会加）。纯文字描述（如"接地是EMC四大技术之一"）不会被引擎转换，需重写为 graph 格式。 |
@@ -624,3 +630,4 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 || [inline-quality-workflow.md](references/inline-quality-workflow.md) | 内联质量检查工作流（inline-before-batch）：生成时就地检查，写一个过一件，不留给事后 |
 || [domain-book-wiki-pitfalls-migration.md](references/domain-book-wiki-pitfalls-migration.md) | 从旧技能迁移时发现的陷阱和修复记录（bare except/循环bug/文件红线/吸纳功能） |
 || [book-split-workflow.md](references/book-split-workflow.md) | 整书按章节拆分工作流：TOC检测、内容优先、章节名补全、逐行扫描、页码清理 |
+|| [batch-chapter-workflow.md](references/batch-chapter-workflow.md) | 批量章节处理工作流：delegate_task写YAML → pipeline_v2.py run 逐章全自动 |

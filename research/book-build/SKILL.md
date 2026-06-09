@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "基于知识库的专业教材编写技能：严格按用户提供的大纲，调用 kb-qa 从指定知识库目录检索内容，写出专业级教材。输出为 Obsidian Markdown 或 Word .docx（含可编辑公式）。"
-version: 1.4.0
+version: 1.6.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -28,9 +28,10 @@ metadata:
 
 **每章写作前必须加载本技能并阅读以下引用文件：**
 
-1. `references/chapter-writing-standard.md` —— 完整的写作流程规范（含**三书融合写作法**）
-2. `references/textbook-style-guide.md` —— 教材学术叙事风格指南
-3. `references/writing-patterns.md` —— 各内容类型完整写作示例
+1. `references/chapter-writing-workflow.md` —— **🚨 首要阅读！四步研读工作流：读三书→析写法→出指南→再动笔**
+2. `references/chapter-writing-standard.md` —— 完整的写作流程规范（含**三书融合写作法**）
+3. `references/textbook-style-guide.md` —— 教材学术叙事风格指南
+4. `references/writing-patterns.md` —— 各内容类型完整写作示例
 
 **核心原则（来自三本已出版教材的路宏敏、梁振光、张亮）**：
 
@@ -69,6 +70,13 @@ skill_view(name='book-build', file_path='references/textbook-style-guide.md')
         ▼
   Phase 0: 解析大纲 → 章节分层树（章→节→子节）
         │
+        ▼
+  Phase 0.5: 三书研读 + 写作指南生成 ← 新！阅读 references/chapter-writing-workflow.md
+        │    四步法：① 读三书对应章节原文
+        │           ② 填写三书手法对比表
+        │           ③ 标注三书共同盲区（发挥空间）
+        │           ④ 生成该章专用写作指南（output/writing-guide-ch{N}.md）
+        │
         ▼  对"每一节"循环：
   Phase 1: kb-qa 检索知识库 ← scripts/gen_prompt.py 调用 kb_search.py
         │   从指定 KB 目录搜索素材，按类型分组
@@ -95,6 +103,14 @@ skill_view(name='book-build', file_path='references/textbook-style-guide.md')
 # 0. 前置：加载依赖技能
 skill_view(name='kb-qa')
 skill_view(name='professional-textbook-compilation')
+
+# 0.5 首要步骤（每章写前必须执行）：
+#     参考 references/chapter-writing-workflow.md
+#     ① 通读三本书对应章节原文
+#     ② 分析三书写作手法，填写对比表
+#     ③ 标注三书共同盲区（发挥空间）
+#     ④ 生成该章写作指南 output/writing-guide-ch{N}.md
+#     ⑤ **确认该章总字节数 = 第1章字节数 × (5~10)**
 
 # 1. 解析大纲 → 章节树
 python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
@@ -976,9 +992,21 @@ graph LR
 
 ---
 
-#### 3.12.9 本章总结（Chapter Summary）
+#### 3.12.9 本章总结（Chapter Summary）——必须图文并茂
 
-每章末尾用一个无序列表收尾，**不要加"本章小结"标题**（那是 KB 模板的写法）。直接使用带编号的要点列表：
+每章末尾的总结必须包含**两种形式**：一张知识结构总览 Mermaid 图 + 一个六要点表格。用户明确要求"不要只有文字，要图文并茂"。
+
+**Mermaid 图规范**：
+- 使用 `%%{init: {"flowchart": {"useMaxWidth": false}}}%%` 防止 Obsidian 自动缩小
+- 使用 `graph LR`（横向）而非 `graph TB`（纵向）以获得更多宽度
+- 控制在 10 个节点以内，每个节点文字不超过 6 个中文字（不含 `<br/>`）
+- 禁止使用 emoji（某些 Mermaid 版本渲染 emoji 会出错或导致整个节点空白）
+- 使用 `subgraph` 分组归类，增强可读性
+- Mermaid 后必须跟 `*图 X-Y：图标题*` 文字说明
+
+**下方表格规范**：6条要点，每条以**粗体关键字**开头，每条独立可读，右栏标注对应章节来源。
+
+> 要点数量 = 本章节数或略少（5-7 条）。每条独立可读。不使用"关键公式卡片"或"本章在全书中的定位"等独立图表框。
 
 ```markdown
 ## 本章总结
@@ -1586,6 +1614,7 @@ Agent 动作:
 | 文件 | 职责 |
 |:-----|:-----|
 | `SKILL.md` | 本文件（技能使用文档） |
+| `references/chapter-writing-workflow.md` | **🚨必须读！四步研读工作流**：三书研读→手法分析→写作指南→按指南写作 |
 | `scripts/verify_chapter.py` | **质量核验脚本**：13项核验清单自动检查，支持单章/批量模式 |
 | `scripts/parse_outline.py` | 大纲解析：提取章节分层树 → JSON（支持 .docx 和 .md） |
 | `scripts/gen_prompt.py` | **写作指令生成器**：综合大纲+KB+内容类型+六要素，输出每节提示词 |

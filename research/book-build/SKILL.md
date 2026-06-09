@@ -53,7 +53,7 @@ python3 /tmp/parse_outline.py 大纲.docx -o /tmp/outline.json
 
 # 2. 对每节搜索 KB 获取素材
 cd <SKILL_DIR>/scripts/
-python3 search_kb.py /Users/me/知识库/电磁兼容 "干涉仪测向技术"
+python3 search_kb.py /Users/me/知识库/某领域 "3.2 某某技术原理"
 
 # 3. 判断内容类型
 python3 detect_content_type.py "1.1 发展历史"
@@ -157,20 +157,20 @@ skill_view(name='kb-qa')
 ```bash
 # 基本搜索
 cd /path/to/book-build/scripts/
-python3 search_kb.py /Users/me/知识库 "干涉仪测向技术"
+python3 search_kb.py /Users/me/知识库 "某技术"
 
 # JSON 格式（供其他脚本消费）
 python3 search_kb.py /Users/me/知识库 "1.1 研究背景" --format json --max-results 3
 
 # 输出示例
 # ──────────────────────────────────
-# 📋 标题：干涉仪测向技术
-# 🔑 关键词：干涉仪测向技术、干涉仪、测向
+# 📋 标题：某技术
+# 🔑 关键词：某技术、某领域
 # 📎 匹配结果：3 项
 #
-# ## 写作素材包：干涉仪测向技术
+# ## 写作素材包：某技术
 #
-# ### 来源1：/Users/me/知识库/概念/相位干涉仪.md
+# ### 来源1：/Users/me/知识库/概念/某概念.md
 # - **匹配方式**：filename（评分：10）
 # ...
 ```
@@ -210,13 +210,13 @@ python3 search_kb.py /Users/me/知识库 "1.1 研究背景" --format json --max-
 
 ```bash
 cd /path/to/book-build/scripts/
-python3 detect_content_type.py "1.1 电子对抗的发展历史"
+python3 detect_content_type.py "1.1 某领域的发展历史"
 # → 历史叙事型
 
-python3 detect_content_type.py "2.1.4 侦察方程与作用距离" --has-formula yes
+python3 detect_content_type.py "某原理" --has-formula yes
 # → 原理推导型
 
-python3 detect_content_type.py "2.1.3 侦察接收机的特性"
+python3 detect_content_type.py "某系统的特性"
 # → 分类枚举型
 ```
 
@@ -259,7 +259,7 @@ python3 detect_content_type.py "2.1.3 侦察接收机的特性"
 
 | 类型 | 示例 |
 |:-----|:------|
-| **设问** | "为什么侦察系统能比雷达更早发现目标呢？" |
+| **设问** | "为什么某系统能比另一系统更早发现目标呢？" |
 | **类比** | "人离物体越远，就越难看清物体。同样的道理..." |
 | **递进** | "上述分析基于简化条件。在实际工程中，还需要考虑..." |
 | **转折** | "然而，以上结论仅在自由空间传播条件下成立..." |
@@ -268,10 +268,12 @@ python3 detect_content_type.py "2.1.3 侦察接收机的特性"
 ### 3.3 公式融入叙述
 
 ```
-下面通过作用距离方程具体加以说明。为分析方便，假定雷达采用收发共用天线，
-此时简化的雷达作用距离方程如下：
+下面通过某方程具体加以说明。为分析方便，假定某系统采用标准配置，
+此时简化的方程如下：
 
-$$P_r = \frac{P_t G_t G_r \lambda^2}{(4\pi R)^2}$$
+$$
+P_r = \frac{P_t G_t G_r \lambda^2}{(4\pi R)^2}
+$$
 
 式中，$P_r$ 为接收信号功率（W），$P_t$ 为发射功率（W），$G_t$ 为发射天线增益。
 ```
@@ -283,11 +285,11 @@ $$P_r = \frac{P_t G_t G_r \lambda^2}{(4\pi R)^2}$$
 实例不单独成节，自然融入叙述：
 
 ```
-以下进行实例分析。假定某雷达作用距离为100km，发射功率为100kW...
+以下进行实例分析。假定某系统作用距离为100km，发射功率为100kW...
 
-（1）对雷达的主瓣侦察：此时，天线增益取G_t=30dB，代入计算得...
+（1）对某模式的分析：此时，参数A取30，代入计算得...
 
-（2）对雷达的旁瓣侦察：一般雷达天线主瓣很窄，旁瓣增益通常比主瓣低20-30dB...
+（2）对某模式的分析：一般此类系统特性X通常比特性Y低20-30...
 ```
 
 ### 3.5 枚举方式变化
@@ -448,10 +450,10 @@ for c in outline['chapters']:
 python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
 
 # 2. 搜索 KB 素材
-python3 scripts/search_kb.py /Users/me/知识库 "1.1 基本概念"
+python3 scripts/search_kb.py /Users/me/知识库 "某章节标题"
 
 # 3. 检测内容类型
-python3 scripts/detect_content_type.py "2.1.4 侦察方程" --has-formula yes
+python3 scripts/detect_content_type.py "某原理" --has-formula yes
 
 # 4. 委托子 Agent 写某一章
 delegate_task(goal="写第1章 绪论",

@@ -6,8 +6,8 @@
   python3 detect_content_type.py "<章节标题>" [--has-formula yes|no] [--has-example yes|no] [--kbsource concept|kp|none]
 
 示例：
-  python3 detect_content_type.py "1.1 电子对抗的发展历史"
-  python3 detect_content_type.py "2.1.4 侦察方程与作用距离" --has-formula yes
+  python3 detect_content_type.py "1.1 某领域的发展历史"
+  python3 detect_content_type.py "2.1.4 某原理" --has-formula yes
 """
 import argparse, json, re, sys
 

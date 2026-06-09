@@ -6,7 +6,7 @@
   python3 search_kb.py <KB_DIR> "<章节标题>" [--max-results N] [--format json|text]
 
 示例：
-  python3 search_kb.py /Users/me/知识库/电磁兼容 "干涉仪测向技术"
+  python3 search_kb.py /Users/me/知识库/某领域 "某技术原理"
   python3 search_kb.py /Users/me/知识库 "1.1 研究背景与意义" --max-results 3 --format json
 """
 import argparse, json, os, re, sys
@@ -19,7 +19,7 @@ def extract_keywords(title: str) -> list[str]:
     cleaned = re.sub(r'^第[一二三四五六七八九十\d]+章\s*', '', cleaned)
     parts = re.split(r'[与和、,，]', cleaned)
     keywords = [p.strip() for p in parts if len(p.strip()) >= 2]
-    if len(cleaned.strip()) >= 4:
+    if len(cleaned.strip()) >= 4 and cleaned.strip() not in keywords:
         keywords.insert(0, cleaned.strip())
     return keywords
 

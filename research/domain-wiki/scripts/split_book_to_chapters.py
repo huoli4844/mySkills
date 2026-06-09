@@ -178,10 +178,6 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
     
     filtered = OrderedDict()
     for ch_num, (start, text) in by_number.items():
-        # 跳过位于目录块内的所有章节（目录行 ~ 第一个内容标题）
-        if toc_start is not None and first_content_line is not None:
-            if start >= toc_start and start < first_content_line:
-                continue
         filtered[ch_num] = (start, text)
     # 使用 filtered 替代 by_number
     by_number = filtered
@@ -239,7 +235,10 @@ def discover_chapter_ranges(filepath: str) -> list[tuple[int, int, str, str]]:
 
 def normalize_filename(heading_text: str) -> str:
     """标准化文件名: 第N章 名称.md"""
-    m = re.match(r'[#]*\s*第\s*(\d+)\s*章\s*(.*)', heading_text)
+    # 清理页码标记（尾部数字 或 …… 标记）
+    clean = re.sub(r'\s*……\s*\d*\s*$', '', heading_text)
+    clean = re.sub(r'\s+\d+\s*$', '', clean)
+    m = re.match(r'[#]*\s*第\s*(\d+)\s*章\s*(.*)', clean)
     if m:
         ch_num = m.group(1)
         ch_name = m.group(2).strip()
@@ -280,11 +279,11 @@ def split_book(
     for start, end, heading_text, ch_num in ranges:
         chapter_lines = all_lines[start:end]
         fname = normalize_filename(heading_text)
-
-        # 跳过 TOC 条目（行数 < 100 且含页码标记 ……）
-        is_toc = bool(TOC_ENTRY_PATTERN.match(heading_text))
         total_lines = len(chapter_lines)
-        if is_toc and total_lines < 100:
+        is_toc = bool(TOC_ENTRY_PATTERN.match(heading_text))
+
+        # 跳过明显的TOC短条目（仅 sub-section 列表，无正文内容）
+        if total_lines < 15 and is_toc:
             print(f"  ⏭ 跳过（目录条目，仅 {total_lines} 行）: {fname}")
             results.append({"file": fname, "lines": total_lines, "ok": False})
             continue

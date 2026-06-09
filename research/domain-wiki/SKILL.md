@@ -71,11 +71,12 @@ grep -rn "EMC\|dB\|MHz\|GHz\|PCB\|FDTD" scripts/ --include="*.py"
     yaml_writer.py self-instruct --type concept -c N --book-dir .
 ```
 
-## 核心文件（19 个脚本 + 1 验证脚本 + 1 测试套）
+## 核心文件（20 个脚本 + 1 验证脚本 + 1 测试套）
 
 | 文件 | 职责 |
 |------|------|
 | `scripts/pipeline_v2.py` | 编排器：校验 YAML → 驱动 template_engine → 质量门 → 状态持久化。10子命令 |
+| `scripts/phase_a.py` | Phase A 构建引擎（从 pipeline_v2.py 拆分）。含 phase_a()、PHASE_A_STEPS、run_script、get_chapter_dir |
 | `scripts/pipeline_fix.py` | review-fix 流程：调用 quality_reviewer → 解析JSON → 输出FIX指令 → 修复后重渲染+审查 |
 | `scripts/yaml_writer.py` | YAML 写入 + pydantic 校验 + @prompt 提取 + self-instruct 自指导 |
 | `scripts/template_engine.py` | 模板渲染：读 schema → 填 {{xxx}} → 自动包裹 mermaid 图 → 剥离 @prompt 注释 |

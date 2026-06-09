@@ -97,6 +97,48 @@ grep -rn "EMC\|dB\|MHz\|GHz\|PCB\|FDTD" scripts/ --include="*.py"
 | `tests/test_core.py -v` | 12 个测试（状态管理/KG构建/pipeline CLI） |
 
 
+## 绝对守则（用户反复纠正，牢记）
+
+### 守则1: 只用技能文档化命令，不写自定义脚本
+
+这个技能的每步操作都有 PL 提供的命令（`pipeline_v2.py phase-a / run / review / review-fix / build-indices`）。
+任何写临时 Python 脚本的行为都是错误的——会引入不可维护的碎片、绕过质量门、且在技能迭代时被遗忘。
+
+| 禁忌 | 替代方案 |
+|:-----|:---------|
+| 写一个 Python 脚本批量改 YAML | `yaml_writer.py validate / self-instruct` + Agent 逐项内联检查 |
+| 写一个脚本 enrich 所有概念 | `delegate_task` + `quality_reviewer.py check-item` 内联工作流 |
+| 写一个脚本检测问题 | 用 PL 的 `review / review-fix / quality-gate` 命令 |
+| 全手动改文件 | 用 `pipeline_v2.py run` 自动推进 |
+
+**检查：** 每次提交前运行 `git diff --stat`，如果有新增 `.py` 文件不在 SKILL.md 核心文件列表中，它不该存在。
+
+### 守则2: 全自动，不问问题
+
+这个技能的 `pipeline_v2.py run` 命令设计为一次执行完所有待处理阶段。用户期望零打断的自动管线。
+
+- 质量门低分 → 直接运行 `review-fix --re-render --apply` 自动修复
+- 概念不够 → 用 `delegate_task` 让 Agent 用 `self-instruct` 补充，不要问要不要
+- 有任何问题 → 直接做，不要用「要我现在 X 吗？」「需要我处理 Y 吗？」这种句式
+
+**用户原话：**「为什么不能全自动？为什么一直问我？质量审查体系一点作用都没有吗？」
+
+### 守则3: 文件名不用版本号后缀
+
+`pipeline_v2.py` 是命名反模式——暗示未来会有 `pipeline_v3.py`、`pipeline_v4.py` 的膨胀路径，和 `domain-book-wiki` 的 `dag_pipeline_run.py` / `pipeline_auto.py` 前缀过载同一类问题。
+
+命名规则：`{模块名}.py`，无版本后缀。超 600 行时按 Anti-Bloat Covenant 拆分，保持原名。
+
+### 守则4: 不要在备份技能上改代码
+
+`research/domain-book-wiki/` 是 commit `8c3cd15` 标注的**历史备份**。改它 = 浪费时间。
+
+验证方法（每次编辑前执行，非可选）：
+```bash
+grep -c '@prompt' ~/.hermes/skills/research/domain-wiki/assets/templates/concept_template.md
+# 期望 24 — 如果得到 0，说明改错技能了
+```
+
 ## 核心设计原则
 
 ### 模板是字段的单一权威源（用户核心要求）

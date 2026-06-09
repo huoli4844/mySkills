@@ -197,21 +197,48 @@ def check_depth(yaml_data: list[dict], ptype: str) -> list[dict]:
 # ════════════════════════════════════════════════════════════
 
 def check_cross_references(yaml_by_type: dict[str, list]) -> list[dict]:
+    """检查跨章引用断裂和同名概念冲突"""
+    import re as _re
     issues = []
     name_to_file = {}
+    # 第一遍：收集所有名称→文件映射
     for ptype, ydata in yaml_by_type.items():
         for item in ydata:
             n = item.get("name", "")
-            name_to_file[n] = {"file": item.get("file", n), "type": ptype}
+            f = item.get("file", n)
+            name_to_file.setdefault(n, []).append({"file": f, "type": ptype})
+
+    # 第二遍：检测同名概念冲突（不同章节/类型下同名）
+    for name, refs in name_to_file.items():
+        if len(refs) >= 2:
+            types = set(r["type"] for r in refs)
+            files = set(r["file"] for r in refs)
+            if len(types) >= 2 or len(files) >= 2:
+                refs_str = ", ".join(f'{r["type"]}/{r["file"]}' for r in refs)
+                issues.append({
+                    "file": refs[0]["file"],
+                    "tier": "T1", "severity": "warning",
+                    "category": "cross_chapter_conflict",
+                    "message": f"同名概念「{name}」出现在{len(refs)}处: {refs_str}",
+                })
+
+    # 第三遍：检测 wikilink 目标是否存在
     for ptype, ydata in yaml_by_type.items():
         for item in ydata:
             text = str(item.get("bd", {}))
-            for link in re.findall(r"\[\[([^\]|]+)", text):
-                clean = link.split("#")[0].strip()
+            for link in _re.finditer(r"\[\[([^\]|]+)", text):
+                clean = link.group(1).split("#")[0].strip()
                 while clean.startswith("../"):
                     clean = clean[3:]
                 if "/" in clean:
                     clean = clean.split("/")[-1]
+                if clean and clean not in name_to_file:
+                    issues.append({
+                        "file": item.get("file", "?"),
+                        "tier": "T2", "severity": "warning",
+                        "category": "wikilink_broken",
+                        "message": f"wikilink [[{link.group(1)}]] 目标不存在",
+                    })
     return issues
 
 

@@ -72,6 +72,8 @@ QUALITY_REVIEWER = os.path.join(SCRIPT_DIR, "quality_reviewer.py")
 # ── 审查+修复流程模块 ──
 sys.path.insert(0, SCRIPT_DIR)
 from pipeline_fix import review_and_fix, apply_fixes_and_rerender  # noqa: E402
+# ── Phase A 引擎（从 phase_a.py 导入） ──
+from phase_a import phase_a, run_script, get_chapter_dir, get_source_path  # noqa: E402
 
 
 # ════════════════════════════════════════════════════════════
@@ -129,163 +131,12 @@ PHASE_A_STEPS = {
 
 def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str,
             resume: bool = False):
-    """Phase A: 校验YAML → 渲染输出（纯代码，零Agent，带状态追踪）"""
-    data_dir = get_chapter_dir(book_dir, chapter)
-    state = ChapterState(book_dir, book_id, chapter)
+    """Phase A: 委托给 phase_a.py（模块化拆分后）"""
+    from phase_a import phase_a as _real_phase_a
+    return _real_phase_a(book_dir, chapter, book_id, book_name, resume=resume)
 
-    if resume:
-        # 获取下一个未完成的 Phase A 阶段
-        for pname in PHASE_A_STEPS:
-            can, reason = state.can_run(pname)
-            if can:
-                break
-        else:
-            print(f"  ✅ 第{chapter}章 Phase A 所有阶段已完成")
-            return True
-        print(f"  📍 断点续传: 从 {pname}({PHASE_A_STEPS[pname]}) 开始")
 
-    for yf, pname in [
-        ('concepts.yaml', 'concepts'),
-        ('kes.yaml', 'ke'),
-        ('entities.yaml', 'entities'),
-        ('kps.yaml', 'kp'),
-        ('sps.yaml', 'sp'),
-        ('scenes.yaml', 'scene'),
-    ]:
-        if resume and state.get_status(pname) == "done":
-            continue
-        yp = os.path.join(data_dir, yf)
-        if not os.path.isfile(yp):
-            print(f"❌ 缺少 {yf}")
-            state.set_status(pname, "failed")
-            state.save()
-            return False
 
-    if not resume or state.can_run("solutions")[0]:
-        # 习题和解答不阻断（可选）
-        pass
-
-    # Step 1: schema校验所有YAML
-    print("=" * 60)
-    print("Phase A Step 1: 校验YAML数据")
-    print("=" * 60)
-
-    yaml_files = sorted(f for f in os.listdir(data_dir) if f.endswith(('.yaml', '.yml')))
-    yaml_map = {
-        'concepts.yaml': 'concept', 'kes.yaml': 'ke', 'entities.yaml': 'entity',
-        'kps.yaml': 'kp', 'sps.yaml': 'sp', 'scenes.yaml': 'scene',
-        'exercises.yaml': 'exercise', 'solutions.yaml': 'solution',
-    }
-
-    all_ok = True
-    for yf in yaml_files:
-        yp = os.path.join(data_dir, yf)
-        type_name = yaml_map.get(yf)
-        if type_name:
-            if not run_script(YAML_WRITER, ['validate', '--yaml-path', yp, '--type', type_name]):
-                all_ok = False
-
-    if not all_ok:
-        print("\n❌ YAML 校验失败，请修复后重试")
-        return False
-    print("\n✅ 全部YAML校验通过")
-    state.set_status("chapter_toc", "done")
-    state.save()
-
-    # Step 2: 模板渲染
-    print("\n" + "=" * 60)
-    print("Phase A Step 2: 模板渲染")
-    print("=" * 60)
-
-    ok = run_script(TEMPLATE_ENGINE, [
-        'render-chapter',
-        '--data-dir', data_dir,
-        '--output-dir', book_dir,
-        '--book-id', book_id,
-        '--book-name', book_name,
-        '-c', chapter,
-    ])
-
-    if not ok:
-        print("\n❌ Step 2 失败: 模板渲染出错")
-        return False
-
-    print(f"\n✅ Step 2 完成")
-    for pname in ["concepts", "ke", "entities", "kp", "sp", "scene"]:
-        state.set_status(pname, "done")
-    state.save()
-
-    # Step 3: 质量门
-    print("\n" + "=" * 60)
-    print("Phase A Step 3: 质量门 — Mermaid验证 + wikilink修复")
-    print("=" * 60)
-
-    mr = run_script(VALIDATE_MERMAID, ['--book-dir', book_dir])
-    print(f"  {'✅' if mr else '⚠️'} Mermaid验证")
-
-    wf1 = run_script(WIKILINK_DEEP_FIXER, [book_dir])
-    print(f"  {'✅' if wf1 else '⚠️'} 章节关联wikilink")
-
-    wf2 = run_script(WIKILINK_FIXER, [book_dir])
-    print(f"  {'✅' if wf2 else '⚠️'} 反向链接补全")
-
-    ok_q = mr and (wf1 is not False) and (wf2 is not False)
-    state.set_status("exercises", "done")
-    state.set_status("solutions", "done")
-    state.save()
-
-    if ok_q:
-        print(f"\n✅ Phase A 全部完成: 第{chapter}章")
-    else:
-        print(f"\n✅ Phase A 完成 (有质量警告): 第{chapter}章")
-
-    # 质量门已通过，运行结构完整性检查（T1）+ 审查
-    print("\n" + "=" * 60)
-    print("Phase A Step 4: 质量审查 + 修复指令生成")
-    print("=" * 60)
-
-    # 使用 --json 运行质量审查
-    python = sys.executable
-    qr = subprocess.run(
-        [python, QUALITY_REVIEWER, "chapter",
-         "--book-dir", book_dir, "--book-id", book_id,
-         "-c", chapter, "--json", "--threshold", "0.3",
-         "--fix-threshold", "0.8"],
-        capture_output=True, text=True
-    )
-
-    if qr.returncode == 0:
-        print("  ✅ 质量审查通过")
-        if qr.stdout:
-            try:
-                jr = json.loads(qr.stdout)
-                print(f"  📊 评分: {jr.get('score', 0):.0%}")
-            except (json.JSONDecodeError, ValueError):
-                pass
-    elif qr.returncode == 1:
-        # 低于阈值但继续（非阻断）
-        print("  ⚠️  质量审查发现异常（可接受）")
-        if qr.stdout:
-            try:
-                jr = json.loads(qr.stdout)
-                score = jr.get("score", 0)
-                print(f"  📊 评分: {score:.0%}")
-                manifest = jr.get("fix_manifest", [])
-                if manifest:
-                    print(f"  🛠️  {len(manifest)}个文件需修复:")
-                    type_counts = defaultdict(int)
-                    for item in manifest:
-                        type_counts[item["type"]] += 1
-                    for t, c in sorted(type_counts.items()):
-                        print(f"    {t}: {c}项")
-                    print("  💡 运行: pipeline_v2.py review-fix ...")
-            except Exception:  # 统计解析失败
-                pass
-    else:
-        print(f"  ⚠️  审查异常: {qr.returncode}")
-        print(qr.stderr[:300] if qr.stderr else "")
-
-    return True
 
 
 # ════════════════════════════════════════════════════════════

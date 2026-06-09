@@ -54,7 +54,8 @@ def read_frontmatter(path):
     try:
         with open(path, encoding="utf-8") as f:
             content = f.read()
-    except Exception:
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"  [index] 文件读取失败: {e}")
         return {}, ""
     fm = {}
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)

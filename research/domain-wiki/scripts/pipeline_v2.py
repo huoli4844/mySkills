@@ -260,7 +260,7 @@ def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str,
             try:
                 jr = json.loads(qr.stdout)
                 print(f"  📊 评分: {jr.get('score', 0):.0%}")
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 pass
     elif qr.returncode == 1:
         # 低于阈值但继续（非阻断）
@@ -279,7 +279,7 @@ def phase_a(book_dir: str, chapter: str, book_id: str, book_name: str,
                     for t, c in sorted(type_counts.items()):
                         print(f"    {t}: {c}项")
                     print("  💡 运行: pipeline_v2.py review-fix ...")
-            except Exception:
+            except Exception:  # 统计解析失败
                 pass
     else:
         print(f"  ⚠️  审查异常: {qr.returncode}")

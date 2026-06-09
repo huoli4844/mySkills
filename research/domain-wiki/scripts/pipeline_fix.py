@@ -169,7 +169,7 @@ def apply_fixes_and_rerender(book_dir: str, book_id: str, chapter: str) -> bool:
             with open(state_path) as f:
                 sd = json.load(f)
             book_name = sd.get("book_name", "?")
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             pass
 
     ok = run_script(TEMPLATE_ENGINE, [
@@ -205,7 +205,7 @@ def apply_fixes_and_rerender(book_dir: str, book_id: str, chapter: str) -> bool:
                 if ts.get("items", 0) > 0:
                     print(f"    {ptype:12s}: {ts['score']:.0%}")
             print(f"  {'✅ 修复后质量达标' if r.returncode == 0 else '⚠️ 修复后仍低于阈值'}")
-        except Exception:
+        except (json.JSONDecodeError, ValueError) as e:
             print(f"  无法解析JSON: {r.stdout[:500]}")
 
     print(f"\n✅ 修复确认完成")

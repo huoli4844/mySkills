@@ -250,7 +250,8 @@ class KGraph:
             try:
                 with open(entry["path"], encoding="utf-8") as f:
                     content = f.read()
-            except Exception:
+            except Exception as e:
+                print(f"  [kg_builder] 读取文件失败 {entry.get('path', '?')}: {e}")
                 continue
 
             dir_name = os.path.basename(entry["dir"])

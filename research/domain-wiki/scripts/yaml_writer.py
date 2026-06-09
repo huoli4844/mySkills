@@ -123,6 +123,11 @@ def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
     lines.append(f"# 章节: 第{chapter_num}章")
     lines.append("# ════════════════════════════════════════════════")
 
+    lines.append("")
+    lines.append("⚠️ 顶层 file 字段规则：值为该类型节点的名称（如概念名/技能点名），")
+    lines.append('   不含 .md 后缀。禁止使用 source_from 的值（源章节文件名含 .md），')
+    lines.append("   否则生成文件名会变成 xxx.md.md。file 不设时默认用 name 字段。")
+
     if source_sections:
         lines.append("")
         lines.append("## 一、源文章节结构")

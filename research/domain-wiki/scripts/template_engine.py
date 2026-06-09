@@ -236,6 +236,9 @@ def get_output_filename(item: dict, type_name: str, chapter_num: str) -> str:
 
     # 其他类型使用 file 字段
     file_base = item.get('file', item.get('name', 'unnamed'))
+    # 防御性去除已有 .md 后缀，防止 Agent 误将 source_from 值（含 .md）写入 file 字段导致 .md.md
+    if file_base.endswith('.md'):
+        file_base = file_base[:-3]
     return f"{file_base}.md"
 
 

@@ -299,7 +299,7 @@ def build_graph_section(kg) -> dict:
                                     seen_type.add(n["type"])
                         if path_nodes:
                             paths.append(f"- 🚀 从「{r['name']}」出发: {' → '.join(path_nodes)}")
-                except Exception:
+                except Exception as e:  # 单条路径分析失败
                     pass
             if paths:
                 result["learning_path"] = "\n".join(paths)

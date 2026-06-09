@@ -91,7 +91,7 @@ def build_l3_index(book_dir: str, book_id: str, book_name: str):
     try:
         kg_stats = kg.build()
         gs = build_graph_section(kg)
-    except Exception:
+    except Exception as e:
         kg_stats = None
         gs = {}
 
@@ -225,7 +225,7 @@ def build_l4_index(book_dir: str, book_id: str):
     try:
         kg_stats = kg.build()
         gs = build_graph_section(kg)
-    except Exception:
+    except Exception as e:
         kg_stats = None
         gs = {}
 

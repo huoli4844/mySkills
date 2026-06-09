@@ -69,7 +69,7 @@ def read_file_content(path: str) -> str:
     try:
         with open(path, encoding="utf-8") as f:
             return f.read()
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return ""
 
 
@@ -87,7 +87,10 @@ def check_structure(yaml_data: list[dict], rendered_dir: str, ptype: str) -> lis
         name = item.get("name", item.get("file", "?"))
         fm = item.get("fm", {})
         bd = item.get("bd", {})
-        file_path = os.path.join(rendered_dir, f"{item.get('file', name)}.md")
+        file_base = item.get('file', name)
+        if file_base.endswith('.md'):
+            file_base = file_base[:-3]
+        file_path = os.path.join(rendered_dir, f"{file_base}.md")
 
         if not item.get("name", ""):
             issues.append({"file": name, "tier": "T1", "severity": "error",
@@ -269,7 +272,7 @@ def review_type(yaml_path: str, rendered_dir: str, ptype: str) -> dict:
             "score": fs["score"], "error": fs["error"],
             "warning": fs["warning"], "info": fs["info"],
             "issues": fi[:10], "yaml_path": yaml_path,
-            "rendered_path": os.path.join(rendered_dir, f"{item.get('file', name)}.md"),
+            "rendered_path": os.path.join(rendered_dir, f"{item.get('file', name).removesuffix('.md')}.md"),
             "type": ptype,
         }
     scored["file_scores"] = file_scores
@@ -458,7 +461,7 @@ def check_and_block(book_dir: str, book_id: str, chapter: str,
                 state.set_status(ptype, "failed" if result.get("type_scores", {})
                                 .get(ptype, {}).get("score", 1.0) < threshold else "done")
             state.save()
-        except Exception:
+        except KeyError:  # 类型不在评分结果中
             pass
     return score >= threshold, result
 

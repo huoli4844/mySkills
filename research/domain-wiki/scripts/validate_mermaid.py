@@ -60,6 +60,12 @@ def validate_book(book_dir: str, fix: bool = False) -> int:
         elif not (first.startswith('graph ') or first.startswith('sequenceDiagram')):
             file_issues.append(f"  首行不是graph/flowchart: {first[:40]}")
 
+        # 检测 graph TD TD（字符串替换导致的重复关键字）
+        if first.startswith('graph '):
+            parts = first[6:].strip().split()
+            if len(parts) >= 2 and parts[0] == parts[1]:
+                file_issues.append(f"  ❌ graph 方向关键字重复: `{parts[0]} {parts[0]}`（应为 `{parts[0]}`）")
+
         # 2. 各行检查
         for i, line in enumerate(lines, 1):
             if '[' in line and ']' in line:

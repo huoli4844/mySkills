@@ -600,6 +600,7 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 | | **`split_book_to_chapters.py` 正则 `.+?` 不匹配无标题章节** → `# 第2章`（只有章节号无标题文本）未被 `CHAPTER_PATTERN` 捕获，内容章节丢失。（2026-06-09 处理 `21K行` 新书时发现） | CHAPTER_PATTERN 的 `.+?`（至少1字符）改为 `.*?`（0字符也可）：`r"^(?:#{1,2})?\s*(第\s*\d+\s*章\s*.*?)(?:\s*)$"`。同时新增 `CHAPTER_BARE_PATTERN` 匹配无 `#` 前缀的章节（`第6章 电缆...`）。|
 
 | | **`split_book_to_chapters.py` TOC 块过滤过严 → 章节编号不连续** | 保留所有章节，仅跳过 <15行的TOC片段。TOC条目是章节存在形式。详见 [toc-detection-design.md](references/toc-detection-design.md)。 |
+| | **`git add -A` 污染其他技能目录 → 提交时会把 book-build/ 等无关目录一并 stage，违反用户「git add只能domain-wiki/目录」规则** | 提交前 `git diff --cached --stat` 确认只有 domain-wiki 文件。用 `git add research/domain-wiki/` 替代 `git add -A`。 |
 | | **`split_book_to_chapters.py` 不报告各章内容质量 → 源文件缺失正文的章节静默生成瘦文件** | `split_book()` 中按文件大小分级输出 `✅有正文(>20KB)／⚠️少量(2-20KB)／❌仅标题(<2KB)`，让用户明确知道哪些章节有实质内容、哪些仅为标题大纲。对于 `❌` 级别的章节，根因通常是源文件本身缺失正文（OCR/MinerU提取遗漏），不是拆分工具的问题。 |
 | | **源文件部分章节缺失正文（MinerU/OCR提取遗漏）** → 拆分后部分章节只有标题大纲(<2KB)，无段落文字。根因不是拆分工具而是源文件本身。 | 检查源文件目录是否有 `_content_list_v2.json`（MinerU/常规提取器的按页内容清单）。用 `split_book_to_chapters.py reconstruct -w BOOK --v2-path RAW/xxx_content_list_v2.json` 按页眉章节边界重建正文。reconstruct 命令提取每页的 `page_header`（如"第3章"）确定章节归属，然后提取 `title(标题)+paragraph(正文)` 内容重组章节文件。实测7章从0-4KB恢复至11-84KB。无 page_header 的 PDF 提取文件不适用此方法。 |
 

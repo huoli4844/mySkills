@@ -1,0 +1,538 @@
+---
+name: book-build
+description: "基于知识库的专业教材编写技能：严格按用户提供的大纲，调用 kb-qa 从指定知识库目录检索内容，写出专业级教材。输出为 Obsidian Markdown 或 Word .docx（含可编辑公式）。"
+version: 1.1.0
+author: Hermes Agent
+license: MIT
+platforms: [macos, linux]
+metadata:
+  hermes:
+    tags: [textbook, outline-driven, kb-qa, academic, teaching, docx]
+    category: research
+    related_skills: [kb-qa, professional-textbook-compilation, file2md, officecli]
+---
+
+# book-build（基于知识库的教材编写）
+
+## 核心理念
+
+**大纲驱动，知识库供料，严格遵循结构，专业级学术写作。**
+
+```
+用户提供大纲（.docx / .md / 文本）
+        │
+        ▼
+  Phase 0: 解析大纲 → 章节分层树（章→节→子节）
+        │
+        ▼  对"每一节"循环：
+  Phase 1: kb-qa 检索知识库 ← scripts/search_kb.py
+        │   从指定 KB 目录搜索素材
+        ▼
+  Phase 2: 判断内容类型 ← scripts/detect_content_type.py
+        │   6 种写作模式选其一
+        ▼
+  Phase 3: 学术散文写作（去模板化、物理直观→公式→实例）
+        │
+        ▼
+  Phase 4: 格式输出（.md / .docx）
+        │
+        ▼
+  Phase 5: 质量核验
+```
+
+## 快速开始
+
+```bash
+# 0. 前置：加载依赖技能
+skill_view(name='kb-qa')
+skill_view(name='professional-textbook-compilation')
+
+# 1. 解析大纲 → 章节树
+cp <SKILL_DIR>/scripts/parse_outline.py /tmp/
+python3 /tmp/parse_outline.py 大纲.docx -o /tmp/outline.json
+
+# 2. 对每节搜索 KB 获取素材
+cd <SKILL_DIR>/scripts/
+python3 search_kb.py /Users/me/知识库/电磁兼容 "干涉仪测向技术"
+
+# 3. 判断内容类型
+python3 detect_content_type.py "1.1 发展历史"
+
+# 4. 对每章：委托子 Agent 写作
+delegate_task(goal="写第1章", context="大纲: ..., KB: ..., 输出: md")
+```
+
+## 前置条件
+
+| 依赖 | 说明 | 验证 |
+|:-----|:-----|:-----|
+| `kb-qa` 技能 | 检索方法论（本技能重度依赖） | `skill_view(name='kb-qa')` |
+| `python-docx` | 用于 .docx 输出（可选） | `pip install python-docx` |
+| `professional-textbook-compilation` 技能 | .docx 辅助函数（可选） | `skill_view(name='professional-textbook-compilation')` |
+| `file2md` 技能 | 当大纲是 .docx 格式时使用（可选） | `skill_view(name='file2md')` |
+
+---
+
+## 完整工作流（6 Phase）
+
+```
+Phase 0: 大纲解析       → 提取章节分层树，输出 /tmp/outline.json
+Phase 1: kb-qa 检索     → 对每节搜索 KB，输出素材包
+Phase 2: 内容类型判别    → 6 种写作模式选其一
+Phase 3: 学术写作        → 去模板化专业教材正文
+Phase 4: 格式输出        → .md 或 .docx
+Phase 5: 质量核验        → 结构/深度/学术/去AI味 四维检查
+```
+
+---
+
+## Phase 0：大纲解析
+
+### 支持的大纲格式
+
+| 格式 | 处理命令 |
+|:-----|:---------|
+| .docx 文件 | `python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json` |
+| .md 文件 | `python3 scripts/parse_outline.py 大纲.md -o /tmp/outline.json` |
+| 纯文本粘贴 | `python3 scripts/parse_outline.py /dev/stdin -o /tmp/outline.json`（粘贴后 Ctrl+D） |
+
+### 输出 JSON 结构
+
+```json
+{
+  "title": "书名",
+  "chapters": [
+    {
+      "number": "1", "title": "第1章 绪论",
+      "sections": [
+        {"number": "1.1", "title": "1.1 研究背景", "subsections": []},
+        {"number": "1.2", "title": "1.2 基本概念",
+         "subsections": [
+           {"number": "1.2.1", "title": "1.2.1 定义"},
+           {"number": "1.2.2", "title": "1.2.2 分类"}
+         ]}
+      ]
+    },
+    {"number": "2", "title": "第2章 基础理论", "sections": [...]}
+  ]
+}
+```
+
+### 校验规则
+
+- 章节编号连续（`第1章` → `第2章` → `第3章` 无跳跃）
+- 节编号完整（`1.1` 后有 `1.2`，无缺失）
+- 叶节点标题不为空
+
+### 任务清单输出
+
+```text
+📋 写作任务清单（共计 N 个叶节点）
+  ├── 第1章 绪论 (2节: 1.1-1.2)
+  │   ├── 1.1 研究背景与意义     ← 待写
+  │   └── 1.2 基本概念           ← 待写
+  ├── 第2章 基础理论 (3节: 2.1-2.3)
+  │   ├── 2.1 数学基础           ← 待写
+  │   ├── 2.2 物理原理           ← 待写
+  │   └── 2.3 关键技术指标       ← 待写
+  └── 共 5 节
+```
+
+> ⚠️ **绝对原则**：大纲中每一节都必须写，不遗漏。同时**不添加大纲中不存在的章节**。
+
+---
+
+## Phase 1：kb-qa 检索
+
+### 1.1 加载 kb-qa 技能
+
+```text
+skill_view(name='kb-qa')
+```
+
+取得 kb-qa Phase A 的检索方法论：关键词提取、跨目录搜索、读取匹配页面、合成回答。
+
+### 1.2 搜索知识库
+
+```bash
+# 基本搜索
+cd /path/to/book-build/scripts/
+python3 search_kb.py /Users/me/知识库 "干涉仪测向技术"
+
+# JSON 格式（供其他脚本消费）
+python3 search_kb.py /Users/me/知识库 "1.1 研究背景" --format json --max-results 3
+
+# 输出示例
+# ──────────────────────────────────
+# 📋 标题：干涉仪测向技术
+# 🔑 关键词：干涉仪测向技术、干涉仪、测向
+# 📎 匹配结果：3 项
+#
+# ## 写作素材包：干涉仪测向技术
+#
+# ### 来源1：/Users/me/知识库/概念/相位干涉仪.md
+# - **匹配方式**：filename（评分：10）
+# ...
+```
+
+### 1.3 搜索策略自动适配
+
+脚本自动检测 KB 目录结构，选择最优搜索策略：
+
+| KB 结构 | 搜索方式 |
+|:--------|:---------|
+| emc-textbook-wiki 格式（概念/知识要素/知识点 目录） | 分层优先搜索，最高匹配度 |
+| 按章分目录（第1章/第2章/...） | 先目标章再跨章 |
+| 平面目录（所有 .md 同层） | 文件名优先 + 全文 grep |
+| PDF/DOCX 原始文件 | 打印提示：建议先用 file2md 转换 |
+
+详见 `references/kb-search-strategies.md`。
+
+### 1.4 KB 素材 → 写作素材包
+
+搜索结果自动组合为**写作素材包**（Markdown），包含：
+- 每个匹配文件的内容预览（前500字符）
+- 匹配类型和评分
+- **覆盖评估**：哪些维度已覆盖（概念/公式/知识点/案例），哪些缺失
+
+### 1.5 知识空白处理
+
+如果某节在 KB 中完全无匹配：
+
+> ⚠️ **必须完成**：即使 KB 零结果，也要基于通用领域知识写出标准教材内容。不可留"待补充"占位符。
+> 写作完成后在质量报告中说明哪些节缺乏 KB 支撑。
+
+---
+
+## Phase 2：内容类型判别
+
+每节开始前，判断内容类型以选择写作模式：
+
+```bash
+cd /path/to/book-build/scripts/
+python3 detect_content_type.py "1.1 电子对抗的发展历史"
+# → 历史叙事型
+
+python3 detect_content_type.py "2.1.4 侦察方程与作用距离" --has-formula yes
+# → 原理推导型
+
+python3 detect_content_type.py "2.1.3 侦察接收机的特性"
+# → 分类枚举型
+```
+
+### 6 种写作模式
+
+| 内容性质 | 模式 | 触发词 |
+|:---------|:-----|:-------|
+| 发展历程 | **历史叙事型** | 发展历史、演进、沿革 |
+| 概念定义 | **概念解构型** | 概念、定义、含义、概述 |
+| 公式推导 | **原理推导型** | 原理、方程、公式、模型 |
+| 系统结构 | **系统组成型** | 组成、结构、系统、架构 |
+| 分类对比 | **分类枚举型** | 分类、类型、特性、指标 |
+| 应用案例 | **工程案例型** | 案例、应用、实例、设计 |
+| 混合 | **复合型** | 以上多种兼有 |
+
+### 各模式写作结构
+
+| 模式 | 结构 |
+|:-----|:------|
+| 历史叙事型 | 引出背景 → 时间线A→B→C → 总结收尾 |
+| 概念解构型 | 一句话定义 → 分解要素 → 扩展举例 |
+| 原理推导型 | 物理直观引入 → 公式 → 参数解释 → 实例 → 分析 |
+| 系统组成型 | 总体框图 → 各部件功能 → 工作流程 |
+| 分类枚举型 | 子主题1 → 子主题2 → 子主题3 → (可选)对比表 |
+| 工程案例型 | 问题描述 → 方案设计 → 实施 → 效果 |
+
+---
+
+## Phase 3：学术写作
+
+### 3.1 段落节奏变化
+
+- **核心内容**：长段 10-15 行
+- **辅助说明**：短段 3-5 行
+- **结论**：单句段
+
+### 3.2 过渡多样化
+
+避免只使用"下面讨论""接下来""如上所述"。交替使用 5 种过渡：
+
+| 类型 | 示例 |
+|:-----|:------|
+| **设问** | "为什么侦察系统能比雷达更早发现目标呢？" |
+| **类比** | "人离物体越远，就越难看清物体。同样的道理..." |
+| **递进** | "上述分析基于简化条件。在实际工程中，还需要考虑..." |
+| **转折** | "然而，以上结论仅在自由空间传播条件下成立..." |
+| **因果** | "由于信号在传播过程中受到多种因素的影响，因此..." |
+
+### 3.3 公式融入叙述
+
+```
+下面通过作用距离方程具体加以说明。为分析方便，假定雷达采用收发共用天线，
+此时简化的雷达作用距离方程如下：
+
+$$P_r = \frac{P_t G_t G_r \lambda^2}{(4\pi R)^2}$$
+
+式中，$P_r$ 为接收信号功率（W），$P_t$ 为发射功率（W），$G_t$ 为发射天线增益。
+```
+
+**核心规则**：公式不是被"呈现"的，而是被"推导"出来的。每个公式前有引出文字，后有"式中"变量解释。
+
+### 3.4 实例嵌入正文
+
+实例不单独成节，自然融入叙述：
+
+```
+以下进行实例分析。假定某雷达作用距离为100km，发射功率为100kW...
+
+（1）对雷达的主瓣侦察：此时，天线增益取G_t=30dB，代入计算得...
+
+（2）对雷达的旁瓣侦察：一般雷达天线主瓣很窄，旁瓣增益通常比主瓣低20-30dB...
+```
+
+### 3.5 枚举方式变化
+
+不要总是 ①②③④，交替使用：
+
+- "其主要包含三方面含义：一是...二是...三是..."
+- "概括起来，有以下几点特征：首先...其次...最后..."
+
+### 3.6 结论自然呈现
+
+不强制加"启示"或"小结"。结论可以通过推理自然呈现。
+
+### 3.7 章节结尾：习题
+
+每章最后：
+
+```markdown
+## 习 题
+
+1．**概念题**：什么是XXX？
+
+2．**简答题**：简述ZZZ的工作原理。
+
+3．**计算题**：已知A=B，求C？
+
+4．**分析题**：在XX条件下，YY会发生什么变化？
+```
+
+习题必须包含概念题、简答题、计算题、分析题至少各一道。
+
+### 3.8 从 KB 素材到教材正文的转换规则
+
+| KB 节点类型 | 教材中的使用方式 |
+|:------------|:----------------|
+| 概念/（0.95） | 引用为权威定义，用学术语言重述 |
+| 知识要素/（0.85） | 转换为教材公式 + "式中"段落 |
+| 知识点/（0.85） | 作为主体素材，改写为流畅叙述 |
+| 技能点/（0.75） | 融入操作流程或工程案例 |
+| 场景/（0.65） | 转为实例分析（"例如，在某工程中..."） |
+
+> **核心规则**：不要直接复制 KB 模板结构（"精准释义：...本质特征：..."）。KB 是原料，教材是成品。
+
+### 3.9 每节自查清单
+
+- [ ] 有物理直观或背景引入？（第一段不是公式）
+- [ ] 段落长度有变化？
+- [ ] 过渡词有变化？（不是每次都"下面"）
+- [ ] 公式有"式中"变量解释？
+- [ ] 有嵌入实例或数值例子？
+- [ ] 枚举方式有变化？
+- [ ] 结论自然呈现？
+
+---
+
+## Phase 4：格式输出
+
+### 4.1 输出模式
+
+| 模式 | 适用场景 | 命令 |
+|:-----|:---------|:-----|
+| **Obsidian Markdown** | 通用 .md 输出 | 直接 write_file |
+| **Word .docx** | 专业排版，含可编辑 OMML 公式 | 使用 textbook_helpers |
+| **双输出** | 同时要 .md 和 .docx | 先 .md，再转换 |
+
+### 4.2 Markdown 输出格式
+
+```markdown
+# 第1章 绪论
+
+## 1.1 研究背景与意义
+
+[正文内容...]
+
+---
+
+## 习 题 一
+
+1．概念题：...
+```
+
+目录结构：
+```
+output/
+├── 第1章-绪论.md
+├── 第2章-基础理论.md
+└── assets/    # 图片资源
+```
+
+### 4.3 Word .docx 输出
+
+使用 `professional-textbook-compilation` 的 `scripts/textbook_helpers.py`：
+
+```bash
+# 复制辅助模块
+cp <PROFESSIONAL_SKILL_DIR>/scripts/textbook_helpers.py /tmp/
+
+# 在生成脚本中
+python3 -c "
+import sys; sys.path.insert(0, '/tmp')
+from textbook_helpers import *
+doc = setup_document()
+add_chapter(doc, '第1章 绪论')
+add_section(doc, '1.1 研究背景')
+# 公式必须是 OMML XML（Word 中可编辑）
+add_formula_omml(doc, '<m:r><m:t>P_r = ...</m:t></m:r>')
+add_body(doc, '式中，P_r 为接收功率...')
+save_verify(doc, '/tmp/输出.docx')
+"
+```
+
+> ⚠️ **公式必须用 OMML XML**，不可用 Unicode 文本。验证：`assert '<m:oMath' in open('输出.docx', 'rb').read().decode('latin-1')`
+
+---
+
+## Phase 5：质量核验
+
+### 5.1 结构完整性检查
+
+```bash
+# 核对大纲 vs 输出文件
+python3 -c "
+import json
+with open('/tmp/outline.json') as f:
+    outline = json.load(f)
+
+import glob
+output_files = sorted(glob.glob('output/*.md'))
+print(f'输出文件数：{len(output_files)}')
+print(f'大纲章节数：{sum(len(c[\"sections\"]) for c in outline[\"chapters\"])}')
+
+# 检查是否有遗漏
+for c in outline['chapters']:
+    for s in c['sections']:
+        found = any(s['title'] in open(f).read() for f in output_files)
+        if not found:
+            print(f'⚠️ 可能遗漏：{s[\"title\"]}')
+"
+```
+
+### 5.2 四维检查清单
+
+| 维度 | 检查项 |
+|:-----|:-------|
+| **结构完整性** | 大纲每节已写，无自创章节 |
+| **内容深度** | 核心节 ≥200 字理论阐述，公式有"式中"，每章有习题 |
+| **学术规范** | 术语准确（与 KB 一致），公式语法合法 |
+| **去AI味** | 抽查 3 段：无等长段落、无高频过渡词重复、各节结构非雷同 |
+
+---
+
+## 实战命令速查
+
+### 给 Agent 的一行命令模式
+
+```bash
+# 1. 解析大纲
+python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
+
+# 2. 搜索 KB 素材
+python3 scripts/search_kb.py /Users/me/知识库 "1.1 基本概念"
+
+# 3. 检测内容类型
+python3 scripts/detect_content_type.py "2.1.4 侦察方程" --has-formula yes
+
+# 4. 委托子 Agent 写某一章
+delegate_task(goal="写第1章 绪论",
+  context="大纲文件: /tmp/outline.json, KB_DIR: /Users/me/知识库, 输出格式: md",
+  toolsets=["terminal", "file"])
+```
+
+### 全自动 6 Phase 执行示例
+
+```
+用户: "按 大纲.docx 写教材，KB 在 /Users/me/知识库/，输出 md"
+
+Agent 动作:
+  1. python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
+  2. 读取 /tmp/outline.json → 任务清单（5 节）
+  3. for each section:
+     a. python3 scripts/search_kb.py /Users/me/知识库 "标题" --format json
+     b. python3 scripts/detect_content_type.py "标题" ...
+     c. Agent 根据素材包+内容类型，写作正文
+     d. write_file -> output/第N章-标题.md
+  4. 检查 output/ 覆盖完整性
+  5. 输出质量报告
+```
+
+---
+
+## Pitfalls
+
+| # | 陷阱 | 预防 |
+|:-:|:-----|:-----|
+| 1 | **添加大纲不存在的章节**（自行加"本章小结"等） | 大纲之外一律不写 |
+| 2 | **遗漏大纲存在的章节**（认为"重复"就跳过） | 写作后逐项对照大纲检查 |
+| 3 | **直接复制KB模板结构**（"精准释义：..."原文搬进教材） | KB是原料，教材是成品，必须二次加工 |
+| 4 | **公式用Unicode非LaTeX/OMML** | md 用 `$$`，docx 用 OMML XML |
+| 5 | **等长段落** | 核心段10+行，辅助段3-5行，结论单句段 |
+| 6 | **过渡词单一** | 交替使用设问/类比/递进/转折/因果 |
+| 7 | **每节同一结构** | 先判断内容类型（6种模式之一）再选结构 |
+| 8 | **习题只有概念题** | 每章必须包含概念/简答/计算/分析各一 |
+| 9 | **docx公式不可编辑** | 验证：`assert '<m:oMath' in raw_bytes` |
+| 10 | **KB零结果时留空** | 即使零素材也要基于通用知识写出来，再报告 |
+| 11 | **大纲是.docx格式未先提取** | 用 `file2md` 或 `parse_outline.py` 预处理 |
+
+---
+
+## 文件清单
+
+| 文件 | 职责 |
+|:-----|:-----|
+| `SKILL.md` | 本文件（技能使用文档） |
+| `scripts/parse_outline.py` | 大纲解析：提取章节分层树 → JSON |
+| `scripts/search_kb.py` | 知识库搜索：关键词提取 + 文件搜索 + 素材包合成 |
+| `scripts/detect_content_type.py` | 内容类型检测：6 种写作模式判别 |
+| `references/kb-search-strategies.md` | KB 搜索策略参考 |
+| `references/writing-patterns.md` | 各内容类型的完整写作示例 |
+
+> `scripts/` 中的脚本均可用 `python3` 直接运行，支持 `--help`。
+
+---
+
+## 与 kb-qa 的协同
+
+| kb-qa 原生 | book-build 适配 |
+|:-----------|:----------------|
+| 搜索 7 个固定目录 | `search_kb.py` 自适应任何目录结构 |
+| 输出问答 + 出处标注 | 输出**写作素材包**供 Agent 写作使用 |
+| Phase B-D 自动补齐 KB | 可选：发现 KB 缺失时询问用户 |
+| Phase E 纠错回写 | 教材审阅中发现 KB 错误时自动提议纠正 |
+
+使用本技能时，必须同时加载 kb-qa 获取其检索方法论：
+
+```text
+skill_view(name='kb-qa')
+```
+
+---
+
+## 相关技能
+
+| 技能 | 用途 |
+|:-----|:-----|
+| `kb-qa` | 知识库检索方法和知识空白检测 |
+| `professional-textbook-compilation` | .docx 输出辅助函数 + 学术写作规范 |
+| `file2md` | PDF/DOCX → Markdown（大纲解析、KB 素材转换） |
+| `officecli` | 备选 .docx 操作方式 |

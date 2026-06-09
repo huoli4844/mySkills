@@ -1,5 +1,14 @@
 # Changelog
 
+# Changelog
+
+## 2.3.0 (2026-06-10)
+- **Mermaid语法校验全面升级**：`post_generation_check.py` 检查 Mermaid 图内语法而非仅检查闭合标签
+- **新增6项Mermaid检查**：图表类型合法性、xychart-beta关键字白名单（`block_lines[1:]`首行跳过防误报）、flowchart节点引号要求、emoji禁令、`%%{init}`格式规范、classDef定义覆盖
+- **新增Mermaid自动修复**：`_fix_mermaid_issues()` 自动移除 `bar-group-group` 等非法关键字，集成到 `--fix` 管线
+- **SKILL.md文档增强**：Phase 4.5 新增6项Mermaid校验表格，pitfalls.md 新增 #32 xychart-beta 陷阱
+- **修复误报**：xychart-beta 首行 `xychart-beta` 不再被错判为非法关键字
+
 ## 2.1.0 (2026-06-09)
 - **新增 `post_generation_check.py`** — 自动质量检查脚本：公式语法/全编号/Mermaid闭合/拼写，支持 `--fix` 自动修复
 - **新增 `clean_formula_numbers.py`** — 当编号严重混乱时，删除所有原编号后从头重排（使用前必须备份）

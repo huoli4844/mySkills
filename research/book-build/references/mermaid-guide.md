@@ -47,9 +47,10 @@ graph LR
 
 ## Subgraph 命名规范
 
-- **subgraph 名中不要使用括号** `()` `（）` —— 虽然某些版本支持，但不一致性好
-- ✅ 推荐: `subgraph 频率响应`
-- ❌ 避免: `subgraph 频率响应（最重要）`
+- **subgraph 名中不要使用中文括号/英文括号/破折号/逗号** —— 这些特殊字符在 Obsidian 的 Mermaid 解析器中会导致 Lexical error（词法分析崩溃），整张图不渲染。
+- ✅ 推荐: `subgraph 频率响应分析` 或 `subgraph 整改前与整改后`
+- ❌ 触发崩溃: `subgraph 频率响应（最重要）`, `subgraph 整改前后对比 — 关键频点(dB)`
+- 如果需要对比分组，拆分为多个独立的 `graph LR` 块，每个块使用标题文字说明
 
 ## Style 声明
 
@@ -62,6 +63,40 @@ graph LR
 - `fill:#5a9e5a,color:#fff` — 成功/正确绿色
 - `fill:#888888,color:#fff` — 灰色次要节点
 
-## 图号标注
+## xychart-beta 图表规范（Obsidian兼容版）
 
-每张Mermaid图后面紧跟一行 `*图N-M：描述*`，中间不要有空行。
+`xychart-beta` 是 Mermaid 9.x+ 引入的折线/柱状图类型，支持多数据系列。
+
+### 合法关键字（仅以下5个）
+
+```
+title     — 图表标题
+x-axis    — X轴标签和刻度值
+y-axis    — Y轴标签和范围（min --> max）
+bar       — 柱状图数据系列
+line      — 折线图数据系列
+```
+
+### 非法关键字（会直接导致渲染失败）
+
+- ❌ `bar-group-group` — 不存在于任何Mermaid版本中
+- ❌ `test-chart` / 任何未列在合法关键字中的词
+
+### 多数据系列写法
+
+```mermaid
+xychart-beta
+    title "整改前后辐射发射对比"
+    x-axis ["点1","点2","点3","点4"]
+    y-axis "dBμV/m" 20 --> 55
+    line [44.8,45.2,46.0,48.5]    # 系列1
+    line [36.2,36.8,37.5,36.0]    # 系列2
+    line [43.5,43.5,43.5,46.0]    # 系列3（限值线）
+```
+
+### 限制
+
+- xychart-beta **无图例/legend**支持：多系列图表必须在注释中用文字说明各组含义
+- 所有数据数组必须长度一致（与x-axis刻度数匹配）
+- bar和line可在同一图表中混用：但不同版本Mermaid的混用表现不一致，推荐统一用line或统一用bar
+- 频率/扫频数据建议用 `line`（连续曲线），分类数据建议用 `bar`（离散柱状）

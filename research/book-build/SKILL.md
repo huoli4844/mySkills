@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "Use when writing a professional textbook from an outline and a domain-wiki knowledge base. Strictly follows the outline structure, queries kb-qa for content, outputs Obsidian Markdown or Word .docx."
-version: 2.2.0
+version: 2.4.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -202,6 +202,24 @@ python3 scripts/detect_content_type.py "1.1 发展历史"  # → 历史叙事型
 # 必须在每次write_file输出章节文件后立即执行
 python3 scripts/post_generation_check.py output/第N章-*.md --fix --verbose
 ```
+
+**7 项 Mermaid 语法校验**（修复前只查闭合的漏洞，现完整覆盖）：
+
+| # | 检查项 | 检测内容 | 是否自动修复 |
+|:-:|:-------|:---------|:-----------:|
+| 1 | **图表类型合法性** | 首行关键字是否在已知类型白名单中 | 否 |
+| 2 | **xychart-beta 关键字白名单** | 仅允许 `title`/`x-axis`/`y-axis`/`bar`/`line`，禁止 `bar-group-group` 等非法关键字 | ✅ 自动移除 |
+| 3 | **flowchart 节点引号** | 标签含逗号/括号时必须用 `["label"]` 包裹 | 否 |
+| 4 | **subgraph 标题特殊字符** | subgraph 标题中禁止括号/破折号/逗号（Obsidian 词法崩溃根因） | 否 |
+| 5 | **emoji 禁令** | 节点标签中不得含 emoji（Obsidian渲染崩溃根因） | 否 |
+| 6 | **`%%{init}` 格式** | 必须双引号JSON + 闭合 `}%%` | 否 |
+| 7 | **classDef 定义覆盖** | 所有 `:::xxx` 引用必须有对应 `classDef` | 否 |
+
+本脚本执行4类检查：
+1. 公式LaTeX语法（花括号平衡、\left/\right对称、无空\frac）
+2. 公式全编号（每个$$块必须有\tag，编号连续无重复无跳跃）
+3. **Mermaid图语法校验（7项，详见上表）**
+4. 常见拼写错误检查
 
 ### 六维编号审计（铁律——写完后必须逐项执行）
 
@@ -454,7 +472,13 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 
 18. **子代理(Subagent)输出缺失编号系统** → `delegate_task` 的子代理写出的内容几乎不带 `\tag{}` 编号、`*图N-X：`图注、`式(N-X)`引用。子代理擅长写内容但不擅长维护编号体系。**策略**：子代理写纯内容（正文+公式块+图+Mermaid），编号和引用由母agent在内容合并后统一加。或者子代理的context中必须明确包含编号格式要求。
 
-19. **初次写作体量不足时，不要重写，要扩充** → 写完第一版后发现只有30~50KB（偏薄），正确的做法不是删除重写，而是执行Phase 0.6差距分析找出缺失内容后，用patch在现有框架中插入新内容，最后统一重排编号。经验数据：初次写30~40KB → 插入补充后可到60~100KB。
+20. **xychart-beta 的非法关键字导致整图不渲染** → `bar-group-group` 不是合法Mermaid关键字。 `xychart-beta` 仅支持 `title`、`x-axis`、`y-axis`、`bar`、`line` 五个关键字。任何其他关键字（包括 `bar-group-group`）都会导致 Mermaid 解析器抛出错误、整图空白。多系列必须用多个 `bar` 或 `line` 语句分别声明，配合文字说明图例。
+
+21. **Mermaid语法检查缺失（已修复在v2.3.0）** → 旧的 `post_generation_check.py` 只检查Mermaid图块的 `` ``` `` 闭合标签，不校验图内语法。修复后增加了6项检查：图表类型合法性、xychart-beta关键字白名单、flowchart节点引号、emoji禁令、`%%{init}`格式、classDef定义覆盖。
+
+22. **subgraph标题含括号/破折号导致Mermaid整图不渲染** → Obsidian的Mermaid解析器在处理 `subgraph` 标题中的英文括号 `()`、中文括号 `（）`、中文破折号 `—` 时会产生 Lexical error，整张图空白。即使语法在标准Mermaid中有效，Obsidian特定版本的解析器不支持这些字符。修复：① 不修改subgraph名无法修复，因为问题在解析器层；② 将 subgraph 拆分为多个独立的 `graph LR` 或 `flowchart TD` 块，每个块标题用纯文字（无括号/破折号）；③ 用多个图块分别展示不同频率/方案的数据对比。详见 `references/mermaid-guide.md`。
+
+23. **xychart-beta 在 Obsidian 中不支持多系列柱状图** → 即使语法正确（4个 `bar` 或 `line` 系列），Obsidian内置的Mermaid版本对 xychart-beta 的 Render 支持有限，多系列图表渲染为空白。修复：不要用 xychart-beta 做多系列对比，改用 `graph LR` 或 `flowchart TD` 的分组节点/颜色编码方式展示对比数据。
 
 ## Reference Index
 

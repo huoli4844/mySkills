@@ -16,7 +16,7 @@
 | 12 | **过渡词单一** | 交替使用设问/类比/递进/转折/因果 |
 | 13 | **每节同一结构** | 先判断内容类型（6种模式之一）再选结构 |
 | 14 | **习题只有概念题** | 每章必须包含概念/简答/计算/分析各一 |
-| 15 | **docx公式不可编辑** | 用 `python-docx + latex_to_omml` 而非 pandoc。验证：`assert '<m:oMath' in open('f.docx','rb').read()`. 详见 `references/md-to-docx-guide.md` |
+| 15 | **docx公式不可编辑** | 用 `python-docx + mathml_to_omml.latex_to_omml()`（latex2mathml→MathML→OMML管线）而非 pandoc 或手写 LaTeX 解析器。验证：打开 docx 后公式可双击编辑。详见 `references/md-to-docx-guide.md` |
 | 16 | **KB零结果时留空** | 即使零素材也要基于通用知识写出来 |
 | 17 | **verify_chapter 的 summary 计数** | 脚本用 `^\d+\.` 匹配总结条目 |
 | 18 | **大纲是.docx格式未先提取** | 用 `file2md` 或 `parse_outline.py` 预处理 |
@@ -57,5 +57,5 @@
 | 47 | **柯金良章节目录与实际内容标题格式不同** | TOC 用双井号带页码，实际内容用单井号 | 用 `grep -n "^# 第"` 而非 `"^## 第"` 定位真实内容 |
 | 48 | **blockquote 中 --fix 产生孤立 tag** | `> $$` 块运行 `--fix` 时可能在 `$$` 外部插入 `\tag{}` | `grep -n '^> *\\\\tag{'` 找到后手动删除，再运行 `renumber.py` |
 | 49 | **`\\tag{0-X}` 错误章号前缀** | 自动修复提取章号失败时生成 `\\tag{0-X}` | `grep -n 'tag{0-'` 找到后替换为正确章号，运行 `renumber.py` |
-| 50 | **MD→DOCX 时 \\tag/\\text/\\xrightarrow 等 LaTeX 命令不转换** | pandoc 和 `latex_to_omml` 都不识别教材用的 `\\xrightarrow{文字}`、`\\tag{N-M}`、`\\displaystyle` 等命令 | `md_to_docx.py` 的 `clean_latex()` 自动预处理：移除 `\\tag` 行、`\\xrightarrow{a}`→`a \\to`、移除 `\\left`/`\\right`。如果手动转换，必须执行相同的清理步骤 |
-| 51 | **`latex_to_omml.py` 跨技能依赖不同步** | `book-build/scripts/latex_to_omml.py` 复制自 `docx-format` 技能，docx-format 更新后 book-build 的副本会过时 | 定期从 `docx-format` 技能同步，或运行 `diff -q` 检查差异 |
+| 50 | **MD→DOCX 时 \\\\xrightarrow/\\\\text 等 LaTeX 命令不转换** | 手写 `latex_to_omml.py` 解析器只识别基础命令，不会转换 `\\\\xrightarrow{文字}`、`\\\\tag{N-M}`、`\\\\displaystyle`、`\\\\begin{aligned}` 等教材常用命令 | **已废弃**（2026-06-10）：改用 `latex2mathml` + MathML→OMML 管线后，latex2mathml 原生支持全部教材 LaTeX 命令。`clean_latex()` 已从 `md_to_docx.py` 中移除，不再需要任何预处理。使用新管线 `mathml_to_omml.latex_to_omml()` 即可 |
+| 51 | **`latex_to_omml.py` 已归档，用 `mathml_to_omml.py` 替代** | `scripts/latex_to_omml.py` → `.bak`（2026-06-10），不再从 `docx-format` 技能同步 | 新管线 `mathml_to_omml.py` 完全自包含：只用 `latex2mathml` 库（`uv pip install latex2mathml`），无需跨技能复制 |\n| 52 | **案例从参考书摘抄** | 教材中的案例直接复制自路宏敏/张亮/梁振光/柯金良等参考书的已有案例，导致新书内容缺乏原创性 | 案例必须来自真实公开事件（丰田EMI、iPhone 12 SAR、5G C-band干扰、波音787电池、小米SU7 EMC、大疆GPS干扰等），含具体技术参数、时间地点、工程分析。替换案例参考 `output/案例/` 目录下的14个真实事件文件 |

@@ -1,6 +1,13 @@
 # Changelog
 
-## 2.11.0 (2026-06-10)
+## 2.12.0 (2026-06-10)
+- **公式管线全面重写**：从手写 LaTeX 解析器（`latex_to_omml.py`）切换到 `mathml_to_omml.py`（`latex2mathml`→MathML→OMML）。MathML 中间格式比手写解析器（781行）更简洁（~80行核心映射代码），且自动继承 latex2mathml 库对全部 LaTeX 边缘情况的处理
+- **`\xrightarrow{文字}` 正确渲染**：旧方案降级为 `文字 →`（纯文本），新方案正确转为 `<m:acc>` arrow accent 结构
+- **`\begin{aligned}` eqnArray 支持**：多行对齐公式正确转为 OMML `m:eqnArray`（2处已验证），不再降级为单行
+- **`clean_latex()` 移除**：不再需要任何 LaTeX 预处理，`md_to_docx.py` 简化约50行
+- **`latex_to_omml.py` → `.bak`**：旧文件归档，不再从 `docx-format` 技能同步（消除跨技能依赖）
+- **新依赖**：`uv pip install latex2mathml` 为必需依赖
+- **实测结果**：第1章绪论 40个OMML公式全部正确（0个Markdown残留，0个转换错误），含12个显示公式+28个行内公式
 - **md_to_docx.py**: 新增 Markdown→Word 转换工具，支持 single（单文件）和 dir（目录合并）两种模式，依赖 pandoc
 - **死字段清理**: 从 project-config-template.yaml 清除未在代码中引用的 `path_processed` 字段
 - **.bak 文件过滤**: collect_md_files() 增加 _bak/.bak 与 README.md 过滤

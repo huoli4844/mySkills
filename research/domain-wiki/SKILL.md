@@ -155,6 +155,21 @@ grep -c '@prompt' ~/.hermes/skills/research/domain-wiki/assets/templates/concept
 
 **规则**：处理第 N+1 章时，上下文只包含：第 N+1 章源文 + 写作指引（self-instruct 输出）+ 全书修正日志（wiki-corrections.yaml）。已完成章节的素材、渲染文件、审查报告不出现在上下文中。
 
+### 守则6: 技能不嵌入平台特定基础设施指令
+
+domain-wiki 是领域知识库构建技能，不应包含 Hermes 特定基础设施的操作指令（如 `hermes cron create`、`hermes config set`）。这类指令：
+- 绑定到特定平台，降低技能的可迁移性
+- 让用户以为需要额外基础设施才能使用本技能
+- 属于用户的运行环境配置，不是技能的工作流
+
+```bash
+# ❌ 不要在技能中写这类指令
+hermes cron create --schedule "every 2h" ...
+
+# ✅ 只描述能力，让用户自行决定是否要定时推进
+# dag_state.next_pending() 可定位待处理章节，配合外部定时调度即可实现自动推进
+```
+
 ## 核心设计原则
 
 ### 模板是字段的单一权威源（用户核心要求）

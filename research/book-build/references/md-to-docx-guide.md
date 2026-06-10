@@ -62,8 +62,8 @@ mathml_to_omml.py (本技能新增：MathML tag → OMML tag 一对一映射)
 - 新增命令只要 latex2mathml 支持就自动生效，无需修改转换代码
 
 **已知限制：**
-- `\begin{aligned}` 环境的对齐标记（`&`）当前被降级为不可见元素，多行公式变为单行（需要 OMML `m:eqnArray` 支持）
-- `\usepackage` 等非公式 LaTeX 不支持（latex2mathml 只处理数学模式）
+- `\\usepackage` 等非公式 LaTeX 不支持（latex2mathml 只处理数学模式）
+- 部分罕见 MathML 标签（如 `mmultiscripts`、`menclose`、`merror`）尚无映射，出现时降级为纯文本
 
 ### 关键依赖
 
@@ -106,23 +106,19 @@ pattern = r'(\$\$[\s\S]*?\$\$|\$[^$]+\$|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[([^\]]
 
 **关键修复**：`$$` 跨越多行时必须用 `[\s\S]*?` 而非 `[^$]+`，否则多行公式不匹配。
 
-### 公式预处理（`clean_latex()`）
+### 公式预处理（MathML 管线已无必要）
 
-使用新管线后，大部分预处理不再需要。但仍需移除 `\tag{}` 行：
+**2026-06-10 更新**：`clean_latex()` 函数已从 `md_to_docx.py` 中移除。MathML 管线（`latex2mathml` + `mathml_to_omml.py`）原生处理公式中的所有 LaTeX 命令，不再需要手动预处理：
 
-| 命令 | 预处理 | 原因 |
-|:-----|:-------|:-----|
-| `\tag{N-M}` | 整行移除 | Word 公式不需要编号行 |
-| `\displaystyle` | 移除（可选） | Word 渲染不识别 |
-| `\limits` | 移除（可选） | Word 不识别 |
+- `\\tag{N-M}` ✅ → latex2mathml 保留，OMML 自动忽略
+- `\\xrightarrow{文字}` ✅ → 正确渲染为箭头 accent（不是降级文本）
+- `\\begin{aligned}` ✅ → 自动转为 eqnArray 多行结构
+- `\\displaystyle` / `\\limits` ✅ → latex2mathml 原生支持
+- `\\left(` / `\\right)` ✅ → fence 括号自动伸缩
+- `\\text{中文/μV}` ✅ → 正体文本
+- `\\boxed{}` ✅ → 边框方盒
 
-**不再需要预处理**（`latex2mathml` + MathML→OMML 管线原生支持）：
-- `\xrightarrow{文字}` ✅ → 带箭头上标号
-- `\text{中文/μV/特殊字符}` ✅ → 正体文本
-- `\left( \right)` ✅ → 正确尺寸的 fence 括号
-- `\begin{aligned}` ✅ → 数学结构正确（尚未 eqnArray）
-- `\boxed{}` ✅ → 边框方盒
-- `\frac`, `\sqrt`, `\sum`, `\int` 等全部基础命令 ✅
+**如果使用旧管线（不推荐）**：必须手动执行 `clean_latex()` 预处理：移除 `\\tag` 行、`\\xrightarrow{a}`→`a \\to`、移除 `\\displaystyle`/`\\limits`。
 
 ## 表格处理
 
@@ -161,9 +157,8 @@ graph LR
 
 | 限制 | 说明 |
 |:-----|:------|
-| `\xrightarrow{文字}` | 降级为 `文字 \to`，丢失了"经过...转换"的语义 |
 | Mermaid 不渲染 | Word 无 Mermaid 引擎，无法直接渲染 |
-| `\text{}` 不处理嵌套 | 教材中无嵌套情况 |
+| `\\text{}` 不处理嵌套 | 教材中无嵌套情况 |
 | 图片嵌入 | 仅查找 `![alt](path)` 中的路径，标准 docx 插入 |
 | 无序列表嵌套 | 不检测嵌套层级，全部一级缩进 |
 
@@ -171,14 +166,15 @@ graph LR
 
 | 症状 | 根因 | 修复 |
 |:-----|:-----|:-----|
-| docx 打不开/损坏 | `oMath` XML 结构错误 | 检查 `latex_to_omml()` 返回值是否含非法字符 |
-| 公式显示为空白 | LaTeX 中有 `\tag` 未被清理 | 在 `clean_latex()` 中添加对应正则删除 |
-| 公式部分缺失 | `latex_to_omml` 遇到不识别的命令 | 在 `latex_to_omml.py` 的 `_handle_command()` 中添加支持 |
-| `**` 等 Markdown 符号残留 | `process_markdown_text()` 正则未匹配 | 检查 `pattern` 的顺序和 `[\s\S]*?` 的使用 |
+| docx 打不开/损坏 | `oMath` XML 结构错误 | 检查 `mathml_to_omml.latex_to_omml()` 返回值是否含非法字符，确认 `latex2mathml` 已安装 |
+| 公式显示为空白 | `latex2mathml` 遇到不识别的 LaTeX 命令 | 在 `mathml_to_omml.py` 的 `_mml_convert()` 中添加标签映射，或提交 issue 给 latex2mathml |
+| 公式部分缺失 | `latex2mathml` 输出含 XML 非法字符（`&`） | 确认 `_latex_to_mathml()` 中的 `re.sub` 已修复 `&`→`&amp;` |
+| `**` 等 Markdown 符号残留 | `process_markdown_text()` 正则未匹配 | 检查 `pattern` 的顺序和 `[\\s\\S]*?` 的使用 |
 | `####` 显示为原文 | `heading_level()` 正则限制 `#{1,3}` | 改为 `#{1,6}` + `min(len,3)` 映射 |
 | `---` 显示为原文 | 未识别横线 | 在 `add_paragraph_text()` 中提前检查并转为边框段落 |
-| 列表符号 `-`/`1.` 残留 | 未识别列表 | 在 `add_paragraph_text()` 中正则匹配 `^[-*+] ` 和 `^\d+[.)] ` |
+| 列表符号 `-`/`1.` 残留 | 未识别列表 | 在 `add_paragraph_text()` 中正则匹配 `^[-*+] ` 和 `^\\d+[.)] ` |
 | 表格横跨多页 | python-docx 默认不设跨页断行 | 需手动设置 `tblPr` 的 `cantSplit` 属性 |
+| `\\begin{aligned}` 对齐( `&` )丢失 | `&` 在 MathML 中被转为 `<mi>&amp;</mi>`，MathML→OMML 时简化为不可见元素 | eqnArray 已正确处理行结构；对齐点降级不影响可读性 |
 
 ## 迭代历史
 
@@ -189,3 +185,4 @@ graph LR
 | v3 | python-docx | ✅ OMML | ✅ 源码说明 | ❌ `**` 残留 | 核心换引擎成功 |
 | v4 | python-docx+正则 | ✅ 40个 | ✅ | ✅ 0 `**` | 正则修复跨行匹配 |
 | v5 | python-docx+全标记 | ✅ 40个 | ✅ | ✅ 全部处理 | 新增列表/横线/`####` |
+| **v6** | **python-docx+mathml_to_omml** | **✅ 40个OMML(全部正确)** | **✅** | **✅** | **公式管线重写：手写LaTeX解析器→latex2mathml→MathML→OMML。`\\xrightarrow`正确箭头accent，`\\begin{aligned}` eqnArray多行，`clean_latex()`移除** |

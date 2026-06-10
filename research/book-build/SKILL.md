@@ -565,14 +565,20 @@ python3 scripts/verify_chapter.py output/第N章.md --verbose
 
 ## Key Commands
 
-| 用途 | 命令 |
-|:-----|:------|
-## Key Commands
+| 用途 | 命令 | 说明 |
+|:-----|:------|:------|
+| 大纲解析 | `python3 scripts/parse_outline.py 教材提纲.docx -o /tmp/outline.json` | |
+| 项目初始化 | `python3 scripts/book_config.py --project <路径> --setup` | 幂等创建目录+book-build.yaml |
+| 查看任务进度 | `python3 scripts/task_tracker.py --project <路径> --status` | 当前章/已完成/待处理 |
+| 公式全编号检查+修复 | `python3 scripts/post_generation_check.py 第N章.md --fix --verbose` | 支持 --dir 目录模式 |
+| 公式编号重排 | `python3 scripts/renumber.py 第N章.md` | 合并 fix_formula_numbers + clean_formula_numbers + fix_tag_placement |
+| 章节组装 | `python3 scripts/assemble_chapter.py 前/ --out 第N章.md --chapter N` | 多节独立文件组装为完整章 |
+| 跨文件编号重排 | `python3 scripts/renumber_cross_file.py . --chapter N --fix` | 多个案例/实验文件间公式编号连续分配 |
+| 共性批量修复 | `python3 scripts/fix_common_issues.py output/` | Mermaid emoji替换 + 补图注 + 推导深度报告 |
+| MD→DOCX 单文件转换 | `python3 scripts/md_to_docx.py single 第N章.md -o 第N章.docx` | 单个章节转 Word |
+| MD→DOCX 全书合并 | `python3 scripts/md_to_docx.py dir output/ -o 全书.docx` | 合并所有 .md → 一个 Word |
 
-| 用途 | 命令 |
-| 查看任务进度 | `python3 scripts/task_tracker.py --project . --status` | 显示当前章/已完成/待处理 |
-
-> **路径说明**：以上命令均在 `output/` 目录下执行。子目录结构由 config.yaml → `subdirs` 定义：`写作大纲/`、`案例/`、`实验/`、`习题解答/`。
+> **路径说明**：以上命令均在 `output/` 目录下执行。子目录结构由 config.yaml → `subdirs` 定义。`fix_common_issues.py` 在项目根目录对 `output/` 运行。
 
 **Quality baseline — actual benchmark volumes from this project**（写完后对照）:
 
@@ -665,7 +671,8 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 7. **插入新图后图号冲突** → 在已有章节中插入新Mermaid图后，必须全局搜索 `图N-` 检查是否产生重复编号。插入→搜索→修正，三步闭环
 8. **公式校验脚本误报** → grep `\\\\lef`/`\\\\righ` 会在 `\\\\left`/`\\\\right` 内部匹配子串——这是误报。公式语法检查应优先用 python3 的 `re` 模块而非纯字符串搜索
 9. **写作指南不经用户确认直接开写** → 教材研读完成后生成writing-guide-ch{N}.md，**默认直接动笔**（config.yaml 中 `phase_0_5_auto: true`）。如需用户确认改为 `false`。
-10. **自动修复脚本将\\tag放在$$外部** → `post_generation_check.py --fix` 的 `_fix_missing_tag` 曾错误地将 `\\tag{N-M}` 插入在 `$$` 之前而非内部。当前版本已修复。如果发现 `\\tag` 行出现在 `$$` 之前，运行 `python3 scripts/renumber.py output/第N章.md` 统一修复。
+10. **自动修复脚本将\\tag放在$$外部（blockquote上下文仍可触发）** → `post_generation_check.py --fix` 的 `_fix_missing_tag` 在标准 `$$` 块中已修复，但在 `> $$` 块引用上下文中（如插入的柯金良等外部引用内容）仍可能解析错误，额外插入 `\\tag{6-N}` 孤立行在 `$$` 外部。修复：对于 blockquote 上下文产生的孤立 tag，不要运行 `renumber.py`（重排脚本受同样解析限制），而是手动 `grep -n '^\\\\\\\\tag{'` 找到并删除所有不在 `$$` 块内部的孤立 tag 行。
+11. **`\\tag{0-X}` 错误章号前缀（自动修复脚本的 chapter_n 解析失败）** → `post_generation_check.py --fix` 在文件中提取章号时如果正则匹配失败（如文件头没有 \"第N章\" 标记或修复时上下文不足），会生成章号前缀为 `0-` 的 tag。这些 `\\tag{0-X}` 在 `$$` 块内外部都可能出现。修复：`grep -n 'tag{0-'` 找到后手动替换为正确的 `tag{N-`，并运行 `renumber.py` 重新编号。
 11. **编号重排前未备份** → `renumber.py` 默认自动创建 `.bak` 备份，无需手动 `cp`。如果使用旧版 `fix_*.py` 系列脚本，必须手动备份。
 12. **公式章号前缀写错（跨章素材污染）** → 从第N+1章素材复制公式时，`\tag{8-X}`容易被遗忘不改为当前章号。写完后必须扫描 `\tag{` 批量核对章号前缀
 13. **在已有示例之间插入新例导致后续编号偏移** → 在例7-1和例7-2之间插入"例7-2"后，原例7-2~7-8全部偏移一位成为7-3~7-9。插入新例后必须：重排例题编号→更新文本引用→更新总览Mermaid→更新要点列表→更新习题引用，五步闭环
@@ -699,7 +706,9 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 29. **公式链无推导文字** → AI 写作的典型特征：连续 3+ 个显示公式间无任何推导叙述（"由…得""代入…"）。第4章至第14章实战中共发现 86 处此类问题，需逐处插入推导文字。自动化检查由 `fix_common_issues.py` 报告，修复用 `delegate_task` 配合上下文理解进行 LLM 辅助插入。
 30. **Mermaid 图后无图注** → 每个 ```mermaid 块后必须有 `*图N-X：描述*` 图注。`post_generation_check.py` 的 `check_mermaid_has_caption()` 检测不到时，运行 `fix_common_issues.py` 自动补全。
 31. **processed_dir 与 raw_dir 混淆（用户常见困惑）** → `processed_dir` 是 file2md 加工后的 .md 输出目录，`raw_dir` 是原始源文件目录。如果用户没有独立的"处理后"目录（加工后的文件直接放在 `raw/` 子目录下），**不要将两者指向同一路径**，应省略 `processed_dir`，`book_config.py` 会正确处理 `None`。
-32. **新项目未执行 setup 直接写作** → 客户创建目录后，Agent 必须先执行 `Config.setup(project_root)` 创建 `book-build.yaml` 模板。`Config()` 不带 `project_root` 时 `textbook_name` 为空、`source_books` 为空列表，写作无法进行。
+| 32 | **新项目未执行 setup 直接写作** → 客户创建目录后，Agent 必须先执行 `Config.setup(project_root)` 创建 `book-build.yaml` 模板。`Config()` 不带 `project_root` 时 `textbook_name` 为空、`source_books` 为空列表，写作无法进行。 |
+| 33 | **柯金良章节目录与实际内容标题格式不同** — TOC 用 `## 第 11 章 ...…… 306`（双井号带页码），实际内容用 `# 第 11 章 ...`（单井号）。直接 `grep "^## 第 11"` 只能命中TOC行；需用 `grep -n "^# 第 11"` 或 `grep -n "^## 11\\."` 定位真实内容。存在类似章节定位问题的还包括路宏敏等教材。 |
+| 34 | **post_generation_check.py --fix 在 blockquote 上下文中产生孤立 `\\tag` 行** — 当 `> ` blockquote 内的 `$$` 公式块上运行 `--fix` 时，脚本可能在 `$$` 外部插入 `\\tag{6-N}` 行（如 `> \\tag{6-26}` 孤立躺在 blockquote 中）。`renumber.py` 也无法正确处理这种上下文中的孤立 tag。修复：`grep -n '^> *\\\\\\\\tag{\|^\\\\\\\\tag{'` 找到后手动删除不在 `$$` 内部的孤立 tag 行，然后运行 `renumber.py`。 |
 
 ## Reference Index
 
@@ -722,5 +731,7 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 | `references/source-books-locations.md` | 参考教材源文件位置与搜索方法 |
 | `references/six-dimension-audit.md` | **六维编号审计脚本 + 常见失败场景 + 链路风暴修复** |
 | `references/kb-enrichment-workflow.md` | **KB素材扩展工作流** — 写作前多轮搜索KB获取素材，含Ch9实案例 |
+| `references/content-supplementation-from-kejinliang.md` | **柯金良素材补充工作流** — 含已验证的行号索引、章节定位方法、5大素材来源（EMC认证/频谱仪/LISN/RE测试/虚拟暗室） |
+
 | `scripts/task_tracker.py` | **任务进度管理** — book-build-progress.yaml 创建与查询 |
 | `scripts/fix_common_issues.py` | **共性问题批量修复** — Mermaid emoji替换 + 补图注 + 推导深度报告 |

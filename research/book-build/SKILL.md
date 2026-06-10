@@ -35,17 +35,32 @@ metadata:
 
 **L2 — 结构层：** 大纲解析确定章节树；内容类型判别（6种模式）选择写作结构；写作指令生成器（gen_prompt.py）综合大纲定位+素材+写作规则，生成每节的提示词。
 
-**L3 — 写作层：** Agent 按提示词写出正文，遵守 13 条军规。每章必须经过"三书研读→写作指南→动笔"的 Phase 0.5 流程。
+**L3 — 写作层：** Agent 按提示词写出正文，遵守 13 条军规。每章必须经过"三书研读→写作指南→动笔"的 Phase 0.5 流程。写作指南存放在 `写作大纲/` 子目录下。
 
 **L4 — 校验层：** 每章写完后经过 6 要素检查 + 13 维度自审评分 + 体量铁律验证。
-
-**核心原则**：教材是学术作品，不是知识库的复制品。KB是原料，教材是成品——必须重新组织为自然叙述的学术散文，不能把知识库中的模板结构（YAML frontmatter、`精准释义：`格式等）复制到正文中。
 
 **工作流模式**（`config.yaml` → `workflow.default_mode`）：
 - **`fast`**（默认）：Phase 0（大纲解析）→ Phase 3（写作）→ Phase 4.5（质量检查）→ Phase 6（提交）。跳过三书研读（Phase 0.5）和内容差距分析（Phase 0.6）。
 - **`full`**：保留完整的 11 Phase 管线。每章写前必须执行三书研读，写完后执行完整审计。
 
 **领域参数**：所有领域特有路径/名称在 `config.yaml` 集中管理。`scripts/book_config.py` 统一加载，脚本中不再硬编码。
+
+**项目目录结构**（config.yaml → project）：
+```
+{project.root}/
+├── input/                       ← 教材提纲 docx 存放目录
+│   └── 教材提纲.docx
+└── output/                      ← 所有输出
+    ├── 第N章-标题.md             ← 各章正文（直接放在 output/）
+    ├── 写作大纲/                 ← 每章的写作指南（Phase 0.5 产出）
+    │   └── writing-guide-chN.md
+    ├── 案例/                     ← 独立案例文件（Phase 7 产出）
+    │   └── 案例X-Y_标题.md
+    ├── 实验/                     ← 独立实验文件（Phase 7 产出）
+    │   └── 实验XX_名称.md
+    └── 习题解答/                 ← 全书完成后统一处理的习题解答
+        └── 第N章-习题解答.md
+```
 
 **13 条写作军规**（完整版加载 `references/volume-standards.md`）：
 
@@ -70,7 +85,7 @@ metadata:
 
 ```
 Phase 0:   大纲解析 → 章节分层树 (/tmp/outline.json)
-Phase 0.5: 三书研读 → 写作指南生成 (output/writing-guide-ch{N}.md)
+Phase 0.5: 三书研读 → 写作指南生成 (output/写作大纲/writing-guide-ch{N}.md)
 Phase 1:   kb-qa 检索 → 素材包
 Phase 2:   内容类型判别 → 6种模式选一
 Phase 3:   学术写作 → 遵守13条军规
@@ -98,7 +113,7 @@ python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
 # Step 1: 找到三本书对应内容并通读
 # Step 2: 填写三书手法对比表
 # Step 3: 标注三书共同盲区
-# Step 4: 生成 writing-guide-ch{N}.md
+# Step 4: 生成 writing-guide-ch{N}.md → output/写作大纲/
 # Step 5: 严格按指南写作
 ```
 
@@ -146,7 +161,7 @@ grep -n "接地" /Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC
 
 分析三本书都有但写得不透的内容，形成3-5个发挥空间。
 
-**Step 4：生成写作指南** — 文件 `output/writing-guide-ch{N}.md`
+**Step 4：生成写作指南** — 文件 `output/写作大纲/writing-guide-ch{N}.md`
 
 用模板 `templates/writing-guide-template.md`，至少包含：
 - 研读分析（三书对应关系 + 8维度手法对比 + 发挥空间）
@@ -156,10 +171,10 @@ grep -n "接地" /Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC
 - **图量规划**（≥6~8张Mermaid，标注每张图号/位置/类型）
 - 12条军规落实检查
 
-完成后向用户汇报：`第N章写作指南已生成 → output/writing-guide-ch{N}.md`
+完成后向用户汇报：`第N章写作指南已生成 → output/写作大纲/writing-guide-ch{N}.md`
 汇报时列出三书手法对比表和发挥空间。**如 config.yaml 中 `phase_0_5_auto: true`（默认），跳过用户确认直接进入 Step 5 动笔。**
 
-第6章实战示例：详见 `output/writing-guide-ch6.md`（含完整的8维度对比+7Mermaid图规划+14条军规检查清单），可直接作为后续章节写作指南的参考模板。
+第6章实战示例：详见 `output/写作大纲/writing-guide-ch6.md`（含完整的8维度对比+7Mermaid图规划+14条军规检查清单），可直接作为后续章节写作指南的参考模板。
 
 **Step 5：按指南写作**
 
@@ -344,17 +359,19 @@ python3 scripts/verify_chapter.py output/第N章.md --verbose
 
 | 用途 | 命令 |
 |:-----|:------|
-| 大纲解析 | `python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json` |
-| KB搜索 | `python3 scripts/kb_search.py /kb \"关键词\" --format material` |
-| 内容类型判断 | `python3 scripts/detect_content_type.py \"标题\" --has-formula yes` |
+| 大纲解析 | `python3 scripts/parse_outline.py 教材提纲.docx -o /tmp/outline.json` |
+| KB搜索 | `python3 scripts/kb_search.py /kb "关键词" --format material` |
+| 内容类型判断 | `python3 scripts/detect_content_type.py "标题" --has-formula yes` |
 | 写作指令生成 | `python3 scripts/gen_prompt.py --outline /tmp/outline.json --kb-dir /kb --chapter 1 --section 1.1 -o /tmp/prompt.md` |
-| 质量核验 | `python3 scripts/verify_chapter.py output/第N章.md` |
-| 体量检查 | `wc -c output/第N章.md` |
-| 公式全编号检查+修复 | `python3 scripts/post_generation_check.py output/第N章.md --fix --verbose` | 首选：自动检查+修复（支持 --dir 目录模式） |
-| 公式编号重排 | `python3 scripts/renumber.py output/第N章.md` | 合并 fix_formula_numbers + clean_formula_numbers + fix_tag_placement 的统一入口 |
-| 章节组装 | `python3 scripts/assemble_chapter.py output/前/ --out output/第N章.md --chapter N` | 将多节独立文件按大纲顺序组装为完整章 |
-| 跨文件编号重排 | `python3 scripts/renumber_cross_file.py output/ --chapter N --fix` | 多个案例/实验文件间公式编号连续分配 |
-| 目录质量检查 | `python3 scripts/post_generation_check.py output/ --dir --fix` | 扫描目录下所有 .md 一次性检查 |
+| 质量核验 | `python3 scripts/verify_chapter.py 第N章.md` |
+| 体量检查 | `wc -c 第N章.md` |
+| 公式全编号检查+修复 | `python3 scripts/post_generation_check.py 第N章.md --fix --verbose` | 首选：自动检查+修复（支持 --dir 目录模式） |
+| 公式编号重排 | `python3 scripts/renumber.py 第N章.md` | 合并 fix_formula_numbers + clean_formula_numbers + fix_tag_placement 的统一入口 |
+| 章节组装 | `python3 scripts/assemble_chapter.py 前/ --out 第N章.md --chapter N` | 将多节独立文件按大纲顺序组装为完整章 |
+| 跨文件编号重排 | `python3 scripts/renumber_cross_file.py . --chapter N --fix` | 多个案例/实验文件间公式编号连续分配 |
+| 目录质量检查 | `python3 scripts/post_generation_check.py . --dir --fix` | 扫描目录下所有 .md 一次性检查 |
+
+> **路径说明**：以上命令均在 `output/` 目录下执行。config.yaml 中的 `project.output_dir` 定义了实际输出目录。子目录结构：`写作大纲/`、`案例/`、`实验/`、`习题解答/`。
 
 **Quality baseline — actual benchmark volumes from this project**（写完后对照）:
 

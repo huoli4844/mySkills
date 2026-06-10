@@ -6,9 +6,19 @@
 
 # --- 教材信息 ---
 textbook:
-  name: "电磁兼容"                    # 教材名称/领域名
-  outline_file: "教材提纲.docx"       # 大纲文件路径
-  output_dir: "output"               # 输出目录（相对 skill 目录）
+  name: "查老师教材"                          # 教材名称/项目名
+  outline_file: "教材提纲.docx"               # 大纲文件名（存放在 input/ 下）
+
+# --- 项目目录结构 ---
+project:
+  root: "/Users/huoli4844/Desktop/查老师教材"
+  input_dir: "/Users/huoli4844/Desktop/查老师教材/input"
+  output_dir: "/Users/huoli4844/Desktop/查老师教材/output"
+  subdirs:
+    writing_guide: "写作大纲"                  # 写作指导文件
+    cases: "案例"                              # 案例文件
+    experiments: "实验"                        # 实验文件
+    exercise_solutions: "习题解答"             # 习题解答（全书完成后处理）
 
 # --- 参考教材（三书）配置 ---
 source_books:

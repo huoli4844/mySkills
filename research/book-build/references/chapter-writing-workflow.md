@@ -328,9 +328,9 @@ rm -f output/section-*.md /tmp/ch*-*.md
 ### 3.2 写作指南的存放位置
 
 ```bash
-# 每章写作指南存放在 output/ 目录下
-output/writing-guide-ch2.md
-output/writing-guide-ch3.md
+# 每章写作指南存放在 output/写作大纲/ 目录下
+output/写作大纲/writing-guide-ch2.md
+output/写作大纲/writing-guide-ch3.md
 ...
 ```
 
@@ -430,8 +430,8 @@ read_file /path/to/张亮/第N章.md --offset {行号} --limit 50
 每次写新章之前，执行以下命令：
 
 ```bash
-# 1. 创建该章的写作指南文件
-touch output/writing-guide-ch{N}.md
+# 1. 创建该章的写作指南文件（可通过 book_config.py 获取绝对路径）
+touch output/写作大纲/writing-guide-ch{N}.md
 
 # 2. 加载三本书对应章节（先看大小，再通读）
 wc -c /path/to/路宏敏/第N章*.md
@@ -450,5 +450,5 @@ read_file /path/to/路宏敏/第N章*.md --offset {行号} --limit 200
 read_file /path/to/路宏敏/第N章*.md --offset {总行数-200} --limit 200
 
 # 6. 生成写作指南文件
-# → 手动完成 Step 1-3 的分析 → 写入 output/writing-guide-ch{N}.md
+# → 手动完成 Step 1-3 的分析 → 写入 output/写作大纲/writing-guide-ch{N}.md
 ```

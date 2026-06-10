@@ -214,9 +214,19 @@ def check_mermaid(content: str) -> List[str]:
         for i, line in enumerate(lines):
             emojis = emoji_pattern.findall(line)
             if emojis:
-                issues.append(f"Mermaid图{idx+1} L{i+1}: 含 emoji 字符 {''.join(set(emojis))}，可能导致渲染失败")
+                issues.append(f"Mermaid图{idx+1} L{i+1}: 含 emoji 字符")
             if '⭐' in line:
                 issues.append(f"Mermaid图{idx+1} L{i+1}: 含星号字符 ⭐，可能导致渲染失败")
+        
+        # 9. 检查不完全支持的语法
+        if 'timeline' in block:
+            issues.append(f"Mermaid图{idx+1}: 使用 timeline 语法（部分渲染器不支持），建议改用 graph LR")
+        if 'mindmap' in block:
+            issues.append(f"Mermaid图{idx+1}: 使用 mindmap 语法（部分渲染器不支持），建议改用 graph TD")
+        if '%%{' in block:
+            issues.append(f"Mermaid图{idx+1}: 使用 %%{{init}}%% 配置（部分渲染器不支持），建议移除")
+        if '<-->' in block:
+            issues.append(f"Mermaid图{idx+1}: 使用 <--> 双向箭头（部分渲染器不支持），建议改用两条单向箭头")
     
     return issues
 

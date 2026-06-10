@@ -228,9 +228,10 @@ python3 scripts/outline_vs_chapter_audit.py \
 3. **`>$$` 保留 `>` 前缀** — v3 做法，不要替换为 `$$`
 4. **先读后写** — 永远 `read()` 再 `write()`，绝不先写后读
 5. **Mermaid 圆边节点** — `[("text")]`（对）而非 `[("text)"]`（错）
-6. **Mermaid `---config---` 语法** — 某些渲染器不支持，改用 `%%{init: {"theme": "default"}}%%`
-7. **Mermaid timeline 中文书名号** — timeline 内容中避免使用 `《》`，可能导致渲染中断
-8. **写作说明不写入正文** — 军规检查/核心公式总结是内部工具，不得写入章节文件
+6. **Mermaid 禁止 emoji** — 节点标签中的 `🔄⚠️🚫📋⭐` 等 emoji 导致渲染器解析失败，用纯文字替代（已在 `references/mermaid-guide.md` 中详细说明）
+7. **Mermaid subgraph 内 direction** — subgraph 内使用 `direction TB/LR` 可能引发渲染问题
+8. **Mermaid timeline 中文书名号** — timeline 内容中避免使用 `《》`，可能导致渲染中断
+9. **写作说明不写入正文** — 军规检查/核心公式总结是内部工具，不得写入章节文件
 9. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
 
 ## Reference Index

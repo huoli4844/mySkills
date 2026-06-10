@@ -69,6 +69,19 @@ grep -n '\[(".*)"\]' chapter.md | grep -v '")"\]'
 - ❌ 触发崩溃: `subgraph 频率响应（最重要）`, `subgraph 整改前后对比 — 关键频点(dB)`
 - 如果需要对比分组，拆分为多个独立的 `graph LR` 块，每个块使用标题文字说明
 
+## subgraph 内 direction 指令（陷阱）
+
+**不要**在 `subgraph` 块内使用 `direction TB` / `direction LR`。某些 Mermaid 渲染器（特别是 Obsidian 内置渲染器）在 subgraph 内遇到 `direction` 指令时可能引发布局错乱或渲染失败。
+
+- ❌ 错误:
+  ```
+  subgraph "六种干扰途径"
+      direction TB
+      A --> B
+  end
+  ```
+- ✅ 正确: 去掉 `direction`，让子图继承父图的布局方向；或在需要改变布局时改用多个独立的 `graph LR`/`graph TD` 块替代 subgraph 嵌套。
+
 ## Style 声明
 
 所有自定义颜色节点必须在图末尾有完整的 `style` 声明，不可遗漏。

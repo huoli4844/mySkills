@@ -522,6 +522,63 @@ def check_derivation_depth(text: str, verbose: bool = False) -> list:
     return issues
 
 
+def check_formula_format(text: str, verbose: bool = False) -> list:
+    """检查公式格式规范"""
+    issues = []
+    lines = text.split('\n')
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        line_num = i + 1
+        
+        # tag与公式同行
+        if re.search(r'\$\$.*\\\\?tag\{', stripped) or re.search(r'\\\\?tag\{[^}]+\}.*\$\$', stripped):
+            issues.append((line_num, 'ERROR', 'tag与公式同行，应分开为两行', True, '_fix_tag_same_line'))
+        
+        # 空$$块
+        if stripped == '$$' and i+1 < len(lines) and lines[i+1].strip() == '$$':
+            issues.append((line_num, 'WARN', '空$$块（无内容）', True, None))
+        
+        # tag在$$之后
+        if stripped == '$$' and i+1 < len(lines) and re.match(r'\\\\?tag\{', lines[i+1].strip()):
+            issues.append((line_num, 'ERROR', 'tag在$$之后，应移至$$之前', True, '_fix_tag_after_dollar'))
+    
+    return issues
+
+
+def _fix_formula_format(text: str) -> str:
+    """修复公式格式问题"""
+    lines = text.split('\n')
+    new_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # 处理tag与公式同行:  $$ \tag{1-1} formula
+        m = re.match(r'^(\s*)\$\$(.*?)(\\\\?tag\{[^}]+\})(.*)$', line)
+        if m:
+            indent = m.group(1)
+            tag = m.group(3)
+            after_tag = m.group(4).strip()
+            new_lines.append(f'{indent}{tag}')
+            new_lines.append(f'{indent}$$ {after_tag}' if after_tag else f'{indent}$$')
+            i += 1
+            continue
+        
+        # 处理tag在$$之后
+        if stripped == '$$' and i+1 < len(lines) and re.match(r'\\\\?tag\{', lines[i+1].strip()):
+            new_lines.append(lines[i+1])  # move tag before $$
+            new_lines.append('$$')
+            i += 2
+            continue
+        
+        new_lines.append(line)
+        i += 1
+    
+    return '\n'.join(new_lines)
+
+
 def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> dict:
     """对单文件运行完整检查，返回结果字典"""
 
@@ -544,6 +601,22 @@ def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> d
             total_issues += 1
     else:
         print(f"    ✅ 所有公式语法正确，编号连续无问题")
+
+    # ── 1.5 公式格式规范检查（新增）──
+    print(f"\n  📐 公式格式规范检查")
+    format_issues = check_formula_format(text, verbose)
+    if format_issues:
+        for line, severity, desc, fixable, _ in format_issues:
+            prefix = '❌' if severity == 'ERROR' else '⚠️'
+            print(f"    {prefix} [{severity}] L{line} {desc}")
+            total_issues += 1
+        if auto_fix:
+            text_before = text
+            text = _fix_formula_format(text)
+            if text != text_before:
+                print(f"    ✅ 已自动修复格式问题")
+    else:
+        print(f"    ✅ 公式格式规范（tag在$$前一行，无空$$块）")
 
     # ── 2. Mermaid检查 ──
     print(f"\n  🖼️  Mermaid图检查")

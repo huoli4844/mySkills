@@ -16,7 +16,7 @@
 | 12 | **过渡词单一** | 交替使用设问/类比/递进/转折/因果 |
 | 13 | **每节同一结构** | 先判断内容类型（6种模式之一）再选结构 |
 | 14 | **习题只有概念题** | 每章必须包含概念/简答/计算/分析各一 |
-| 15 | **docx公式不可编辑** | 验证：`assert '<m:oMath' in raw_bytes` |
+| 15 | **docx公式不可编辑** | 用 `python-docx + latex_to_omml` 而非 pandoc。验证：`assert '<m:oMath' in open('f.docx','rb').read()`. 详见 `references/md-to-docx-guide.md` |
 | 16 | **KB零结果时留空** | 即使零素材也要基于通用知识写出来 |
 | 17 | **verify_chapter 的 summary 计数** | 脚本用 `^\d+\.` 匹配总结条目 |
 | 18 | **大纲是.docx格式未先提取** | 用 `file2md` 或 `parse_outline.py` 预处理 |
@@ -50,4 +50,12 @@
 | 40 | **参考教材数量写死** | 文档/表格/测试中假设恰好3本（书A/书B/书C），但 config 可配置任意数量 | 所有遍历用 `c.source_books` 动态迭代；表格行数 = `len(c.source_books)`；避免"书A/书B/书C"或"三书"字眼 |
 | 41 | **测试断言具体配置值** | 测试中断言 `"查老师教材" in output` 或 `get_book_by_author("路宏敏")`，结果 config 换领域后测试炸了 | 测试只断言结构（`isinstance`/`endswith`/`is not None`），不断言 config.yaml 中定义的具体文本/路径/数字 |
 | 42 | **忽略项目目录初始化** | 客户给了项目路径，Agent 直接去读 `book-build.yaml`，但该文件还不存在 | 收到项目路径后先检查 `{path}/book-build.yaml` 是否存在。不存在则自动调用 `Config.setup(path)` 创建目录结构和模板 |
-| 43 | **Phase 重编号的链路风暴** | 修改 Phase 编号（如去掉小数/合并阶段）后，漏更新工作流概览块、各节标题、Design 中 fast mode 引用、闸门表、闸门Mermaid图、项目目录注释、pitfalls 自身引用等，导致文档内部矛盾 | Phase 重编号后必须用全局搜索 `Phase` 逐处核对。检查点：①工作流概览块 ②各 `**Phase N：**` 标题 ③Design fast mode 引用 ④闸门表与 Mermaid 图 ⑤项目目录注释 ⑥pitfalls 引用 ⑦Loop Engineering 理念表 |
+| 43 | **Phase 重编号的链路风暴** | 修改 Phase 编号后漏更新工作流概览块、各节标题、Design 中 fast mode 引用、闸门表、闸门Mermaid图、项目目录注释等 | Phase 重编号后必须全局搜索 `Phase` 逐处核对 |
+| 44 | **公式链无推导文字（AI写作特征）** | 连续3+个显示公式间无推导叙述（"由…得"、"代入…"），第4-14章实战共发现86处 | `fix_common_issues.py` 检测报告，`delegate_task` + LLM 逐处插入推导文字 |
+| 45 | **Mermaid图后无图注** | 每个```mermaid块后必须有 `*图N-X：描述*` 图注 | `check_mermaid_has_caption()` 检测，`fix_common_issues.py` 自动补全 |
+| 46 | **processed_dir 与 raw_dir 混淆** | 用户无独立处理后目录时，将两者指向同一路径 | 省略 `processed_dir`，book_config.py 会处理 `None` |
+| 47 | **柯金良章节目录与实际内容标题格式不同** | TOC 用双井号带页码，实际内容用单井号 | 用 `grep -n "^# 第"` 而非 `"^## 第"` 定位真实内容 |
+| 48 | **blockquote 中 --fix 产生孤立 tag** | `> $$` 块运行 `--fix` 时可能在 `$$` 外部插入 `\tag{}` | `grep -n '^> *\\\\tag{'` 找到后手动删除，再运行 `renumber.py` |
+| 49 | **`\\tag{0-X}` 错误章号前缀** | 自动修复提取章号失败时生成 `\\tag{0-X}` | `grep -n 'tag{0-'` 找到后替换为正确章号，运行 `renumber.py` |
+| 50 | **MD→DOCX 时 \\tag/\\text/\\xrightarrow 等 LaTeX 命令不转换** | pandoc 和 `latex_to_omml` 都不识别教材用的 `\\xrightarrow{文字}`、`\\tag{N-M}`、`\\displaystyle` 等命令 | `md_to_docx.py` 的 `clean_latex()` 自动预处理：移除 `\\tag` 行、`\\xrightarrow{a}`→`a \\to`、移除 `\\left`/`\\right`。如果手动转换，必须执行相同的清理步骤 |
+| 51 | **`latex_to_omml.py` 跨技能依赖不同步** | `book-build/scripts/latex_to_omml.py` 复制自 `docx-format` 技能，docx-format 更新后 book-build 的副本会过时 | 定期从 `docx-format` 技能同步，或运行 `diff -q` 检查差异 |

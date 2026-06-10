@@ -32,9 +32,9 @@ from docx.oxml.ns import qn, nsdecls
 from docx.oxml import parse_xml
 import docx.oxml
 
-# ── 导入 OMML 转换器 ──
+# ── 导入 OMML 转换器（MathML 中间格式） ──
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-from latex_to_omml import latex_to_omml
+from mathml_to_omml import latex_to_omml
 from lxml import etree
 
 # ═══════════════════════════════════════════════════
@@ -44,26 +44,6 @@ from lxml import etree
 M = 'http://schemas.openxmlformats.org/officeDocument/2006/math'
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
-
-# ═══════════════════════════════════════════════════
-# 公式预处理
-# ═══════════════════════════════════════════════════
-
-
-def clean_latex(formula: str) -> str:
-    """清理 LaTeX 公式，使其可被 latex_to_omml.py 解析。"""
-    # 1) 移除 \tag{N-M} 行
-    formula = re.sub(r'^\\tag\{[\d-]+\}\s*$', '', formula, flags=re.MULTILINE)
-    formula = re.sub(r'^\\\\tag\{[\d-]+\}\s*$', '', formula, flags=re.MULTILINE)
-    formula = re.sub(r'\n\\tag\{[\d-]+\}\s*\n', '\n', formula)
-    # 2) \xrightarrow{a} → a \to
-    formula = re.sub(r'\\xrightarrow\{([^}]*)\}', r'\1 \\to', formula)
-    # 3) \displaystyle / \limits 移除
-    formula = re.sub(r'\\displaystyle\s*', '', formula)
-    formula = re.sub(r'\\limits\s*', '', formula)
-    # 4) \begin{aligned} / \end{aligned} 保留（latex_to_omml 支持）
-    return formula.strip()
-
 
 # ═══════════════════════════════════════════════════
 # Markdown 解析
@@ -171,10 +151,9 @@ def add_formula_paragraph(doc: Document, latex: str):
     oMathPara = etree.SubElement(
         p._element, qn('m:oMathPara')
     )
-    # 创建 oMath 元素
     try:
-        latex_clean = clean_latex(latex)
-        oMath = latex_to_omml(latex_clean)
+        # latex2mathml 自动处理 \tag, \xrightarrow, aligned 等所有结构
+        oMath = latex_to_omml(latex)
         oMathPara.append(oMath)
     except Exception as e:
         # fallback: 显示原始 LaTeX
@@ -188,8 +167,7 @@ def add_formula_paragraph(doc: Document, latex: str):
 def add_inline_formula(paragraph, latex: str):
     """在段落中插入行内 OMML 公式。"""
     try:
-        latex_clean = clean_latex(latex)
-        oMath = latex_to_omml(latex_clean)
+        oMath = latex_to_omml(latex)
         # 插入到段落最后
         paragraph._element.append(oMath)
     except Exception:
@@ -280,8 +258,7 @@ def process_markdown_text(paragraph, text: str):
         if part.startswith('$$') and part.endswith('$$'):
             inner = part[2:-2]
             try:
-                latex_clean = clean_latex(inner)
-                oMath = latex_to_omml(latex_clean)
+                oMath = latex_to_omml(inner)
                 paragraph._element.append(oMath)
             except Exception:
                 paragraph.add_run(f"[公式: {inner[:40]}]")
@@ -290,8 +267,7 @@ def process_markdown_text(paragraph, text: str):
         elif part.startswith('$') and part.endswith('$'):
             inner = part[1:-1]
             try:
-                latex_clean = clean_latex(inner)
-                oMath = latex_to_omml(latex_clean)
+                oMath = latex_to_omml(inner)
                 paragraph._element.append(oMath)
             except Exception:
                 paragraph.add_run(f"[{inner[:30]}]")

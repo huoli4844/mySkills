@@ -141,7 +141,68 @@ def audit_chapter(fpath: str, quick: bool = False) -> Dict:
     
     result["issues"] = issues
     result["pass"] = len(issues) == 0
+    
+    # Mermaid 语法检查
+    mermaid_issues = check_mermaid(content)
+    result["mermaid_issues"] = mermaid_issues
+    if mermaid_issues:
+        result["pass"] = False
+        result["issues"].extend(mermaid_issues[:3])  # 显示前3个
+    
     return result
+
+
+def check_mermaid(content: str) -> List[str]:
+    """检查 Mermaid 图语法问题"""
+    blocks = re.findall(r'```mermaid\n(.*?)```', content, re.DOTALL)
+    issues = []
+    for idx, block in enumerate(blocks):
+        lines = block.strip().split('\n')
+        first = lines[0].strip() if lines else ''
+        
+        # 1. 检查 ---config--- 语法（兼容性问题）
+        if block.strip().startswith('---'):
+            issues.append(f"Mermaid图{idx+1}: 使用 ---config--- 语法，建议改用 %%{{init}}%%")
+        
+        # 2. 检查 subgraph 标题中的括号
+        for i, line in enumerate(lines):
+            s = line.strip()
+            if s.startswith('subgraph '):
+                title = s[9:].strip()
+                if title.startswith('"') and title.endswith('"'):
+                    title = title[1:-1]
+                if '(' in title or ')' in title:
+                    issues.append(f"Mermaid图{idx+1} L{i+1}: subgraph 标题含括号: '{title[:40]}'")
+        
+        # 3. 检查 mindmap 中的特殊字符
+        if 'mindmap' in first or 'mindmap' in block:
+            # mindmap 中不能有 --- 除非是 init 后的分隔
+            pass
+        
+        # 4. 检查 unclosed quotes in node labels
+        for i, line in enumerate(lines):
+            s = line.strip()
+            if s.count('"') % 2 != 0:
+                issues.append(f"Mermaid图{idx+1} L{i+1}: 引号未配对")
+        
+        # 5. 检查 round node 括号顺序 [("text")] vs [("text)"]
+        for i, line in enumerate(lines):
+            # 检查 [("...")] 中圆括号位置
+            if re.search(r'\[\(\"[^"]*\)\"\]', line):
+                issues.append(f"Mermaid图{idx+1} L{i+1}: [(\"text)\"] 应为 [(\"text\")]（圆括号被吞入标签）")
+        
+        # 6. 检查 timeline 中文书名号
+        if 'timeline' in first:
+            for i, line in enumerate(lines):
+                if '《' in line or '》' in line:
+                    issues.append(f"Mermaid图{idx+1} L{i+1}: timeline 中含书名号《》, 可能导致渲染问题")
+        
+        # 7. 检查是否有 %%{init 配置语法
+        for i, line in enumerate(lines):
+            if '%%{' in line and '}%%' not in line:
+                issues.append(f"Mermaid图{idx+1} L{i+1}: init 配置块未闭合")
+    
+    return issues
 
 
 def main():

@@ -1,7 +1,7 @@
 ---
 name: book-build
-description: "Use when writing a professional textbook from an outline and a domain-wiki knowledge base. Strictly follows the outline structure, queries kb-qa for content, outputs Obsidian Markdown or Word .docx."
-version: 2.6.0
+description: "大纲驱动的专业教材编写管线。Loop Engineering + 自进化。双层配置，自动创建目录结构和进度文件，支持中断恢复。"
+version: 2.10.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -74,18 +74,49 @@ last_updated: "2026-06-10 14:30:00"
 
 **L2 — 结构层：** 大纲解析确定章节树；内容类型判别（6种模式）选择写作结构；写作指令生成器（gen_prompt.py）综合大纲定位+素材+写作规则，生成每节的提示词。
 
-**L3 — 写作层：** Agent 按提示词写出正文，遵守 13 条军规。每章必须经过"教材研读→写作指南→动笔"的 Phase 0.5 流程。写作指南存放在 `写作大纲/` 子目录下。
+**L3 — 写作层：** Agent 按提示词写出正文，遵守 13 条军规。每章必须经过"教材研读→写作指南→动笔"的 Phase 2 流程。写作指南存放在 `写作大纲/` 子目录下。
 
 **L4 — 校验层：** 每章写完后经过 6 要素检查 + 13 维度自审评分 + 体量铁律验证。
 
+**L5 — 上下文预算层：** 跨章节写作时，Agent 上下文不会无限膨胀。每章写完后释放上下文，下一章仅加载：写作指南 + 当前章素材 + 全书修正日志。已完成章节的正文和素材从上下文中移除，防止上下文污染导致质量下降。
+
 **工作流模式**（`config.yaml` → `workflow.default_mode`）：
-- **`fast`**（默认）：Phase 0（大纲解析）→ Phase 3（写作）→ Phase 4.5（质量检查）→ Phase 6（提交）。跳过教材研读（Phase 0.5）和内容差距分析（Phase 0.6）。
+- **`fast`**（默认）：Phase 1（大纲解析）→ Phase 5（写作）→ Phase 6（质量检查）→ Phase 8（提交）。跳过教材研读（Phase 2）和内容差距分析（Phase 3）。
 - **`full`**：保留完整的 11 Phase 管线。每章写前必须执行教材研读，写完后执行完整审计。
 
 **配置层次**（双层覆盖）：
 - **技能默认值**：`~/.hermes/skills/research/book-build/config.yaml`（工作流/体量/子目录模板）
 - **项目配置**：`{project_root}/book-build.yaml`（教材名/参考教材路径/知识库路径）
 - 项目配置覆盖技能默认值。`scripts/book_config.py(project_root=...)` 自动合并。
+
+**Agent 启动工作流**：每次进入会话时立即执行以下步骤恢复上下文
+
+```python
+# 1. 从 project_root 加载配置
+from scripts.book_config import Config
+import os
+
+# 2. 如果目录存在但没有 book-build.yaml，自动执行首次初始化
+project_root = "客户告知的项目路径"
+if os.path.exists(project_root) and not os.path.exists(os.path.join(project_root, "book-build.yaml")):
+    Config.setup(project_root)  # 幂等创建目录 + 模板，不删已有内容
+
+# 3. 加载配置
+cfg = Config(project_root=project_root)
+
+# 4. 加载任务进度，判断是新书还是恢复
+from scripts.task_tracker import TaskTracker
+tt = TaskTracker(project_root=project_root)
+
+if tt.has_progress():
+    ch = tt.next_pending()
+    ch = ch or tt.current_chapter
+    # 报告: 已写 N 章，当前第 M 章，从进度恢复
+else:
+    # 新项目：先解析大纲，再初始化进度
+    # chapters = parse_outline(cfg.outline_path)
+    # tt.init_from_outline(chapters)
+```
 
 **零硬编码设计原则（冰点法则）**：
 1. **不写路径** — 所有路径从 `config.yaml` → `book_config.py` 动态读取
@@ -103,18 +134,21 @@ if not os.path.exists(os.path.join(project_root, "book-build.yaml")):
 cfg = Config(project_root=project_root)
 ```
 
-**项目目录结构**（config.yaml → project）：
+**项目目录结构**：
 ```
-{project.root}/
+{project_root}/
+├── book-build.yaml              ← 项目配置（手动编辑）
+├── book-build-progress.yaml     ← 任务进度（自动管理）
+├── book-build-corrections.yaml  ← 修正日志（自动管理，自进化用）
 ├── input/                       ← 教材提纲 docx 存放目录
 │   └── 教材提纲.docx
 └── output/                      ← 所有输出
     ├── 第N章-标题.md             ← 各章正文（直接放在 output/）
-    ├── 写作大纲/                 ← 每章的写作指南（Phase 0.5 产出）
+    ├── 写作大纲/                 ← 每章的写作指南（Phase 2 产出）
     │   └── writing-guide-chN.md
-    ├── 案例/                     ← 独立案例文件（Phase 7 产出）
+    ├── 案例/                     ← 独立案例文件（Phase 9 产出）
     │   └── 案例X-Y_标题.md
-    ├── 实验/                     ← 独立实验文件（Phase 7 产出）
+    ├── 实验/                     ← 独立实验文件（Phase 9 产出）
     │   └── 实验XX_名称.md
     └── 习题解答/                 ← 全书完成后统一处理的习题解答
         └── 第N章-习题解答.md
@@ -139,30 +173,58 @@ cfg = Config(project_root=project_root)
 | 13 | **公式全编号** — 每个 `$$` 显示公式都必须有 `\\tag{N-M}` 编号 | 用户 |
 | 14 | **不添加wikilink** — 教材正文中不加 `[[wikilink]]` 导航或交叉引用（除非用户明确要求），保持学术读物的纯净性 | 用户 |
 
+## Loop Engineering 理念 + 上下文自进化（v2.9 引入）
+
+book-build v2.9 融入了 Loop Engineering（循环工程）+ 上下文自进化的理念——不再依赖 Agent "记得要检查/要修复"或"记得上次犯过的错"，而是让检查-修复-自进化的闭环成为管线的基础设施。
+
+**从"写提示词"到"设计验收标准 + 设计自进化系统"的转变：**
+
+传统模式是"给 Agent 一段提示词 → Agent 输出 → 你人工判断 → 再改提示词 → 再来一次"，**你是循环里最慢的瓶颈**。Loop Engineering 把"你"从循环中移出去，换成测试、Hook、定时任务、闸门——你从"逐行指挥"变成"设计验收标准 + 偶尔检查结果"。
+
+**book-build 的四个循环工程件：**
+
+| 组件 | 在 book-build 中的实现 | 对应文章概念 |
+|:----|:-----------------------|:------------|
+| **自动反馈钩子 (Hook)** | 每次 `write_file` 后自动触发 `post_generation_check.py --fix` | PostToolUse 确定性钩子 |
+| **闸门 (Gate)** | 体量低于阈值→自动差距分析；编号审计不通过→锁定提交 | 终止条件，确保循环停在正确位置 |
+| **防漂移指南针 (Compass)** | 每轮写作前强制重读 `writing-guide-chN.md` | CLAUDE.md 防目标漂移 |
+| **节奏 (Cadence)** | `book-build-progress.yaml` 驱动，写完后自动调度下一章 Phase 2 | 循环频率控制 |
+| **自进化 (Self-Evolution)** | `book-build-corrections.yaml` 记录每次修正→下一章写作指南自动注入 | Harness 离 Context 最近，最应该学习 Context |
+
+详见下文各 pHase 的对应实现。
+
 ## Workflow
 
 ```
-Phase 0:   大纲解析 → 章节分层树 (/tmp/outline.json)
-Phase 0.5: 教材研读 → 写作指南生成 (output/写作大纲/writing-guide-ch{N}.md)
-Phase 1:   kb-qa 检索 → 素材包
-Phase 2:   内容类型判别 → 6种模式选一
-Phase 3:   学术写作 → 遵守13条军规
-Phase 4:   格式输出 → .md 或 .docx
-Phase 4.5: 清理临时文件 + 图号核验 + 公式全编号检查
-Phase 5:   质量核验 → 6要素 + 13维度自审
-Phase 6:   版本提交 → git 每个功能单独commit
-Phase 7:   案例/实验扩展 — 按模板用delegate_task并行重写，写完后clean→renumber→audit三步修复
+Phase 1:  大纲解析 → 章节分层树 (/tmp/outline.json)
+Phase 2:  教材研读 → 写作指南生成 (output/写作大纲/writing-guide-ch{N}.md)
+Phase 3:  内容差距分析 → 体量不足时的自动扩充循环
+Phase 4:  素材检索与内容类型判别 → kb-qa + 6种模式选一
+Phase 5:  学术写作 → 遵守13条军规 + 格式输出
+Phase 6:  质量检查（自动反馈钩子 + 闸门 + 编号审计）
+Phase 7:  内容深度核验 → 公式推导 + 去AI味
+Phase 8:  版本提交 → git 每个功能单独commit
+Phase 9:  案例/实验扩展 → 按模板用delegate_task并行重写
 ```
 
-**Phase 0：大纲解析**
+**Phase 1：大纲解析 + 进度初始化**
 
 ```bash
+# 解析大纲
 python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
 ```
 
 支持 .docx、.md、/dev/stdin 三种输入。输出 JSON 含章/节/子节三级树。
 
-**Phase 0.5：教材研读 → 写作指南 → 动笔**（铁律——不读参考教材不落笔）
+**解析完成后立即初始化进度**：
+```python
+from scripts.task_tracker import TaskTracker
+tt = TaskTracker(project_root=project_root)
+chapters = parse_outline(...)  # 从大纲提取 [{number, title}, ...]
+tt.init_from_outline(chapters)  # 创建 book-build-progress.yaml
+```
+
+**Phase 2：教材研读 → 写作指南 → 动笔**（铁律——不读参考教材不落笔）
 
 每章写前必须执行以下5步流程：
 
@@ -241,20 +303,25 @@ for b in c.source_books:
 
 写作中随时回看指南。每写一节前先读该节指南。完稿后对照指南逐项检查「没有遗漏任何要素」。
 
-**Phase 0.6：内容差距分析 —— 当章写完后感觉"单薄"时**
+**防漂移指南针机制**（Loop Engineering Compass）：每次开始写一章（或中断后恢复）时，Agent **必须先重读** `output/写作大纲/writing-guide-ch{N}.md`，再开始正文写作。这解决了长时间写作中的"目标漂移"问题——Agent 写了几千字后容易忘记最初确定的写作策略、素材来源分配和12条军规落实方案。重读指南确保每轮写作方向一致。
 
-当用户反馈某章体量不足时，执行内容差距分析：
+**Phase 3：内容差距分析 —— 体量不足时的自动扩充循环**
 
-1. **搜索各教材的对应主题**：用 grep 命令在教材中获取所有相关内容
+自动触发条件：章节写完后 `post_generation_check.py` 自动测量体量，若低于偏薄阈值（<35KB 或 <700 行），**自动进入差距分析循环**，无需等待用户反馈。也可由用户手动触发。
+
+当体量不足时，执行内容差距分析：
+
+1. **并行搜索各教材的对应主题**：用 `delegate_task` 并行 grep 所有参考教材，同时获取每本教材的相关内容（而非串行一本本读）
 2. **逐书阅读完整章节**：按 priority 读（最高优先级的书最先）
 3. **编制定量对比表**：按公式/例题/Mermaid图/对比表/习题六个维度对比当前输出 vs 各教材
 4. **标记三类素材**：✅已使用 / ⬜可补充 / ❌超范围
 5. **估算补充量**：每项增加的行数/字节数→排列优先顺序
 6. **确认内容天花板**——不是所有章都能达到104KB（第4章体量）。有些主题的核心公式就3-4个，补充方向：案例深度→对比表→工程经验值→Mermaid图
+7. **循环补充**（Loop）：补充完成后再次测量体量。若仍低于阈值，回到第1步针对新补充方向再次搜索和补充，直到达标或确认已达内容天花板。
 
 详见 `references/gap-analysis-checklist.md`。第5章实战示例：`output/第5章-搭接技术.md` 经本分析补充了8项，从40KB扩展到63KB/5张Mermaid图/32条公式。
 
-**Phase 1~2：kb-qa 检索 + 内容类型判别**
+**Phase 4：素材检索与内容类型判别**
 
 写作前，先用 kb_search.py 对每一节的关键词在知识库中做多轮搜索，获取权威定义、公式和案例素材。详见 `references/kb-enrichment-workflow.md`。
 
@@ -265,7 +332,7 @@ python3 scripts/detect_content_type.py "1.1 发展历史"  # → 历史叙事型
 
 内容类型：历史叙事型、概念解构型、原理推导型、系统组成型、分类枚举型、工程案例型、复合型。
 
-**Phase 3：学术写作**
+**Phase 5：学术写作**
 
 核心规则见 `references/chapter-writing-standard.md`。每节必须遵守 6 要素清单：
 - [ ] 权威定义（多标准并列）
@@ -279,7 +346,7 @@ python3 scripts/detect_content_type.py "1.1 发展历史"  # → 历史叙事型
 
 **数学推导标准**：一律 L3 逐步推导（从第一性原理出发，无跳步）。六步结构：物理背景→数学建模→代入代换→关键运算→最终形式→物理阐释+数字例题。详见 `references/derivation-example-107.md`。
 
-**Phase 4.5：自动质量检查** — 每章生成后**必须**运行（铁律——跳过本阶段属于质量事故）：
+**Phase 6：质量检查（自动反馈钩子 + 闸门）**
 
 ```bash
 # 必须在每次write_file输出章节文件后立即执行
@@ -307,6 +374,23 @@ python3 scripts/post_generation_check.py output/第N章-*.md --fix --verbose
 6. **推导深度启发式检查**（连续3个公式前无推导词→告警）
 7. 常见拼写错误检查
 8. **自动修复管线**：缺编号→补编号、编号跳跃→重新编号、重复→去重、Mermaid非法关键字移除
+
+**自动反馈钩子（Loop Engineering Hook）**：
+
+每次通过 `write_file` 输出或修改章节文件后，Agent **必须自动立即执行**以下钩子（而非等写完整章再想起检查）：
+
+```bash
+# 无论写一节还是整章，每次 write_file 后自动触发
+python3 scripts/post_generation_check.py output/第N章-*.md --fix --verbose
+```
+
+| 事件 | 自动触发动作 |
+|:-----|:-------------|
+| 写完一小节 | `post_generation_check.py --fix` |
+| 写完完整一章 | `post_generation_check.py --fix` + 体量测量 |
+| 修改已有章节 | `post_generation_check.py --fix` |
+
+如果检查不通过，自动修复后**再次触发**检查，形成检查→修复→再检查的闭环，直到通过或达到最大重试次数（5次）。这解决了"Agent 记得要检查"的依赖问题——检查是确定性的，不依赖 Agent 的记忆或意愿。
 
 ### 六维编号审计（铁律——写完后必须逐项执行）
 
@@ -403,7 +487,70 @@ Mermaid emoji: 0处✅
 
 如果审计发现问题，必须先用 `--fix` 修复，然后重新审计确认无误后，才能提交git。
 
-**Phase 5：质量核验**（内容深度 — 已由 Phase 4.5 覆盖语法后，本阶段专注内容质量）
+### 闸门系统（Loop Engineering Gate）
+
+质量检查从"建议执行"升级为**硬闸门**——不达标的章节被阻止进入下一阶段。闸门是使循环可靠停止在正确位置的关键组件。
+
+| 闸门 | 阶段 | 触发条件 | 失败后果 |
+|:-----|:-----|:---------|:---------|
+| **闸门A：体量闸门** | Phase 6 → Phase 3 | 体量 < 35KB 或 < 700 行 | 自动进入差距分析循环，不达标不进入 Phase 7 |
+| **闸门B：编号审计闸门** | Phase 6 → Phase 8 | 六维审计任意一项不通过 | 阻止 git 提交，锁定通道直到修复通过 |
+| **闸门C：Mermaid渲染闸门** | Phase 6 → Phase 7 | 7项Mermaid检查任意一项失败 | 阻止进入内容深度核验，要求修正后重新检查 |
+| **闸门D：差距分析循环** | Phase 3 → Phase 5 | 补充后仍低于阈值 | 循环：补充→测量→再补充，突破内容天花板后标记"已达内容天花板" |
+
+**闸门D的自动循环流程**：
+
+```mermaid
+flowchart LR
+    Write["Phase 5 写作"] --> Measure["测量体量"]
+    Measure -->|"≥35KB"| GateB["体量闸门通过"]
+    Measure -->|"<35KB"| Gap["Phase 3 差距分析"]
+    Gap --> Supplement["补充内容"]
+    Supplement --> ReMeasure["再测量"]
+    ReMeasure -->|"≥35KB"| GateB
+    ReMeasure -->|"仍<35KB"| CeilingCheck{"已达内容天花板？"}
+    CeilingCheck -->|"否"| Supplement
+    CeilingCheck -->|"是"| Mark["标记天花板+记录原因"]
+    Mark --> GateB
+```
+
+**闸门实现原则**：闸门不是"提醒"，是**强制阻断**——不达标时 Agent 不能自行决定"先跳过，后回来补"。必须当前环节修复完成后才能推进到下一环节。
+
+### 修正自进化机制（Feedback Self-Evolution）
+
+**问题**：用户在 Phase 7 审查或 Phase 3 差距分析中给出的修正意见（"这里公式推导不够深"、"案例缺数字"），写下一章时 Agent 已经忘记，同样的错误再次出现。
+
+**解决方案**：在项目根目录创建 `book-build-corrections.yaml`，自动记录每次修正操作。后续 Phase 2 生成写作指南时自动注入这些修正经验。
+
+```yaml
+corrections:
+  - chapter: 5
+    type: formula_depth
+    description: 第5章 §5.3 公式直接贴结果缺推导，已补六步推导
+    resolved_at: "2026-06-10"
+    applicable_to: ["后续章节"]
+  - chapter: 5
+    type: case_structure
+    description: 案例只有背景+结果缺分析+启示，已修正为三级案例结构
+    resolved_at: "2026-06-10"
+    applicable_to: ["所有章"]
+  - chapter: 5
+    type: volume
+    description: 体量40KB触发自动差距分析补充了8项，达63KB
+    resolved_at: "2026-06-10"
+    applicable_to: ["偏薄章节"]
+```
+
+**自进化工作流**：
+
+1. **触发**：用户修正内容 / 闸门自动触发差距分析
+2. **记录**：Agent 将修正操作写入 `book-build-corrections.yaml`——写明哪章、什么问题、怎么修的、适用哪些后续章节
+3. **注入**：下一章 Phase 2（写作指南生成）时，Agent 先加载 `corrections.yaml`，将 `applicable_to` 匹配的修正经验注入指南
+4. **验证**：Phase 6 质量检查时，检查本章是否重犯了之前修正过的问题
+
+**设计原则**：修正日志不是备忘录——修正日志不是给用户看的归档文件，而是给 Agent 下一轮写作时的"先验知识"注入源。因此每条修正必须有 `applicable_to` 字段指导其适用范围。
+
+**Phase 7：内容深度核验**（语法已在 Phase 6 覆盖后，本阶段专注内容质量）
 
 ```bash
 python3 scripts/verify_chapter.py output/第N章.md --verbose
@@ -411,7 +558,7 @@ python3 scripts/verify_chapter.py output/第N章.md --verbose
 
 五维检查：结构完整性 / 内容深度 / 数学推导 / 学术规范 / 去AI味。详见 `references/six-elements.md`。
 
-**Phase 6：版本提交**
+**Phase 8：版本提交**
 
 - 一个功能调整 = 一次 commit
 - 提交说明必须有实质内容：`git diff --stat --cached` 后再写
@@ -420,19 +567,12 @@ python3 scripts/verify_chapter.py output/第N章.md --verbose
 
 | 用途 | 命令 |
 |:-----|:------|
-| 大纲解析 | `python3 scripts/parse_outline.py 教材提纲.docx -o /tmp/outline.json` |
-| KB搜索 | `python3 scripts/kb_search.py /kb "关键词" --format material` |
-| 内容类型判断 | `python3 scripts/detect_content_type.py "标题" --has-formula yes` |
-| 写作指令生成 | `python3 scripts/gen_prompt.py --outline /tmp/outline.json --kb-dir /kb --chapter 1 --section 1.1 -o /tmp/prompt.md` |
-| 质量核验 | `python3 scripts/verify_chapter.py 第N章.md` |
-| 体量检查 | `wc -c 第N章.md` |
-| 公式全编号检查+修复 | `python3 scripts/post_generation_check.py 第N章.md --fix --verbose` | 首选：自动检查+修复（支持 --dir 目录模式） |
-| 公式编号重排 | `python3 scripts/renumber.py 第N章.md` | 合并 fix_formula_numbers + clean_formula_numbers + fix_tag_placement 的统一入口 |
-| 章节组装 | `python3 scripts/assemble_chapter.py 前/ --out 第N章.md --chapter N` | 将多节独立文件按大纲顺序组装为完整章 |
-| 跨文件编号重排 | `python3 scripts/renumber_cross_file.py . --chapter N --fix` | 多个案例/实验文件间公式编号连续分配 |
-| 目录质量检查 | `python3 scripts/post_generation_check.py . --dir --fix` | 扫描目录下所有 .md 一次性检查 |
+## Key Commands
 
-> **路径说明**：以上命令均在 `output/` 目录下执行。config.yaml 中的 `project.output_dir` 定义了实际输出目录。子目录结构：`写作大纲/`、`案例/`、`实验/`、`习题解答/`。
+| 用途 | 命令 |
+| 查看任务进度 | `python3 scripts/task_tracker.py --project . --status` | 显示当前章/已完成/待处理 |
+
+> **路径说明**：以上命令均在 `output/` 目录下执行。子目录结构由 config.yaml → `subdirs` 定义：`写作大纲/`、`案例/`、`实验/`、`习题解答/`。
 
 **Quality baseline — actual benchmark volumes from this project**（写完后对照）:
 
@@ -462,6 +602,10 @@ python3 scripts/renumber.py output/第N章-*.md --chapter N
 # 验证
 python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('output/第N章-*.md')); tags=re.findall(r'tag\{N-\d+\}',text); ok=all(t==f'tag{{N-{i+1}}}' for i,t in enumerate(tags)); print(f'{\"✅\" if ok else \"❌\"} Tags sequential N-1~N-{len(tags)}')"
 ```
+
+**Phase 9：案例/实验扩展**
+
+独立于章节正文的案例和实验文件，用 `delegate_task` 按模板并行重写，写完后执行 clean→renumber→audit 三步修复。详见 `references/case-writing-template.md` 和 `references/experiment-writing-standard.md`。
 
 **Subagent delegation for content writing —— 不要用于写教材正文**：
 
@@ -499,7 +643,7 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
   | 自由空间损耗 $L_{bf}$ | 直接写"$L_{bf}=20\lg(4\pi r/\lambda)$" | Friis方程：功率密度 $S=P_t/(4\pi r^2)$ → 有效面积 $A_e=\lambda^2/(4\pi)$ → $P_r=P_t\lambda^2/(4\pi r)^2$ → 取dB |
   | 接收机灵敏度 $S_{min}$ | 直接写"$S_{min}=-174+NF+10\lg B+SNR_{min}$" | 热噪声 $kT_0=-174\text{dBm/Hz}$ → NF放大 → 带宽积分 → +SNR_min |
 
-  **Phase 4.5/5 新增检查项**：每章完成后，`post_generation_check.py` 会自动运行推导深度启发式检查（检测连续3个公式前无推导词）。如触发告警，**手动抽查5个关键公式**是否包含至少①+⑤+⑥三步。
+  **Phase 8/9 新增检查项**：每章完成后，`post_generation_check.py` 会自动运行推导深度启发式检查（检测连续3个公式前无推导词）。如触发告警，**手动抽查5个关键公式**是否包含至少①+⑤+⑥三步。
 
   ```bash
   # 推导深度检查——手动操作（无法自动化）
@@ -547,6 +691,14 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 
 26. **配置数量假设** → 不要假设 `source_books` 一定有 3 本、`subdirs` 一定有某个子目录。所有遍历用 `c.source_books` 动态迭代，文档/表格中不出现"书A/书B/书C"固定角色名，测试不断言 `len >= 3`。
 
+27. **未初始化项目直接使用 Config** → 客户告知项目路径后，必须先检查 `book-build.yaml` 是否存在。不存在时调用 `Config.setup(project_root)` 自动创建目录和模板，否则 `Config(project_root=...)` 因无项目配置导致 `textbook_name=""` 和 `source_books=[]`。正确的启动流程见「Agent 启动工作流」。
+
+28. **Mermaid emoji 污染** → `✅❌⚠️★` 等 emoji 出现在 Mermaid 节点标签中会导致 Obsidian 整图不渲染。修复运行 `python3 scripts/fix_common_issues.py output/`。
+29. **公式链无推导文字** → AI 写作的典型特征：连续 3+ 个显示公式间无任何推导叙述（"由…得""代入…"）。第4章至第14章实战中共发现 86 处此类问题，需逐处插入推导文字。自动化检查由 `fix_common_issues.py` 报告，修复用 `delegate_task` 配合上下文理解进行 LLM 辅助插入。
+30. **Mermaid 图后无图注** → 每个 ```mermaid 块后必须有 `*图N-X：描述*` 图注。`post_generation_check.py` 的 `check_mermaid_has_caption()` 检测不到时，运行 `fix_common_issues.py` 自动补全。
+31. **processed_dir 与 raw_dir 混淆（用户常见困惑）** → `processed_dir` 是 file2md 加工后的 .md 输出目录，`raw_dir` 是原始源文件目录。如果用户没有独立的"处理后"目录（加工后的文件直接放在 `raw/` 子目录下），**不要将两者指向同一路径**，应省略 `processed_dir`，`book_config.py` 会正确处理 `None`。
+32. **新项目未执行 setup 直接写作** → 客户创建目录后，Agent 必须先执行 `Config.setup(project_root)` 创建 `book-build.yaml` 模板。`Config()` 不带 `project_root` 时 `textbook_name` 为空、`source_books` 为空列表，写作无法进行。
+
 ## Reference Index
 
 | 需要时加载 | 内容 |
@@ -555,7 +707,7 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 | `references/experiment-writing-standard.md` | **实验编写标准（8章节高质量实验指导书）** — 目的→原理→设备→步骤→数据→分析→思考→注意事项 |
 | `references/volume-standards.md` | **体量铁律 + 13条军规逐项勾选清单 + 公式全编号检查** |
 | `references/chapter-writing-standard.md` | **三教材融合写作法 + 章首/正文/章末完整模板** |
-| `references/chapter-writing-workflow.md` | **Phase 0.5 五步研读流程**（必读） |
+| `references/chapter-writing-workflow.md` | **Phase 2 五步研读流程**（必读） |
 | `references/textbook-style-guide.md` | 教材学术叙事风格指南 |
 | `references/writing-patterns.md` | 6种内容类型完整写作示例 + 通用模板 |
 | `references/six-elements.md` | 教材质量综合检查清单（13项+自审评分表） |
@@ -565,6 +717,8 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 | `references/mermaid-troubleshooting.md` | **Mermaid错误排查速查表（Obsidian版）** — 错误信号→根因→修复方案 |
 | `references/pitfalls.md` | 完整陷阱列表（35+条） |
 | `references/changelog.md` | 版本更新历史 |
-| `references/source-books-locations.md` | 参考教材源文件路径与搜索方法 |
+| `references/source-books-locations.md` | 参考教材源文件位置与搜索方法 |
 | `references/six-dimension-audit.md` | **六维编号审计脚本 + 常见失败场景 + 链路风暴修复** |
 | `references/kb-enrichment-workflow.md` | **KB素材扩展工作流** — 写作前多轮搜索KB获取素材，含Ch9实案例 |
+| `scripts/task_tracker.py` | **任务进度管理** — book-build-progress.yaml 创建与查询 |
+| `scripts/fix_common_issues.py` | **共性问题批量修复** — Mermaid emoji替换 + 补图注 + 推导深度报告 |

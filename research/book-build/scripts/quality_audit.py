@@ -88,31 +88,29 @@ def check_content_stats(content: str) -> Dict:
 
 def check_learning_objectives(content: str) -> List[str]:
     """检查学习目标是否被正文覆盖"""
-    """检查学习目标是否被正文覆盖"""
     issues = []
-    # 提取学习目标列表
-    # 学习目标有四种写法：① "通过本章学习，读者应达成以下学习目标："
-    # ② 在 ## 内容提要 段落末尾用一句过渡
-    # ③ "通过本章学习，读者应掌握以下内容："
-    # ④ "本章学习目标如下："
+    # 提取学习目标：学习目标前面的标识可能在## 内容提要段落之后
+    # 支持多种写法
     patterns = [
-        r'通过本章学习，读者应达成以下学习目标：(.*?)(?=\n---|\n##|\Z)',
-        r'通过本章学习，读者应掌握以下[内容要点]*(.*?)(?=\n---|\n##|\Z)',
-        r'本章学习目标如下：(.*?)(?=\n---|\n##|\Z)',
+        r'通过本章学习，读者(?:应)?(?:达成以下学习目标|掌握以下内容|应掌握)(.*?)(?=\n\s*\n---|\n\s*\n##|\Z)',
+        r'本章学习目标如下：(.*?)(?=\n\s*\n---|\n\s*\n##|\Z)',
     ]
+    
+    # 先找"通过本章学习"开头的目标块
     obj_section = None
     for p in patterns:
         obj_section = re.search(p, content, re.DOTALL)
         if obj_section:
             break
+    
     if not obj_section:
-        # 尝试找编号列表紧跟在内容提要后面的情况
+        # 容错：在 ## 内容提要 后找编号列表
         idx = content.find('## 内容提要')
         if idx >= 0:
-            after = content[idx:idx+1500]
+            after = content[idx:idx+2000]
             numbered = re.findall(r'^\d+\.\s+\S', after, re.MULTILINE)
             if len(numbered) >= 3:
-                return []  # 有编号列表，视为有学习目标
+                return []
         return ["未找到学习目标"]
     
     obj_text = obj_section.group(1)
@@ -202,6 +200,20 @@ def audit_chapter(fpath: str, quick: bool = False) -> Dict:
         result["pass"] = False
         result["issues"].extend(obj_issues[:3])
     
+    # 图注位置检查（图注必须在Mermaid下方）
+    fig_issues = check_figure_captions(content)
+    result["figure_caption_issues"] = fig_issues
+    if fig_issues:
+        result["pass"] = False
+        result["issues"].extend(fig_issues[:2])
+    
+    # 技术深度检查（第1章特有）
+    td_issues = check_technical_depth(content, int(prefix))
+    result["tech_depth_issues"] = td_issues
+    if td_issues:
+        result["pass"] = False
+        result["issues"].extend(td_issues[:2])
+    
     return result
 
 
@@ -284,7 +296,40 @@ def check_mermaid(content: str) -> List[str]:
     return issues
 
 
-def main():
+def check_figure_captions(content: str) -> List[str]:
+    """检查图注位置（图注应在Mermaid下方，表题在表格上方）"""
+    issues = []
+    # 检查Mermaid块后紧跟的图注
+    mermaid_blocks = re.findall(r'```mermaid\n(.*?)```\n', content, re.DOTALL)
+    for idx, block in enumerate(mermaid_blocks):
+        after = content[content.find(block) + len(block) + 3:]
+        after = after[:100]
+        # 找图注（*图X-Y* 格式）
+        caption = re.search(r'\*图[\d\-]+[^*]+\*', after)
+        if not caption:
+            issues.append(f"Mermaid图{idx+1} 缺少图注（应在图下方加 *图X-Y 标题*）")
+        elif after.find(caption.group()) > 50:
+            issues.append(f"Mermaid图{idx+1} 图注距离图太远（应在紧接```的下一行）")
+    return issues
+
+
+def check_technical_depth(content: str, chapter: int) -> List[str]:
+    """检查技术深度（第1章：电尺寸/窄宽带/术语体系/兼容电平图）"""
+    issues = []
+    if chapter == 1:
+        depth_checks = {
+            '电尺寸概念': ['电尺寸', 'λ/10', 'k = l/λ'],
+            '窄带/宽带分类': ['窄带', '宽带', '百分比带宽'],
+            '术语体系': ['术语', '核心术语'],
+            '兼容电平图': ['兼容电平', '发射限值', '抗扰度限值'],
+        }
+        missing = []
+        for name, kws in depth_checks.items():
+            if not any(kw in content for kw in kws):
+                missing.append(name)
+        if missing:
+            issues.append(f"缺技术深度内容: {', '.join(missing)}")
+    return issues
     parser = argparse.ArgumentParser(description="统一质量审计")
     parser.add_argument("--project", help="项目根目录")
     parser.add_argument("--chapter", type=int, default=None, help="指定章节")

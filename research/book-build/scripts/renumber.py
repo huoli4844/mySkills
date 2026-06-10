@@ -11,10 +11,16 @@ clean_formula_numbers + fix_tag_placement 功能，消除功能重叠和截断 b
 流程：
     1. 自动备份（.bak）
     2. 修复孤立 \tag{}（$$ 外部的 tag → 移入 $$ 内部）
-    3. 转换单行 $$inline$$ 为多行 block 格式
-    4. 清除所有旧编号
-    5. 按出现顺序分配连续编号 N-1, N-2, ...
-    6. 验证无重复编号
+    3. 清理 >$$ 引用块格式（>$$ → $$，删除 > 引用行）
+    4. 删除连续 $$ 行（空块）
+    5. 检测并修复未闭合 $$
+    6. 转换单行 $$inline$$ 为多行 block 格式
+    7. 清除所有旧编号
+    8. 按出现顺序分配连续编号 N-1, N-2, ...
+    9. 验证无重复编号
+
+注意：对于有复杂格式问题的文件（>$$ + 未闭合 $$ 同时出现），
+推荐使用 batch_fix_formula_numbers.py（行级状态机，更稳健）。
 """
 
 import re
@@ -108,6 +114,40 @@ def renumber(path, chapter=None, dry_run=False):
 
     # Step 1: 修复孤立 tag
     lines = fix_orphan_tags(lines)
+
+    # Step 2: 清理 >$$ 引用块格式
+    lines = [re.sub(r'^>\s*\$\$', '$$', l) for l in lines]
+    lines = [l for l in lines if l.strip() != '>']
+
+    # Step 3: 删除连续 $$ 对（空块）
+    changed = True
+    while changed:
+        tmp = []
+        i = 0
+        changed = False
+        while i < len(lines):
+            if i+1 < len(lines) and lines[i].strip() == '$$' and lines[i+1].strip() == '$$':
+                i += 2
+                changed = True
+                continue
+            tmp.append(lines[i])
+            i += 1
+        lines = tmp
+
+    # Step 4: 检测并修复未闭合 $$
+    in_f = False
+    for i, line in enumerate(lines):
+        if line.strip() == '$$':
+            in_f = not in_f
+    if in_f:
+        # 找到最后一个 $$（未闭合），在其后第一个公式内容行后插入 $$
+        for i in range(len(lines) - 1, max(0, len(lines) - 10), -1):
+            if lines[i].strip() == '$$':
+                for j in range(i + 1, min(len(lines), i + 10)):
+                    if lines[j].strip() and lines[j].strip() != '$$':
+                        lines.insert(j + 1, '$$')
+                        break
+                break
 
     text = "\n".join(lines)
 

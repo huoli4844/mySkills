@@ -164,15 +164,22 @@ def check_mermaid(content: str) -> List[str]:
         if block.strip().startswith('---'):
             issues.append(f"Mermaid图{idx+1}: 使用 ---config--- 语法，建议改用 %%{{init}}%%")
         
-        # 2. 检查 subgraph 标题中的括号
+        # 2. 检查 subgraph 标题中的括号和 direction 指令
+        in_subgraph = False
         for i, line in enumerate(lines):
             s = line.strip()
             if s.startswith('subgraph '):
+                in_subgraph = True
                 title = s[9:].strip()
                 if title.startswith('"') and title.endswith('"'):
                     title = title[1:-1]
                 if '(' in title or ')' in title:
                     issues.append(f"Mermaid图{idx+1} L{i+1}: subgraph 标题含括号: '{title[:40]}'")
+            if s == 'end' and in_subgraph:
+                in_subgraph = False
+            # 检查 subgraph 内的 direction 指令
+            if in_subgraph and 'direction ' in s:
+                issues.append(f"Mermaid图{idx+1} L{i+1}: subgraph 内 direction 可能导致渲染问题，建议移除")
         
         # 3. 检查 mindmap 中的特殊字符
         if 'mindmap' in first or 'mindmap' in block:

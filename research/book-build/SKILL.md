@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交。提供写作大纲解析、内容差距分析、P0/P1 分阶段补充、公式编号批量修复、全章质量审计等工具。适用场景：基于多本参考书进行的中文专业教材（特别是电磁兼容/EMC领域）的结构化编写。"
-version: 3.1.0
+version: 3.2.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -167,7 +167,7 @@ python3 scripts/batch_fix_formula_numbers.py /path/教材/output/第*.md
 ### ⑦ 质量审计
 
 ```bash
-# 全量
+# 全量（检查公式编号、$$配对、Mermaid语法、禁止内容）
 python3 scripts/quality_audit.py --project /path/to/教材
 
 # 单章
@@ -176,6 +176,8 @@ python3 scripts/quality_audit.py --project /path/to/教材 --chapter 7
 # 快速（仅检查公式和$$）
 python3 scripts/quality_audit.py --project /path/to/教材 --quick
 ```
+
+审计覆盖范围：公式编号连续性、$$配对、内容统计（表格/图/例题）、Mermaid 语法校验（`---config---` 兼容性、subgraph括号、round node顺序、timeline书名号）、禁止内容检查（写作说明/军规/公式总结/Bloom标签）。
 
 ### 补充已有章节
 
@@ -229,7 +231,7 @@ python3 scripts/outline_vs_chapter_audit.py \
 6. **Mermaid `---config---` 语法** — 某些渲染器不支持，改用 `%%{init: {"theme": "default"}}%%`
 7. **Mermaid timeline 中文书名号** — timeline 内容中避免使用 `《》`，可能导致渲染中断
 8. **写作说明不写入正文** — 军规检查/核心公式总结是内部工具，不得写入章节文件
-7. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
+9. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
 
 ## Reference Index
 
@@ -239,6 +241,7 @@ python3 scripts/outline_vs_chapter_audit.py \
 | `references/formula-numbering-comprehensive-fix.md` | 综合修复流程 + 诊断决策树 |
 | `references/comprehensive-quality-audit.md` | 全章质量审计工作流 |
 | `references/content-expansion-workflow.md` | 内容扩充工作流 |
+| `references/mermaid-validation-checklist.md` | Mermaid 语法质量检查清单 |
 | `references/mermaid-guide.md` | Mermaid 陷阱与正确写法 |
 | `references/derivation-example-107.md` | 公式推导示例 |
 | `references/chapter-writing-standard.md` | 章节写作标准 |

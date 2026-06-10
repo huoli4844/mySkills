@@ -5,23 +5,38 @@
 核心原则：KB 内容是原料，教材是成品，不能直接搬运。每节需重新组织。
 
 用法：
-  # 对某节生成写作指令
-  python3 gen_prompt.py --outline /tmp/教材大纲.json \
-    --kb-dir /Users/.../电磁兼容知识库 \
-    --chapter 3 --section 3.1 \
+  # 对某节生成写作指令并保存到文件
+  python3 scripts/gen_prompt.py \\
+    --outline /tmp/教材大纲.json \\
+    --kb-dir /Users/.../电磁兼容知识库 \\
+    --chapter 3 --section 3.1 \\
     -o /tmp/prompt_3.1.md
 
   # 输出到 stdout（给子 Agent 传 context）
-  python3 gen_prompt.py --outline /tmp/教材大纲.json \
-    --kb-dir /Users/.../电磁兼容知识库 \
-    --chapter 3 --section 3.1 --format text
+  python3 scripts/gen_prompt.py \\
+    --outline /tmp/教材大纲.json \\
+    --kb-dir /Users/.../电磁兼容知识库 \\
+    --chapter 3 --section 3.1
 
-输出内容：
-  ① 本章在全书的定位（哪部分、依赖前章、被后章依赖）
-  ② 本节的内容类型 + 推荐写作结构
-  ③ KB 素材（已按类型分组，标注置信度）
-  ④ 6 要素清单（必须有/可选/禁止的事项）
-  ⑤ 跨章引用提醒
+输出内容（5个板块）：
+  ① 本章在全书的定位（前章/后章/依赖关系）
+  ② 本节信息（标题、内容类型、子节、推荐写作结构）
+  ③ KB素材（按类型分组：概念/知识要素/知识点/技能点/场景）
+  ④ 写作规则（6要素必须/可选/禁止）
+  ⑤ 段落过渡指导 + 公式编号约定 + 章节结尾模板
+
+内容类型（6种）：
+  - 历史叙事型：分阶段 + 双线（国际/国内）+ 对照表
+  - 概念解构型：直观引入 → 多标准定义 → 分解 → 对比表
+  - 原理推导型：物理原理 → 建模 → 推导 → 式中解释 → 例题
+  - 系统组成型：框图 + 逐项详述
+  - 分类枚举型：分类表 + 每类详述
+  - 工程案例型：问题 → 方案 → 实施 → 验证
+
+依赖：
+  - kb-qa/scripts/kb_search.py（搜索知识库）
+  - scripts/detect_content_type.py（判断内容类型）
+  - scripts/book_config.py（加载 config.yaml 领域配置）
 """
 import argparse, json, os, sys, textwrap
 from pathlib import Path

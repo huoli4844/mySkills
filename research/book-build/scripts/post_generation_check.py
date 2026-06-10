@@ -442,6 +442,86 @@ def _fix_mermaid_issues(text: str) -> str:
     return '\n'.join(new_lines)
 
 
+def check_mermaid_has_caption(text: str, verbose: bool = False) -> list:
+    """检查Mermaid图后是否有文字说明（有图必有说明）。
+
+    规则：每个 ```mermaid...``` 块之后、下一个标题/代码块之前，
+    必须存在 *图N-X：描述* 格式的图注。
+    """
+    issues = []
+    lines = text.split('\n')
+    in_mermaid = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == '```mermaid':
+            in_mermaid = True
+        elif in_mermaid and stripped == '```':
+            in_mermaid = False
+            # 检查闭合后3行内是否有 *图 图注
+            has_caption = False
+            for j in range(i + 1, min(i + 6, len(lines))):
+                if re.match(r'\*图\d+-\d+', lines[j].strip()):
+                    has_caption = True
+                    break
+                if not lines[j].strip():
+                    continue
+                if lines[j].strip().startswith('#') or lines[j].strip().startswith('```'):
+                    break
+            if not has_caption:
+                issues.append((i + 1, 'WARN',
+                               f'L{i + 1}: Mermaid图后3行内缺图注'
+                               f' (*图N-X：描述*) → 有图必有说明',
+                               False, None))
+    return issues
+
+
+def check_derivation_depth(text: str, verbose: bool = False) -> list:
+    """启发式检查公式推导深度。
+
+    规则：每个显示公式之前应包含推导标记词（推导/原理/根据/由/代入）。
+    如果连续3个公式前都没有推导标记词，标记为推导深度不足。
+    """
+    issues = []
+    lines = text.split('\n')
+    in_formula = False
+    formula_positions = []
+    formula_start = 0
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == '$$':
+            if in_formula:
+                context_start = max(0, formula_start - 5)
+                context = '\n'.join(lines[context_start:formula_start])
+                formula_positions.append((formula_start, context))
+                in_formula = False
+            else:
+                formula_start = i
+                in_formula = True
+
+    # 检查每个公式前5行是否有推导词
+    derivation_hints = ['推导', '原理', '根据', '代入', '由式', '可得',
+                        '得', '代入式', '由', '可得', '整理得', '即']
+    consecutive_bare = 0
+
+    for f_line, context in formula_positions:
+        has_hint = any(hint in context for hint in derivation_hints)
+        if has_hint:
+            consecutive_bare = 0
+        else:
+            consecutive_bare += 1
+
+        if consecutive_bare >= 3:
+            if issues and issues[-1][2].startswith(f'连续公式前无推导词'):
+                continue
+            issues.append((f_line + 1, 'WARN',
+                           f'L{f_line + 1}: 连续{consecutive_bare}个公式前无推导词'
+                           f' → 可能缺推导步骤（手动抽查确认）',
+                           False, None))
+
+    return issues
+
+
 def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> dict:
     """对单文件运行完整检查，返回结果字典"""
 
@@ -476,6 +556,17 @@ def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> d
     else:
         print(f"    ✅ 所有Mermaid图语法校验通过（7项：类型/关键字/引号/subgraph/emoji/init/classDef）")
 
+    # ── 2.5 Mermaid有图必有说明检查（新增）──
+    print(f"\n  📝 Mermaid图注检查")
+    caption_issues = check_mermaid_has_caption(text, verbose)
+    if caption_issues:
+        for line, severity, desc, _, _ in caption_issues:
+            prefix = '⚠️'
+            print(f"    {prefix} [{severity}] {desc}")
+            total_issues += 1
+    else:
+        print(f"    ✅ 所有Mermaid图后都有图注")
+
     # ── 3. Wikilink检查（教材禁用的[[...]]交叉引用）──
     print(f"\n  🔗  Wikilink检查")
     wikilink_issues = check_wikilinks(text)
@@ -487,7 +578,7 @@ def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> d
     else:
         print(f"    ✅ 无[[wikilink]]残留")
 
-    # ── 3.5 \\tag{}放置检查 ──
+    # ── 3.5 \tag{}放置检查 ──
     print(f"\n  🏷️  \\tag{{}}放置检查")
     tag_place_issues = check_tag_placement(text)
     if tag_place_issues:
@@ -510,11 +601,22 @@ def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> d
     else:
         print(f"    ✅ 无常见拼写错误")
 
+    # ── 5. 推导深度启发式检查（新增）──
+    print(f"\n  🔬 推导深度检查")
+    depth_issues = check_derivation_depth(text, verbose)
+    if depth_issues:
+        for line, severity, desc, _, _ in depth_issues:
+            prefix = '⚠️'
+            print(f"    {prefix} [{severity}] {desc}")
+            total_issues += 1
+    else:
+        print(f"    ✅ 公式前含推导词比例正常")
+
     # 统计
     # Use non-greedy match with DOTALL to properly count formula blocks
     formula_blocks = re.findall(r'\$\$(.+?)\$\$', text, re.DOTALL)
     formula_count = len(formula_blocks)
-    tag_count = len(re.findall(r'\\tag\{', text))
+    tag_count = len(re.findall(r'\\\\tag\{', text))
     mermaid_count = text.count('```mermaid')
     example_count = len(re.findall(r'\*\*例\s*\d+-\d+\*\*', text))
 
@@ -529,7 +631,7 @@ def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> d
 
         # 5a. 修复公式编号问题（缺编号/重复/跳跃）
         from collections import Counter
-        tags = re.findall(r'\\tag\{(?:' + str(chapter_n) + r'-)?(\d+)\}', fixed_text)
+        tags = re.findall(r'\\\\tag\{(?:' + str(chapter_n) + r'-)?(\d+)\}', fixed_text)
         if tags:
             nums = [int(x) for x in tags]
             if len(nums) != len(set(nums)):
@@ -595,10 +697,23 @@ def run_check(filepath: str, auto_fix: bool = False, verbose: bool = False) -> d
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='章节生成后自动质量检查')
-    parser.add_argument('files', nargs='+', help='.md 文件路径')
+    parser.add_argument('files', nargs='+', help='.md 文件路径（支持 glob，如 output/*.md）')
     parser.add_argument('--fix', action='store_true', help='自动修复可修复的问题')
     parser.add_argument('--verbose', '-v', action='store_true', help='详细输出')
+    parser.add_argument('--dir', '-d', action='store_true', help='目录模式：扫描目录下所有 .md 文件')
     args = parser.parse_args()
+
+    # --dir 模式：将 files[0] 视为目录，列出所有 .md
+    if args.dir:
+        target_dir = args.files[0] if args.files else '.'
+        if os.path.isdir(target_dir):
+            md_files = sorted(
+                os.path.join(target_dir, f)
+                for f in os.listdir(target_dir)
+                if f.endswith('.md') and not f.endswith('.bak.md')
+            )
+            print(f"📂 目录模式: {target_dir} → {len(md_files)} 个 .md 文件")
+            args.files = md_files
 
     all_results = []
     for f in args.files:

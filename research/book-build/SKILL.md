@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "Use when writing a professional textbook from an outline and a domain-wiki knowledge base. Strictly follows the outline structure, queries kb-qa for content, outputs Obsidian Markdown or Word .docx."
-version: 2.4.0
+version: 2.6.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -40,6 +40,12 @@ metadata:
 **L4 — 校验层：** 每章写完后经过 6 要素检查 + 13 维度自审评分 + 体量铁律验证。
 
 **核心原则**：教材是学术作品，不是知识库的复制品。KB是原料，教材是成品——必须重新组织为自然叙述的学术散文，不能把知识库中的模板结构（YAML frontmatter、`精准释义：`格式等）复制到正文中。
+
+**工作流模式**（`config.yaml` → `workflow.default_mode`）：
+- **`fast`**（默认）：Phase 0（大纲解析）→ Phase 3（写作）→ Phase 4.5（质量检查）→ Phase 6（提交）。跳过三书研读（Phase 0.5）和内容差距分析（Phase 0.6）。
+- **`full`**：保留完整的 11 Phase 管线。每章写前必须执行三书研读，写完后执行完整审计。
+
+**领域参数**：所有领域特有路径/名称在 `config.yaml` 集中管理。`scripts/book_config.py` 统一加载，脚本中不再硬编码。
 
 **13 条写作军规**（完整版加载 `references/volume-standards.md`）：
 
@@ -151,7 +157,7 @@ grep -n "接地" /Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC
 - 12条军规落实检查
 
 完成后向用户汇报：`第N章写作指南已生成 → output/writing-guide-ch{N}.md`
-汇报时列出三书手法对比表和发挥空间，**必须征得用户确认方向正确**后，再开始动笔。
+汇报时列出三书手法对比表和发挥空间。**如 config.yaml 中 `phase_0_5_auto: true`（默认），跳过用户确认直接进入 Step 5 动笔。**
 
 第6章实战示例：详见 `output/writing-guide-ch6.md`（含完整的8维度对比+7Mermaid图规划+14条军规检查清单），可直接作为后续章节写作指南的参考模板。
 
@@ -216,13 +222,15 @@ python3 scripts/post_generation_check.py output/第N章-*.md --fix --verbose
 | 6 | **`%%{init}` 格式** | 必须双引号JSON + 闭合 `}%%` | 否 |
 | 7 | **classDef 定义覆盖** | 所有 `:::xxx` 引用必须有对应 `classDef` | 否 |
 
-本脚本执行6类检查：
-1. 公式LaTeX语法（花括号平衡、\left/\right对称、无空\frac）
-2. 公式全编号（每个$$块必须有\tag，编号连续无重复无跳跃）
+本脚本执行8类检查：
+1. 公式LaTeX语法（花括号平衡、\\left/\\right对称、无空\\frac）
+2. 公式全编号（每个$$块必须有\\tag，编号连续无重复无跳跃）
 3. **Mermaid图语法校验（7项，详见上表）**
-4. **Wikilink检查（教材禁止[[...]]交叉引用）**
-5. 常见拼写错误检查
-6. **自动修复管线**：缺编号→补编号、编号跳跃→重新编号、重复→去重、Mermaid非法关键字移除
+4. **Mermaid有图必有说明检查**（每个```mermaid后3行内须有*图N-X：描述*图注）
+5. **Wikilink检查（教材禁止[[...]]交叉引用）**
+6. **推导深度启发式检查**（连续3个公式前无推导词→告警）
+7. 常见拼写错误检查
+8. **自动修复管线**：缺编号→补编号、编号跳跃→重新编号、重复→去重、Mermaid非法关键字移除
 
 ### 六维编号审计（铁律——写完后必须逐项执行）
 
@@ -285,33 +293,18 @@ print('✅ 六维编号审计全部通过')
 >
 > 修复策略：重排后立即用 `python3 scripts/fix_all_cross_refs.py output/第N章.md --old N --new N` 统一扫描替换。
 
-**中间插入内容的编号风暴**（新增铁律）：任何在已有章节中间插入新内容（公式/例题/图/表）的行为都会导致后续所有编号偏移。**正确处理流程**：
+**中间插入内容的编号风暴**（铁律）：任何在已有章节中间插入新内容（公式/例题/图/表）的行为都会导致后续所有编号偏移。**正确处理流程**：
 
 1. **不要在插入时维护编号**——给新内容赋一个临时编号（如`\tag{7-99}`）
-2. **所有插入完成后**，统一运行编号重排脚本
+2. **所有插入完成后**，统一运行编号重排：`python3 scripts/renumber.py output/第N章.md`
 3. **重排后的链路三步闭环**：
    a. 运行顺序重排 → 确认全部连续
    b. 更新文本引用（`式(N-X)`引用匹配新编号）
    c. 更新章末总览Mermaid图 + 要点列表 + 习题引用
 
 ```bash
-# 编号重排的标准三步曲
-# Step 1: 重排全部\标签（公式/图/例独立执行）
-python3 -c "
-import re
-# 读取文件
-with open('output/第N章-*.md','r') as f: lines = f.readlines()
-
-# 按文件出现顺序逐类重排
-# 公式重排示例（提取所有\\tag{N-X}，按位置重排）
-tags_found = []
-for _,line in enumerate(lines,1):
-    for m in re.finditer(r'\\\\tag\{\d+-\d+\}', line):
-        tags_found.append((_, m.group()))
-
-# Step 2: 全局替换引用
-# Step 3: 检查总览图
-"
+# 编号重排的标准命令（统一入口）
+python3 scripts/renumber.py output/第N章-*.md
 ```
 
 **质量审计报告模板**（铁律——每章完成后必须向用户汇报，使用以下格式）：
@@ -357,8 +350,11 @@ python3 scripts/verify_chapter.py output/第N章.md --verbose
 | 写作指令生成 | `python3 scripts/gen_prompt.py --outline /tmp/outline.json --kb-dir /kb --chapter 1 --section 1.1 -o /tmp/prompt.md` |
 | 质量核验 | `python3 scripts/verify_chapter.py output/第N章.md` |
 | 体量检查 | `wc -c output/第N章.md` |
-| 公式全编号检查 | `python3 scripts/post_generation_check.py output/第N章.md --fix --verbose` | 首选：自动检查+修复 |
-| 公式编号重排 | `python3 scripts/clean_formula_numbers.py output/第N章.md` | 当编号严重混乱（重复/跳跃/缺失）时使用，从头重排 |
+| 公式全编号检查+修复 | `python3 scripts/post_generation_check.py output/第N章.md --fix --verbose` | 首选：自动检查+修复（支持 --dir 目录模式） |
+| 公式编号重排 | `python3 scripts/renumber.py output/第N章.md` | 合并 fix_formula_numbers + clean_formula_numbers + fix_tag_placement 的统一入口 |
+| 章节组装 | `python3 scripts/assemble_chapter.py output/前/ --out output/第N章.md --chapter N` | 将多节独立文件按大纲顺序组装为完整章 |
+| 跨文件编号重排 | `python3 scripts/renumber_cross_file.py output/ --chapter N --fix` | 多个案例/实验文件间公式编号连续分配 |
+| 目录质量检查 | `python3 scripts/post_generation_check.py output/ --dir --fix` | 扫描目录下所有 .md 一次性检查 |
 
 **Quality baseline — actual benchmark volumes from this project**（写完后对照）:
 
@@ -384,25 +380,9 @@ python3 scripts/verify_chapter.py output/第N章.md --verbose
 
 ```bash
 # 公式重排的标准命令（已验证）
-python3 -c "
-import re
-with open('output/第N章-*.md','r') as f: content = f.read()
-tag_pattern = re.compile(r'\\\\tag\{\d+-\d+\}')
-matches = [(m.start(), m.end()) for m in tag_pattern.finditer(content)]
-new_content = list(content)
-offset = 0
-for i, (start, end) in enumerate(matches):
-    new_tag = f'\\\\tag{{{N}-{i+1}}}'
-    adj_start = start + offset
-    adj_end = end + offset
-    new_content[adj_start:adj_end] = list(new_tag)
-    offset += len(new_tag) - (end - start)
-with open('output/第N章-*.md','w') as f: f.write(''.join(new_content))
-# Verify
-tags = re.findall(r'\\\\tag\{\d+-\d+\}', ''.join(new_content))
-ok = all(t==f'\\\\tag{{{N}-{i+1}}}' for i,t in enumerate(tags))
-print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
-"
+python3 scripts/renumber.py output/第N章-*.md --chapter N
+# 验证
+python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('output/第N章-*.md')); tags=re.findall(r'tag\{N-\d+\}',text); ok=all(t==f'tag{{N-{i+1}}}' for i,t in enumerate(tags)); print(f'{\"✅\" if ok else \"❌\"} Tags sequential N-1~N-{len(tags)}')"
 ```
 
 **Subagent delegation for content writing —— 不要用于写教材正文**：
@@ -441,7 +421,7 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
   | 自由空间损耗 $L_{bf}$ | 直接写"$L_{bf}=20\lg(4\pi r/\lambda)$" | Friis方程：功率密度 $S=P_t/(4\pi r^2)$ → 有效面积 $A_e=\lambda^2/(4\pi)$ → $P_r=P_t\lambda^2/(4\pi r)^2$ → 取dB |
   | 接收机灵敏度 $S_{min}$ | 直接写"$S_{min}=-174+NF+10\lg B+SNR_{min}$" | 热噪声 $kT_0=-174\text{dBm/Hz}$ → NF放大 → 带宽积分 → +SNR_min |
 
-  **Phase 4.5/5 新增检查项**：每章完成后，**手动抽查5个关键公式**是否包含至少①+⑤+⑥三步。如果任一公式直接贴结果而无推导路径，标记为**推导缺陷**，补充推导后再提交。
+  **Phase 4.5/5 新增检查项**：每章完成后，`post_generation_check.py` 会自动运行推导深度启发式检查（检测连续3个公式前无推导词）。如触发告警，**手动抽查5个关键公式**是否包含至少①+⑤+⑥三步。
 
   ```bash
   # 推导深度检查——手动操作（无法自动化）
@@ -462,9 +442,9 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 6. **Mermaid 图太小** → 加 `%%{init: {"flowchart": {"useMaxWidth": false}}}%%` 防止 Obsidian 缩放
 7. **插入新图后图号冲突** → 在已有章节中插入新Mermaid图后，必须全局搜索 `图N-` 检查是否产生重复编号。插入→搜索→修正，三步闭环
 8. **公式校验脚本误报** → grep `\\\\lef`/`\\\\righ` 会在 `\\\\left`/`\\\\right` 内部匹配子串——这是误报。公式语法检查应优先用 python3 的 `re` 模块而非纯字符串搜索
-9. **写作指南不经用户确认直接开写** → 三书研读完成后生成writing-guide-ch{N}.md，**必须向用户展示三书手法对比表和发挥空间**，获确认后方可动笔。否则可能方向偏了白写
-10. **自动修复脚本将\\tag放在$$外部** → `post_generation_check.py --fix` 的 `_fix_missing_tag` 曾错误地将 `\\tag{N-M}` 插入在 `$$` 之前而非内部，导致渲染失败。当前版本已修复该bug。如果发现 `\\tag` 行出现在 `$$` 之前，运行 `python3 scripts/fix_tag_placement.py output/第N章.md` 将其移回公式块内部
-11. **clean_formula_numbers.py会截断文件** → 当编号严重混乱时使用 `clean_formula_numbers.py`，但该脚本会**删除所有原编号后重排**。使用前必须先 `cp` 备份原文件，确认重排后的公式总量正确再替换正式版本
+9. **写作指南不经用户确认直接开写** → 三书研读完成后生成writing-guide-ch{N}.md，**默认直接动笔**（config.yaml 中 `phase_0_5_auto: true`）。如需用户确认改为 `false`。
+10. **自动修复脚本将\\tag放在$$外部** → `post_generation_check.py --fix` 的 `_fix_missing_tag` 曾错误地将 `\\tag{N-M}` 插入在 `$$` 之前而非内部。当前版本已修复。如果发现 `\\tag` 行出现在 `$$` 之前，运行 `python3 scripts/renumber.py output/第N章.md` 统一修复。
+11. **编号重排前未备份** → `renumber.py` 默认自动创建 `.bak` 备份，无需手动 `cp`。如果使用旧版 `fix_*.py` 系列脚本，必须手动备份。
 12. **公式章号前缀写错（跨章素材污染）** → 从第N+1章素材复制公式时，`\tag{8-X}`容易被遗忘不改为当前章号。写完后必须扫描 `\tag{` 批量核对章号前缀
 13. **在已有示例之间插入新例导致后续编号偏移** → 在例7-1和例7-2之间插入"例7-2"后，原例7-2~7-8全部偏移一位成为7-3~7-9。插入新例后必须：重排例题编号→更新文本引用→更新总览Mermaid→更新要点列表→更新习题引用，五步闭环
 14. **章末总览Mermaid图引用滞后** → 例题/公式/图重排后，总览Mermaid图中的引用（如"例7-4/7-8 设计实例"）不会自动更新。必须在任何重排操作后检查该图的每一处引用
@@ -483,9 +463,9 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 
 23. **xychart-beta 在 Obsidian 中不支持多系列柱状图** → 即使语法正确（4个 `bar` 或 `line` 系列），Obsidian内置的Mermaid版本对 xychart-beta 的 Render 支持有限，多系列图表渲染为空白。修复：不要用 xychart-beta 做多系列对比，改用 `graph LR` 或 `flowchart TD` 的分组节点/颜色编码方式展示对比数据。
 
-24. **子代理写出的\\tag{}在$$块外部** → `delegate_task` 的子代理写出的公式经常出现 `\tag{2-XX}` 独占一行但在 `$$` 块外部的情况（孤立标签），导致渲染失败。质量检查的"缺编号"检测无法捕获此问题因为 `\tag{}` 确实存在。修复流程：第一步、运行 `post_generation_check.py --fix` 补全内部缺编号；第二步、运行 `clean_formula_numbers.py output/文件.md` 删除所有孤立 `\tag{}` 并重新编号；第三步、如果跨文件编号（如案例文件从上一案例末尾继续），用 `python3 -c` 重排偏移（例：`re.sub(r'\\\\tag\{2-(\d+)\}', lambda m: f'\\\\tag{{2-{int(m.group(1))+56}}}', c)`）。
+24. **子代理写出的\\tag{}在$$块外部** → `delegate_task` 的子代理写出的公式经常出现 `\\tag{2-XX}` 独占一行但在 `$$` 块外部的情况（孤立标签）。`post_generation_check.py` 的 `check_tag_placement()` 可检测此问题。修复：运行 `python3 scripts/renumber.py output/文件.md`。
 
-25. **子代理不写公式的$$包装** → `delegate_task` 的子代理经常把显示公式写成纯文本 LaTeX 而不包裹 `$$...$$`，导致质量检查完全跳过该公式（不检测语法、不分配编号）。策略：子代理的 context 中必须显式包含约束"每个独立占一行的显示公式必须用 $$...$$ 包裹，\\tag{...} 必须在 $$ 内部"。如果文件已写完发现公式缺 `$$`，用 `clean_formula_numbers.py` 只能重排已有 `$$` 块的编号，无法补 `$$`。此时需要进行结构性修复，手动为每个 `\frac{` 开头的公式行补 `$$` 包裹。
+25. **子代理不写公式的$$包装** → `delegate_task` 的子代理经常把显示公式写成纯文本 LaTeX。策略：子代理 context 中必须显式包含约束。如果文件已写完发现公式缺 `$$`，需手动补 `$$` 包裹。
 
 ## Reference Index
 
@@ -501,8 +481,8 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 | `references/six-elements.md` | 教材质量综合检查清单（13项+自审评分表） |
 | `references/derivation-example-107.md` | **L3逐步推导模板（107推导六步法）** |
 | `references/formula-derivation-standard.md` | **公式推导铁律 + 六步结构详解 + 4个实战实例 + 审计规则** |
-| `references/mermaid-guide.md` | Mermaid图绘制规范与注意事项 |\n| `references/mermaid-troubleshooting.md` | **Mermaid错误排查速查表（Obsidian版）** — 错误信号→根因→修复方案 |
-| `references/textbook-pipeline.md` | 教材编写管线整合指南 |
+| `references/mermaid-guide.md` | Mermaid图绘制规范与注意事项 |
+| `references/mermaid-troubleshooting.md` | **Mermaid错误排查速查表（Obsidian版）** — 错误信号→根因→修复方案 |
 | `references/pitfalls.md` | 完整陷阱列表（35+条） |
 | `references/changelog.md` | 版本更新历史 |
 | `references/source-books-locations.md` | **三本参考教材源文件路径 + 各书对照表 + 关键内容来源对应** |

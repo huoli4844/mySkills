@@ -208,6 +208,15 @@ def check_mermaid(content: str) -> List[str]:
         for i, line in enumerate(lines):
             if '%%{' in line and '}%%' not in line:
                 issues.append(f"Mermaid图{idx+1} L{i+1}: init 配置块未闭合")
+        
+        # 8. 检查 emoji 和特殊 Unicode 字符
+        emoji_pattern = re.compile(r'[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B50\uFE00-\uFE0F\u2702-\u27B0]')
+        for i, line in enumerate(lines):
+            emojis = emoji_pattern.findall(line)
+            if emojis:
+                issues.append(f"Mermaid图{idx+1} L{i+1}: 含 emoji 字符 {''.join(set(emojis))}，可能导致渲染失败")
+            if '⭐' in line:
+                issues.append(f"Mermaid图{idx+1} L{i+1}: 含星号字符 ⭐，可能导致渲染失败")
     
     return issues
 

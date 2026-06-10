@@ -19,24 +19,23 @@ metadata:
 
 **专业教材 = 权威定义 + 直观引入 + 编号公式 + "式中"变量解释 + 含数字实例 + 层次化习题。**
 
-## Setup（首次使用）
+## 客户使用流程（只需两步）
 
-```bash
-# 1. 创建项目目录
-mkdir ~/Desktop/我的教材
+```
+Step 1: 创建目录，告诉 book-build 项目路径
+  → mkdir ~/Desktop/我的教材
+  → "book-build，项目在 ~/Desktop/我的教材"
 
-# 2. 初始化项目（创建 book-build.yaml + input/ + output/ 及子目录）
-python3 scripts/book_config.py --project ~/Desktop/我的教材 --setup
+Step 2: 技能自动创建全部目录结构和 book-build.yaml
+  → Agent 执行: Config.setup(project_root)
+  → 自动创建: input/ + output/ + 写作大纲/案例/实验/习题解答/
 
-# 3. 编辑项目配置
-#    vim ~/Desktop/我的教材/book-build.yaml
-#    填入教材名、参考教材路径等
+Step 3: 编辑 book-build.yaml 填入参考教材路径
+  → vim ~/Desktop/我的教材/book-build.yaml
+  → 修改 textbook.name 和 source_books 列表
 
-# 4. 把提纲文件放入 input/
-#    cp 教材提纲.docx ~/Desktop/我的教材/input/
-
-# 5. 启动写作
-#    每次加载项目: cfg = Config(project_root="~/Desktop/我的教材")
+完成后，Agent 即可加载项目配置开始写作：
+  cfg = Config(project_root="~/Desktop/我的教材")
 ```
 
 - 用户提供教材大纲（.docx / .md / 纯文本），要求按大纲逐章编写

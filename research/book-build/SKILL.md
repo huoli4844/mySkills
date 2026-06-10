@@ -1,21 +1,21 @@
 ---
 name: book-build
-description: "大纲驱动的专业教材编写管线。Loop Engineering + 自进化。双层配置，自动创建目录结构和进度文件，支持中断恢复。支持 MD→DOCX 转换（OMML 可编辑公式，使用 latex2mathml + MathML→OMML 管线，支持 LaTeX 公式）。"
-version: 2.15.0
+description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交。提供写作大纲解析、内容差距分析、P0/P1 分阶段补充、公式编号批量修复、全章质量审计等工具。适用场景：基于多本参考书进行的中文专业教材（特别是电磁兼容/EMC领域）的结构化编写。"
+version: 3.0.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
 metadata:
   hermes:
-    tags: [textbook, outline-driven, kb-qa, academic, docx]
-    related_skills: [kb-qa, file2md, officecli]
+    tags: [textbook, emc, outline-driven, academic-writing]
+    related_skills: [github-repo-management, file2md]
 ---
 
-# book-build（基于知识库的教材编写）
+# book-build（教材写作管线）
 
 ## Overview
 
-**大纲驱动，知识库供料，严格遵循结构，专业级学术写作。** KB 是原料，教材是成品——不能把知识库中的模板结构复制到教材正文，必须重新组织为自然叙述的学术散文。
+**大纲驱动，写作大纲供料，严格遵循结构，专业级学术写作。** 写作大纲是原料，教材是成品——不能把大纲结构复制到教材正文，必须重新组织为自然叙述的学术散文。
 
 **专业教材 = 权威定义 + 直观引入 + 编号公式 + "式中"变量解释 + 含数字实例 + 层次化习题。**
 
@@ -251,7 +251,7 @@ for line in lines:
 - **正确模式**：先 `open(fpath, 'r').read()` 保存内容到变量，处理后再 `open(fpath, 'w').write()`
 - 所有批量修改脚本必须先做备份（`.bak`），再做验证（重读对比）
 
-## 客户使用流程（只需两步）
+## 客户使用流程
 
 ```
 Step 1: 创建目录，告诉 book-build 项目路径
@@ -265,12 +265,6 @@ Step 2: 技能自动创建全部目录结构和 book-build.yaml
 Step 3: 编辑 book-build.yaml 填入参考教材路径
   → vim ~/Desktop/我的教材/book-build.yaml
   → 修改 textbook.name 和 source_books 列表
-
-Step 4: （可选）添加 writing_style 写作风格规范
-  → 在 book-build.yaml 中添加 writing_style 块
-  → 定义：叙事哲学、学术深度策略、内容组织原则、公式呼吸、语言质量标准
-  → 这是 Agent 启动时加载的顶层写作约束，与写作大纲（内容结构）互补
-  → 示例见已有的 book-build.yaml
 
 完成后，Agent 即可加载项目配置开始写作：
   cfg = Config(project_root="~/Desktop/我的教材")

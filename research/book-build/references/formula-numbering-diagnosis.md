@@ -24,28 +24,35 @@
 
 ## 正确的修复流程
 
-### 方法1：renumber.py（推荐）
+### 方法1：batch_fix_formula_numbers.py（推荐，最稳健）
 
 ```bash
-# 重排指定章节的公式编号
-python3 scripts/renumber.py output/第N章-标题.md
-
-# 预览模式（不改文件）
-python3 scripts/renumber.py output/第N章-标题.md --dry-run
-
-# 指定章号（自动检测失败时）
-python3 scripts/renumber.py output/第N章-标题.md --chapter N
+# 批量修复（自动处理 >$$ 规范化 + 未闭合 $$ + 空块 + tag 位置）
+python3 scripts/batch_fix_formula_numbers.py output/第N章-标题.md
+python3 scripts/batch_fix_formula_numbers.py output/第*.md          # 批量所有章节
 ```
 
-流程：备份 → 修复孤立tag → 转inline为block → 清除旧编号 → 按出现顺序编号 N-1, N-2, ...
+**流程**：清除旧tag → 规范化 `>$$` → 删除空块 → 修复未闭合 `$$` → 行级状态机编号 → 验证
 
-### 方法2：post_generation_check.py --fix
+### 方法2：renumber.py（简单文件可用）
+
+```bash
+python3 scripts/renumber.py output/第N章-标题.md
+python3 scripts/renumber.py output/第N章-标题.md --dry-run    # 预览
+python3 scripts/renumber.py output/第N章-标题.md --chapter N   # 指定章号
+```
+
+**流程**：备份 → 修复孤立tag → 清理 `>$$` → 删除连续 `$$` → 修复未闭合 `$$` → 转inline为block → 清除旧编号 → 按出现顺序编号
+
+**注意**：对于存在 `>$$` 引用块公式或未闭合 `$$` 结构的文件，batch_fix_formula_numbers.py 的**行级状态机**比 renumber.py 的**正则匹配**更可靠。
+
+### 方法3：post_generation_check.py --fix
 
 ```bash
 python3 scripts/post_generation_check.py output/第N章.md --fix
 ```
 
-注意：`--fix` 中的 `_fix_missing_tag` 只补缺失，不做全局重编号。如果已有编号但不连续，需要用 `renumber.py`。
+注意：`--fix` 中的 `_fix_missing_tag` 只补缺失，不做全局重编号。如果已有编号但不连续，需要用 `batch_fix_formula_numbers.py`。
 
 ## 预防策略
 
@@ -71,7 +78,9 @@ python3 scripts/post_generation_check.py output/第N章.md
 
 ## 相关文件
 
-- `scripts/renumber.py` — 公式编号统一重排（合并 fix_formula_numbers + clean_formula_numbers + fix_tag_placement）
+- `scripts/batch_fix_formula_numbers.py` — 批量修复公式编号 v2（行级状态机，覆盖 >$$/未闭合 $$/空块/tag 位置，最稳健）
+- `scripts/renumber.py` — 公式编号统一重排（正则匹配，适合无格式问题的简单文件）
 - `scripts/post_generation_check.py` — 质量检查 + 自动修复
 - `scripts/gen_prompt.py` — 写作指令生成器（含公式编号指令）
 - `references/pitfalls.md` — 陷阱列表 #38-39
+- `references/formula-numbering-comprehensive-fix.md` — 完整修复流程 + 诊断决策树

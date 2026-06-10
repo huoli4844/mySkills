@@ -29,11 +29,27 @@ source_books:
     priority: 4
     path: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容原理技术及应用第2版_梁振光/优先级4-十三五_电磁兼容原理技术及应用第2版_梁振光.md"
 
-# --- 知识库路径（可选） ---
-# knowledge_base:
-#   processed_dir: "/path/to/processed/"
-#   raw_dir: "/path/to/raw/"
-#   domain_dir: "/path/to/domain/"
+# --- 写作风格规范（可选）---
+# 写作时加载此配置作为顶层写作约束，与写作大纲（内容结构）互补。
+# 详见项目 book-build.yaml 中 writing_style 示例。
+# writing_style:
+#   narrative:
+#     perspective: "第三人称客观叙述"
+#     rhythm: "段落有中心句，长度自然波动"
+#   content_flow:
+#     section_pattern: "问题→原理→量化→意义"
+#   derivation:
+#     core: "物理原理→建模假设→数学代入→导出结果→参数解释"
+#   table:
+#     purpose: "每个表格应有明确比较维度"
+#   figure:
+#     rule: "有图必有说明，不少于2行"
+#   language:
+#     avoid: ["口语化", "过度连接词", "模糊词"]
+#   density_baseline:
+#     formulas_per_chapter: 15
+#     examples_per_chapter: 3
+#     tables_per_chapter: 5
 
 # --- 覆盖技能默认工作流设置（可选）---
 # workflow:

@@ -151,10 +151,10 @@ def renumber(path, chapter=None, dry_run=False):
 
     text = "\n".join(lines)
 
-    # Step 2: 转换单行 inline $$ 为多行 block
+    # Step 5: 转换单行 inline $$ 为多行 block
     text = convert_inline_blocks(text)
 
-    # Step 3: 移除所有临时/占位编号
+    # Step 6: 移除所有临时/占位编号
     for pat in [
         r"\\\\tag\{XX-XX\}",
         r"\\\\tag\{\d+-\d+\}",
@@ -163,7 +163,7 @@ def renumber(path, chapter=None, dry_run=False):
     ]:
         text = re.sub(pat, "", text)
 
-    # Step 4: 重新编号所有 $$...$$ 块
+    # Step 7: 重新编号所有 $$...$$ 块
     eq_pattern = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
     parts = []
     pos = 0
@@ -197,7 +197,7 @@ def renumber(path, chapter=None, dry_run=False):
             print(f"  ⚠️ 会重复: {dups}")
         return True
 
-    # Step 5: 备份 + 写入
+    # Step 8: 备份 + 写入
     bak = backup(path)
     open(path, "w", encoding="utf-8").write(result)
 

@@ -15,20 +15,32 @@ metadata:
 
 ## Overview
 
-**大纲驱动，写作大纲供料，严格遵循结构，专业级学术写作。** 写作大纲是原料，教材是成品——不能把大纲结构复制到教材正文，必须重新组织为自然叙述的学术散文。
+**大纲驱动，写作大纲供料，严格遵循结构，专业级学术写作。** 写作大纲是原料，教材是成品。管线分 5 步，由脚本控制流程、Agent 负责创作判断。
 
-**专业教材 = 权威定义 + 直观引入 + 编号公式 + "式中"变量解释 + 含数字实例 + 层次化习题。**
+```
+setup_project.py      ① 创建项目目录 + 配置
+       ↓
+generate_outlines.py  ② 提纲+参考书 → Agent 生成写作大纲（可人工调整）
+       ↓
+validate_outlines.py  ③ 大纲 QC
+       ↓
+generate_task_list.py ④ 从大纲生成写作任务列表
+       ↓
+delegate_task         ⑤ Agent 按大纲逐章创作 + QC
+```
 
-**全自动执行（核心偏好）**：执行时不问"要不要/是否继续"，直接做。做错了再改也比停下来问效率高。
+**全自动执行（核心偏好）**：执行时不问"要不要/是否继续"，直接做。
 
 ## When to Use
 
-- 用户要求**编写或补充**中文专业教材（特别是EMC/电磁兼容领域）
-- 需要**检查已有章节**与写作大纲的差距（`outline_vs_chapter_audit.py`）
-- 需要**批量修复**公式编号、$$ 配对、blockquote 公式格式问题（`batch_fix_formula_numbers.py`）
-- 需要**扩充**某章体量以达到大纲目标（内容扩充工作流）
+- 用户要求**新建**教材项目（`setup_project.py`）
+- 用户要求从提纲+参考书**生成写作大纲**（`generate_outlines.py`）
+- 需要**检查写作大纲**的完整性（`validate_outlines.py`）
+- 需要从大纲**编排写作任务**（`generate_task_list.py`）
+- 需要**补充/扩充**已有章节内容
+- 需要**批量修复**公式编号、$$ 配对、blockquote 公式问题（`batch_fix_formula_numbers.py`）
 
-**不适用**：英文教材、非结构化写作（无写作大纲的项目）、纯翻译任务。
+**不适用**：英文教材、无写作大纲的非结构化写作、纯翻译任务。
 
 ## Design
 
@@ -36,55 +48,81 @@ metadata:
 
 | 层 | 内容 | 存放位置 |
 |:---|:-----|:---------|
-| **技能层** | 操作流程、陷阱清单、公式格式铁律（怎么写） | 本 SKILL.md + references/ |
-| **项目层** | 教材名、参考书路径（项目信息） | `book-build.yaml` |
-| **章节层** | 每章内容结构、建议体量、素材来源（写什么） | `写作大纲/writing-guide-chX.md` |
+| **技能层** | 操作流程、陷阱清单、公式格式铁律 | 本 SKILL.md + references/ |
+| **项目层** | 教材名、参考书路径 | `book-build.yaml` |
+| **章节层** | 每章内容结构、建议体量、素材来源 | `写作大纲/writing-guide-chX.md` |
 
-各章内容由 `delegate_task` 并行创作，创作完成后统一用 `batch_fix_formula_numbers.py` 修复公式编号。质量检查通过 `outline_vs_chapter_audit.py` + 综合审计完成。
+脚本不做创作，Agent 不做机械重复：
+- **脚本**管流程编排、文件操作、统计检查（`setup` / `validate` / `generate` / `batch_fix`）
+- **Agent**管内容创作、质量判断、调整决策（`delegate_task` 写章节、`generate_outlines` 内部委托）
 
 ## Workflow
 
-### A. 检查章节与大纲的差距
+### ① 创建项目
 
 ```bash
+python3 scripts/setup_project.py /path/to/教材 \
+  --name "电磁兼容教材" --outline 教材提纲.docx
+```
+
+自动创建：`input/` `output/` `写作大纲/` `实验/` `案例/` `习题解答/` + `book-build.yaml` + `.gitignore`
+
+完成后编辑 `book-build.yaml`，填入四本参考教材的 path。
+
+### ② 生成写作大纲
+
+```bash
+python3 scripts/generate_outlines.py --project /path/to/教材
+```
+
+内部通过 `delegate_task` 委托 Agent 分析参考书内容，为每章生成写作大纲（结构 + 体量 + 素材来源）。大纲写入 `output/写作大纲/writing-guide-chX.md`。
+
+**人工可介入**：大纲生成后可直接编辑 `writing-guide-chX.md` 调整。
+
+### ③ 大纲质量检查
+
+```bash
+python3 scripts/validate_outlines.py --project /path/to/教材
+```
+
+检查项：L1/L2 节定义、目标体量标注、素材来源标注、编号连续性。
+
+### ④ 生成写作任务
+
+```bash
+# 初始化任务列表
+python3 scripts/generate_task_list.py --project /path/to/教材 --force-init
+
+# 查看进度
+python3 scripts/generate_task_list.py --project /path/to/教材 --status
+
+# 标记进度
+python3 scripts/generate_task_list.py --project /path/to/教材 --mark-progress 3
+python3 scripts/generate_task_list.py --project /path/to/教材 --mark-done 3
+```
+
+### ⑤ 按大纲写章节
+
+用 `delegate_task` 并行创作（`max_concurrent_children=3`）：
+- 每章一个独立任务
+- context 中包含写作大纲路径和参考书路径
+- 公式编号用 `\tag{章-XX}`
+- 创作完成后统一运行 `batch_fix_formula_numbers.py`
+
+### ⑥ 质量审计 + 补充
+
+```bash
+# 公式编号修复
+python3 scripts/batch_fix_formula_numbers.py /path/to/教材/output/第*.md
+
+# 差距分析（大纲 vs 已写章节）
 python3 scripts/outline_vs_chapter_audit.py \
   --project /path/to/教材 --output /path/to/教材/output
 ```
-输出：`output/补充与完善分析报告.md` + `output/补充执行清单.json`（不要提交到 git）
 
-### B. 补充缺失内容
+按 P0（结构性缺失）→ P1（内容质量提升）顺序补充。
 
-按 P0 → P1 顺序执行：
-
-**P0（结构性缺失）**：缺失内容节、缺失本章总结 → 直接 `patch` 或 `delegate_task` 创作，每章增加 10-50 行
-
-**P1（内容质量提升）**：真实案例、计算例题、参考书盲区深度补充 → 必须 `delegate_task` + 参考书源文提取，每章 50-200 行
-
-### C. 批量修复公式编号
-
-```bash
-# v3 blockquote 安全版：保留 > $$ 结构，同时识别 $$ 和 > $$ 为公式边界
-python3 scripts/batch_fix_formula_numbers.py /path/to/教材/output/第*.md
-```
-
-### D. 内容扩充（当某章体量显著不足时）
-
-```bash
-# 1. 读取写作大纲得知目标体量（如 8.1.1 建议 25KB）
-# 2. 用 delegate_task 扩充（每章独立任务，max_concurrent_children=3）
-# 3. 最后运行 batch_fix_formula_numbers.py
-```
-
-### E. git 提交
-
-```bash
-cd /path/to/教材
-git add -A
-git commit -m "feat: 说明改动内容"
-git push
-```
-
-## 章节格式标准（2026-06-12 统一）
+## 章节格式标准
 
 每章开头：
 
@@ -101,15 +139,15 @@ git push
 2. 能......
 ```
 
-**禁止**：`**记忆层**`/`**理解层**` 等 Bloom 标签、`## 学习目标`（统一为 `## 内容提要`）
+**禁止**：`**记忆层**` 等 Bloom 标签、`## 学习目标`（统一为 `## 内容提要`）
 
 ## ⚠️ 关键澄清：以下内容不是教材正文
 
-写作说明、军规检查、核心公式总结是**写作过程中的质量检查工具**，**不得写入教材成品**。教材正文只包含：叙述性内容、编号公式、表格/Mermaid图、例题与习题、参考文献。
-
-- ❌ `## X.Y 本章写作说明`
+- ❌ `## X.Y 本章写作说明`（含素材来源清单）
 - ❌ `## X.Y.Z 12条军规落实检查`
 - ❌ `## ★ 全章核心公式总结`（公式已在正文中用 `\tag{}` 编号）
+
+这些是写作过程中的**质量检查工具**，不是教材正文。
 
 ## 公式格式铁律
 
@@ -122,24 +160,21 @@ git push
 
 ## Common Pitfalls
 
-1. **正则 `\$\$(.*?)\$\$` 不可靠** — 对 `>$$` 格式无效，对嵌套内容不可靠。必须用行级状态机
-2. **空 `$$...$$` 块导致编号偏移** — 编号前先扫描删除空块
-3. **孤立 `$$` 或 `> $$` 行破坏配对计数** — 用状态机配对后删除未配对的边界行
-4. **`>$$` 引用块格式** — 保留 `> $$` 不变（v3），不要替换为 `$$`（v2 做法会破坏 blockquote 结构）
-5. **先写后读** — 永远先 `open(f, 'r').read()` 再 `open(f, 'w').write()`，绝不先写后读
-6. **Mermaid 圆边节点括号顺序** — `[("text\")]"`（错）→ `[("text\")]"` 应为 `[("text")]`（对），`)"` 顺序使 `)` 被吞入标签字符串
+1. **正则 `\$\$(.*?)\$\$` 不可靠** — 对 `>$$` 格式无效。必须用行级状态机
+2. **空 `$$...$$` 块** → 编号前先删除
+3. **孤立 `$$` / `> $$` 行** → 用状态机配对后删除
+4. **`>$$` 引用块格式** → 保留 `> $$` 不变（v3 做法）
+5. **先写后读** → 永远先 `read()` 再 `write()`
+6. **Mermaid 圆边节点** → `[("text")]`（对），`[("text)"]`（错）
 
 ## Reference Index
 
 | 需要时加载 | 内容 |
 |:-----------|:------|
-| `references/formula-numbering-diagnosis.md` | 公式编号缺失根因诊断 + 陷阱 A-E |
+| `references/formula-numbering-diagnosis.md` | 公式编号根因诊断 + 陷阱 A-E |
 | `references/formula-numbering-comprehensive-fix.md` | 综合修复流程 + 诊断决策树 |
 | `references/comprehensive-quality-audit.md` | 全章质量审计工作流 |
-| `references/audit-pitfalls.md` | 审计陷阱（覆盖不全/小结条目数/正则匹配） |
-| `references/content-expansion-workflow.md` | 内容扩充工作流详细步骤 |
+| `references/content-expansion-workflow.md` | 内容扩充工作流 |
 | `references/mermaid-guide.md` | Mermaid 陷阱与正确写法 |
-| `references/content-supplementation-workflow.md` | P0/P1 补充工作流 |
 | `references/derivation-example-107.md` | 公式推导示例 |
-| `references/gap-analysis-checklist.md` | 差距分析检查清单 |
 | `references/chapter-writing-standard.md` | 章节写作标准 |

@@ -68,8 +68,8 @@ def check_existing_chapter(project_root: str, chapter: int) -> bool:
     return False
 
 
-def build_prompt(project_root: str, chapter: int, guide_content: str, cfg: dict) -> str:
-    """构建写作 prompt"""
+def build_prompt(project_root: str, chapter: int, guide_content: str, cfg: dict) -> dict:
+    """构建写作 prompt，返回结构化 dict 供 delegate_task"""
     # 获取参考书路径
     books = cfg.get("source_books", [])
     book_info = "\n".join(
@@ -87,7 +87,10 @@ def build_prompt(project_root: str, chapter: int, guide_content: str, cfg: dict)
             size_kb = f.stat().st_size / 1024
             existing += f"  第{ch}章: {size_kb:.0f}KB\n"
     
-    prompt = f"""# 教材写作任务：第{chapter}章
+    # 构建 agent_goal 和 context
+    goal = f"为教材项目创作第{chapter}章完整内容"
+    
+    context = f"""# 教材写作任务：第{chapter}章
 
 ## 项目信息
 - 项目路径: {project_root}
@@ -117,41 +120,47 @@ def build_prompt(project_root: str, chapter: int, guide_content: str, cfg: dict)
 - 文件保存到: {output_dir}/第{chapter}章-标题.md
 - 包含：编号公式、表格、Mermaid 图、例题、习题、参考文献
 """
-    return prompt
+    
+    return {
+        "goal": goal,
+        "context": context,
+        "chapter": chapter,
+        "guide_path": str(Path(project_root) / "output" / "写作大纲" / f"writing-guide-ch{chapter}.md"),
+        "output_path": str(output_dir / f"第{chapter}章-标题.md")
+    }
 
 
-def auto_write_chapter(project_root: str, chapter: int, task: dict):
-    """为单章执行写作"""
+def auto_write_chapter(project_root: str, chapter: int, task: dict, force: bool = False):
+    """为单章生成 delegate_task-ready 任务"""
     print(f"\n{'='*60}")
-    print(f"✍️  开始写第{chapter}章: {task.get('title', '')}")
+    print(f"✍️  第{chapter}章: {task.get('title', '')}")
     print(f"{'='*60}")
     
-    # 加载大纲
     guide = load_writing_guide(project_root, chapter)
     cfg = read_config(project_root)
     
-    # 检查是否已有内容
     if check_existing_chapter(project_root, chapter):
-        print(f"  ⚠️  第{chapter}章已有内容（>5KB），跳过（用 --force 覆盖）")
-        return False
+        if force:
+            print(f"  ⚠️  第{chapter}章已有内容，--force 覆盖")
+        else:
+            print(f"  ⏭️  第{chapter}章已有内容（用 --force 覆盖）")
+            return False
     
-    # 构建 prompt
-    prompt = build_prompt(project_root, chapter, guide, cfg)
+    task_data = build_prompt(project_root, chapter, guide, cfg)
     
-    # 输出 prompt 到文件，供 Agent 或人类使用
-    prompt_dir = Path(project_root) / ".hermes"
-    prompt_dir.mkdir(exist_ok=True)
-    prompt_path = prompt_dir / f"write_ch{chapter}.prompt.md"
-    prompt_path.write_text(prompt, encoding='utf-8')
+    # 输出结构化任务文件
+    task_dir = Path(project_root) / ".hermes" / "tasks"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    task_path = task_dir / f"write_ch{chapter}.json"
+    with open(task_path, 'w', encoding='utf-8') as f:
+        json.dump(task_data, f, ensure_ascii=False, indent=2)
     
-    print(f"  📝 写作指令已生成: {prompt_path}")
-    print(f"  📖 使用写作大纲: output/写作大纲/writing-guide-ch{chapter}.md")
-    print(f"  🎯 目标: 完成第{chapter}章创作")
-    print(f"\n  将 prompt 文件内容复制给 Agent 后执行:")
-    print(f"  -> 读取 {prompt_path}")
-    print(f"  -> 按照大纲要求创作第{chapter}章")
-    print(f"  -> 保存到 output/ 目录")
-    print(f"  -> 运行 batch_fix_formula_numbers.py 修复公式编号")
+    print(f"  📝 任务文件: {task_path}")
+    print(f"\n  将该任务提交给 delegate_task:")
+    print(f"  -> goal:     {task_data['goal']}")
+    print(f"  -> context:  包含写作大纲、参考书路径、写作规范")
+    print(f"  -> toolsets: terminal, file")
+    print(f"\n  或读取 .hermes/tasks/write_ch{chapter}.json 获取完整任务数据")
     
     return True
 
@@ -173,7 +182,7 @@ def main():
         if not target:
             print(f"❌ 未找到第{args.chapter}章")
             sys.exit(1)
-        auto_write_chapter(str(project_root), args.chapter, target[0])
+        auto_write_chapter(str(project_root), args.chapter, target[0], args.force)
     
     elif args.all:
         # 遍历全部 pending 或 in_progress
@@ -181,7 +190,7 @@ def main():
             if task.get("status") in ("pending", "in_progress"):
                 task["status"] = "in_progress"
                 save_tasks(str(project_root), tasks)
-                wrote = auto_write_chapter(str(project_root), task["chapter"], task)
+                wrote = auto_write_chapter(str(project_root), task["chapter"], task, args.force)
                 if wrote:
                     task["status"] = "completed"
                     task["completed_at"] = datetime.now().isoformat()
@@ -195,7 +204,7 @@ def main():
         # 写第一个 pending
         for task in tasks:
             if task.get("status") == "pending":
-                auto_write_chapter(str(project_root), task["chapter"], task)
+                auto_write_chapter(str(project_root), task["chapter"], task, args.force)
                 break
         else:
             print("✅ 所有章节已完成，没有待写任务")

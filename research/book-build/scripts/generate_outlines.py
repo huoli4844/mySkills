@@ -269,12 +269,43 @@ def main():
     
     if created > 0:
         print(f"\n⚠️  大纲已生成基本骨架，建议：")
-        print(f"   1. 检查 output/写作大纲/ 下各文件")
-        print(f"   2. 运行 validate_outlines.py 检查完整性")
-        print(f"   3. 人工调整后，运行 generate_task_list.py 生成写作任务")
-        print(f"\n📖 下一步需要 Agent 深度参与：")
-        print(f"   运行 Agent 委托任务，让 Agent 分析参考书内容并完善各章大纲")
-        print(f"   -> 'book-build，项目在 {project_root}，完善写作大纲'")
+        print(f"   1. 运行 validate_outlines.py 检查完整性")
+        print(f"   2. 人工调整后，运行 generate_task_list.py 生成写作任务")
+        
+        # 输出结构化任务清单供 Agent 消费
+        outline_tasks = []
+        for ch_info in chapters:
+            ch = ch_info["chapter"]
+            title = ch_info["title"]
+            sections = ch_info.get("sections", [])
+            
+            # 找参考书路径
+            book_refs = []
+            for b in source_book_list:
+                book_refs.append({
+                    "author": b.get("author", "?"),
+                    "display_name": b.get("display_name", "?"),
+                    "path": b.get("path", "")
+                })
+            
+            outline_tasks.append({
+                "type": "complete_writing_guide",
+                "chapter": ch,
+                "title": title,
+                "guide_path": f"output/写作大纲/writing-guide-ch{ch}.md",
+                "outline_sections": sections,
+                "source_books": book_refs,
+                "status": "pending"
+            })
+        
+        tasks_path = project_root / "output" / "outline_tasks.json"
+        with open(tasks_path, 'w', encoding='utf-8') as f:
+            json.dump(outline_tasks, f, ensure_ascii=False, indent=2)
+        print(f"\n📋 已输出结构化任务: {tasks_path}")
+        print(f"   Agent 读取该文件后，对每个 pending 任务：")
+        print(f"   1. delegate_task → 分析参考书内容")
+        print(f"   2. 完善 writing-guide-chX.md（写作手法、体量目标、素材来源）")
+        print(f"   3. 标记 status 为 completed")
 
 
 if __name__ == "__main__":

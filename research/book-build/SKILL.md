@@ -120,20 +120,23 @@ python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
 **Step 1：研读三书** — 每本至少读章首(前30%)+核心节(全部)+章末(后20%)
 
 ```bash
-# 路宏敏第6章（接地—第6章）
-wc -c /Users/huoli4844/Desktop/电磁兼容/处理后/工程电磁兼容第3版_路宏敏/优先级1-十二五规划教材_工程电磁兼容第3版_路宏敏.md
-grep -n "第6章\|接地" /Users/huoli4844/Desktop/电磁兼容/处理后/工程电磁兼容第3版_路宏敏/优先级1-十二五规划教材_工程电磁兼容第3版_路宏敏.md | head -5
+# 通过 book_config.py 获取三书路径后，grep 搜索对应关键词
+# 路径在 config.yaml → source_books 中定义
+python3 -c "from scripts.book_config import Config; c=Config()
+for b in c.source_books:
+    print(f'{b[\"author\"]}: {b[\"path\"]}')"
 
-# 梁振光第5章（接地及搭接）
-wc -c /Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容原理技术及应用第2版_梁振光/优先级4-十三五_电磁兼容原理技术及应用第2版_梁振光.md
-grep -n "接地" /Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容原理技术及应用第2版_梁振光/优先级4-十三五_电磁兼容原理技术及应用第2版_梁振光.md | head -5
-
-# 张亮第3章（接地与屏蔽）
-wc -c /Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC技术及应用实例详解_张亮/优先级2-电磁兼容EMC技术及应用实例详解-张亮.md
-grep -n "接地" /Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC技术及应用实例详解_张亮/优先级2-电磁兼容EMC技术及应用实例详解-张亮.md | head -5
+# 示例：搜索关键词
+python3 -c "
+from scripts.book_config import Config
+c = Config()
+import subprocess, sys
+for b in c.source_books:
+    r = subprocess.run(['grep', '-n', sys.argv[1], b['path']], capture_output=True, text=True, timeout=10)
+    print(f'=== {b[\"author\"]} ===')
+    print('\n'.join(r.stdout.strip().split(chr(10))[:5]))
+" "关键词"
 ```
-
-注意：三本书的章号可能与本教材不同（如梁振光的搭接在5.5节），必须通过搜索关键词定位，而非机械按章号读取。详细命令见 `references/source-books-locations.md`。
 
 **Step 2：填写三书手法对比表**（向用户汇报）
 
@@ -492,8 +495,8 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 | `references/experiment-writing-standard.md` | **实验编写标准（8章节高质量实验指导书）** — 目的→原理→设备→步骤→数据→分析→思考→注意事项 |
 | `references/volume-standards.md` | **体量铁律 + 13条军规逐项勾选清单 + 公式全编号检查** |
 | `references/chapter-writing-standard.md` | **三书融合写作法 + 章首/正文/章末完整模板** |
-| `references/chapter-writing-workflow.md` | **Phase 0.5 四步研读流程**（必读） |
-| `references/textbook-style-guide.md` | 教材学术叙事风格指南（三本已出版教材分析） |
+| `references/chapter-writing-workflow.md` | **Phase 0.5 五步研读流程**（必读） |
+| `references/textbook-style-guide.md` | 教材学术叙事风格指南 |
 | `references/writing-patterns.md` | 6种内容类型完整写作示例 + 通用模板 |
 | `references/six-elements.md` | 教材质量综合检查清单（13项+自审评分表） |
 | `references/derivation-example-107.md` | **L3逐步推导模板（107推导六步法）** |
@@ -502,6 +505,6 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 | `references/mermaid-troubleshooting.md` | **Mermaid错误排查速查表（Obsidian版）** — 错误信号→根因→修复方案 |
 | `references/pitfalls.md` | 完整陷阱列表（35+条） |
 | `references/changelog.md` | 版本更新历史 |
-| `references/source-books-locations.md` | **三本参考教材源文件路径 + 各书对照表 + 关键内容来源对应** |
+| `references/source-books-locations.md` | **参考教材源文件路径 + 各书对照表** |
 | `references/six-dimension-audit.md` | **六维编号审计脚本 + 常见失败场景 + 链路风暴修复** |
 | `references/kb-enrichment-workflow.md` | **KB素材扩展工作流** — 写作前多轮搜索KB获取素材，含Ch9实案例 |

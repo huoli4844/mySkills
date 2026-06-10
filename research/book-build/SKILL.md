@@ -240,7 +240,7 @@ python3 scripts/outline_vs_chapter_audit.py \
 7. **Mermaid subgraph 内 direction** — subgraph 内使用 `direction TB/LR` 可能引发渲染问题
 8. **Mermaid timeline 中文书名号** — timeline 内容中避免使用 `《》`，可能导致渲染中断
 9. **写作说明不写入正文** — 军规检查/核心公式总结是内部工具，不得写入章节文件
-9. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
+10. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
 
 ## Reference Index
 
@@ -250,6 +250,7 @@ python3 scripts/outline_vs_chapter_audit.py \
 | `references/formula-numbering-comprehensive-fix.md` | 综合修复流程 + 诊断决策树 |
 | `references/comprehensive-quality-audit.md` | 全章质量审计工作流 |
 | `references/content-expansion-workflow.md` | 内容扩充工作流 |
+| `references/mermaid-compatibility-guide.md` | Mermaid 兼容性指南（禁止语法+替代方案） |
 | `references/mermaid-validation-checklist.md` | Mermaid 语法质量检查清单 |
 | `references/mermaid-guide.md` | Mermaid 陷阱与正确写法 |
 | `references/derivation-example-107.md` | 公式推导示例 |

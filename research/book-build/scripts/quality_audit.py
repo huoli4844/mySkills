@@ -67,12 +67,12 @@ def check_formulas(content: str, prefix: str) -> Dict:
 
 def check_content_stats(content: str) -> Dict:
     """检查内容统计"""
-    tables = len(re.findall(r'^\|', content, re.MULTILINE)) // 2  # 表格至少2行
+    tables = len(re.findall(r'^\|', content, re.MULTILINE)) // 2
     mermaids = len(re.findall(r'```mermaid', content))
     examples = len(re.findall(r'^### \*\*例\d+-\d+\*\*', content, re.MULTILINE))
     exercises = len(re.findall(r'^\d+-\d+', content, re.MULTILINE))
     has_summary = '本章总结' in content
-    has_exercises = '## 习题' in content
+    has_exercises = '## 习题' in content or '思考题' in content
     has_refs = '## 参考文献' in content
     
     return {
@@ -84,6 +84,31 @@ def check_content_stats(content: str) -> Dict:
         "has_exercises": has_exercises,
         "has_references": has_refs,
     }
+
+
+def check_learning_objectives(content: str) -> List[str]:
+    """检查学习目标是否被正文覆盖"""
+    issues = []
+    # 提取学习目标列表
+    obj_section = re.search(r'通过本章学习，读者应达成以下学习目标：(.*?)(?=\n---|\n##)', content, re.DOTALL)
+    if not obj_section:
+        return ["未找到学习目标"]
+    
+    obj_text = obj_section.group(1)
+    objectives = re.findall(r'\d+\.\s*(.*?)(?=\n\s*\d+\.|\Z)', obj_text, re.DOTALL)
+    if not objectives:
+        objectives = [obj_text.strip()]
+    
+    for i, obj in enumerate(objectives):
+        obj_clean = obj.strip()[:80]
+        # 从学习目标中提取关键词
+        keywords = re.findall(r'[A-Za-z\u4e00-\u9fff\u0391-\u03c9]{2,}', obj)
+        # 检查每个关键词是否在正文中出现
+        missing_kw = [kw for kw in keywords if len(kw) > 2 and kw not in content]
+        if len(missing_kw) > len(keywords) * 0.5:  # 超过一半关键词缺失
+            issues.append(f"学习目标{i+1}: \"{obj_clean}\" 可能未被正文覆盖")
+    
+    return issues
 
 
 def audit_chapter(fpath: str, quick: bool = False) -> Dict:
@@ -147,7 +172,14 @@ def audit_chapter(fpath: str, quick: bool = False) -> Dict:
     result["mermaid_issues"] = mermaid_issues
     if mermaid_issues:
         result["pass"] = False
-        result["issues"].extend(mermaid_issues[:3])  # 显示前3个
+        result["issues"].extend(mermaid_issues[:3])
+    
+    # 学习目标覆盖检查
+    obj_issues = check_learning_objectives(content)
+    result["learning_objective_issues"] = obj_issues
+    if obj_issues:
+        result["pass"] = False
+        result["issues"].extend(obj_issues[:3])
     
     return result
 

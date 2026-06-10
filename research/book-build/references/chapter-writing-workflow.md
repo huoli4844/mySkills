@@ -1,12 +1,16 @@
-# 每章写作前：三书研读与写作指南生成工作流
+# 每章写作前：参考教材研读与写作指南生成工作流
 
 ## 核心理念
 
-**不读三书不落笔。** 每一章动手写之前，必须先读取参考教材（三书）中对应的章节原文，分析各书的写作手法，形成该章的**写作指南文件**，然后严格按照指南动笔。
+**不读参考教材不落笔。** 每一章动手写之前，必须先读取配置的参考教材（`config.yaml` → `source_books`）中对应的章节原文，分析各书的写作手法，形成该章的**写作指南文件**，然后严格按照指南动笔。
 
-> **配置说明**：{book_a_name}、{book_b_name}、{book_c_name} 以及相关路径在 `config.yaml` → `source_books` 中定义。
-> 运行 `python3 -c "from book_config import Config; c=Config(); [print(b['display_name'], b['author']) for b in c.source_books]"`
-> 可查看当前配置的三本书。
+```bash
+# 查看当前配置了多少本参考教材
+python3 -c "from book_config import Config; c=Config()
+print(f'共 {len(c.source_books)} 本参考教材:')
+for i, b in enumerate(c.source_books, 1):
+    print(f'  {i}. {b[\"author\"]}《{b[\"display_name\"]}》(priority={b[\"priority\"]})')"
+```
 
 ## 为什么要这样做？
 
@@ -21,14 +25,14 @@
 
 ```
 Step 1: 源文研读
-  → 找到三本书对应章节的 .md 文件（注意章号可能不匹配，用关键词搜索）
+  → 找到各参考教材对应章节的 .md 文件（章号可能不匹配，用关键词搜索）
   → 逐本通读全文（至少前30%和核心节的全部）
   → 记录：每本书的章首手法、核心节手法、独特数据、最值得借鉴的3个手法
 
 Step 2: 手法分析
-  → 填写三书写作手法对比表（8维度：章首引入/概念定义/公式/案例/表格/历史/工程实用/独特亮点）
+  → 填写各书写作手法对比表（8维度：章首引入/概念定义/公式/案例/表格/历史/工程实用/独特亮点）
   → 标注每本书最值得借鉴的3-5个手法
-  → 标注三本书共同盲区（发挥空间，至少3个）
+  → 标注各书共同盲区（发挥空间，至少3个）
 
 Step 3: 生成写作指南（写作大纲/writing-guide-ch{N}.md）
   → 用 templates/writing-guide-template.md 模板
@@ -49,18 +53,13 @@ Step 5: 按指南写作
 
 ## Step 1：源文研读
 
-### 1.1 获取三书章节文件路径
+### 1.1 获取各参考教材章节文件路径
 
 ```bash
-# 方式一：通过 book_config.py 获取
+# 通过 book_config.py 动态获取
 python3 -c "from book_config import Config; c=Config()
-for b in c.source_books:
-    print(f'{b[\"author\"]}: {b[\"path\"]}')"
-
-# 方式二：列出各书 processed 目录下的章节文件
-ls {book_a_processed_dir}
-ls {book_b_processed_dir}
-ls {book_c_processed_dir}
+for i, b in enumerate(c.source_books, 1):
+    print(f'教材{i} [{b[\"author\"]}]: {b[\"path\"]}')"
 ```
 
 ### 1.2 读什么
@@ -80,25 +79,33 @@ ls {book_c_processed_dir}
 判断方法：
 ```bash
 # 用 wc -c 看文件大小 + head 看章首 → 快速判断主题
-wc -c {book_a_path}
-head -30 {book_a_path}
+python3 -c "from book_config import Config; c=Config()
+import os
+for b in c.source_books:
+    sz = os.path.getsize(b['path']) if os.path.exists(b['path']) else 0
+    print(f'{b[\"author\"]}: {sz} 字节')"
 ```
 
 当章号不匹配时的标准搜索法：
 ```bash
-# 步骤1：列出所有章节文件
-ls {book_a_processed_dir} | grep -v images
+# 在参考教材路径中搜索关键词
+python3 -c "
+from book_config import Config
+c = Config()
+import subprocess, sys
+kw = sys.argv[1] if len(sys.argv) > 1 else '关键词'
+for b in c.source_books:
+    r = subprocess.run(['grep', '-l', kw, b['path_processed'] + '*.md'],
+                       capture_output=True, text=True, timeout=10, shell=True)
+    if r.stdout.strip():
+        print(f'{b[\"author\"]}: 匹配章节→ {r.stdout.strip()}')"
+"关键词"
 
-# 步骤2：用关键词搜索
-grep -l "关键词" {book_a_processed_dir}/*.md
-
-# 步骤3：记录每本书的匹配度和参考策略
-# 例如：
-# | 书籍 | 对应章节 | 匹配度 | 参考策略 |
+# 记录每本书的匹配度和参考策略
+# 格式示例：
+# | 书名 | 对应章节 | 匹配度 | 参考策略 |
 # |:-----|:--------|:-----:|:---------|
-# | 书A | 第N章（完整）| 高 | 直接使用 |
-# | 书B | §N.N（一节）| 中 | 辅助参考 |
-# | 书C | 分散片段 | 低 | 仅借鉴手法 |
+# | ... | ... | 高/中/低 | 直接使用/辅助参考/仅借鉴手法 |
 ```
 
 ### 1.4 读的时候注意什么
@@ -111,13 +118,14 @@ grep -l "关键词" {book_a_processed_dir}/*.md
 
 ### 1.5 记录模板
 
-读完三本书后，按以下格式记录：
+读完每本书后，动态遍历记录：
 
 ```markdown
-## 三书研读记录 - 第N章
+## 参考教材研读记录 - 第N章
 
-### {book_a_author}
-- 文件：{book_a_path}
+{% for b in c.source_books %}
+### {{ b.author }}《{{ b.display_name }}》
+- 文件：{{ b.path }}
 - **章首手法**：{观察描述}
 - **核心节手法**：{观察描述}
 - **独特数据**：{具体的时间/地点/数字/标准号}
@@ -126,65 +134,49 @@ grep -l "关键词" {book_a_processed_dir}/*.md
   2. {手法2}
   3. {手法3}
 
-### {book_b_author}
-- 文件：{book_b_path}
-- **章首手法**：{观察描述}
-- **案例特色**：{观察描述}
-- **独特素材**：{具体的工程场景/案例}
-- **最值得借鉴的3个手法**：
-  1. {手法1}
-  2. {手法2}
-  3. {手法3}
-
-### {book_c_author}
-- 文件：{book_c_path}
-- **章首手法**：{观察描述}
-- **结构特点**：{观察描述}
-- **最值得借鉴的3个手法**：
-  1. {手法1}
-  2. {手法2}
-  3. {手法3}
+{% endfor %}
 ```
+
+> 注：实际写作时由 Agent 对每本参考教材逐书填写，配置有多少本就填写多少组。
 
 ---
 
 ## Step 2：手法分析
 
-### 2.1 三书写作手法对比表
+### 2.1 各书写作手法对比表
 
-从以下维度对比三本书在该章中的表现：
+对比维度对所有参考教材统一适用，列数 = `len(c.source_books)`：
 
-| 对比维度 | {book_a_author} | {book_b_author} | {book_c_author} |
-|:---------|:-------|:-------|:-----|
-| **章首引入方式** | {观察} | {观察} | {观察} |
-| **概念定义深度** | {观察} | {观察} | {观察} |
-| **公式数量和使用方式** | {观察} | {观察} | {观察} |
-| **案例数量和类型** | {观察} | {观察} | {观察} |
-| **表格使用** | {观察} | {观察} | {观察} |
-| **历史叙事** | {观察} | {观察} | {观察} |
-| **工程实用导向** | {观察} | {观察} | {观察} |
-| **该章独特亮点** | {亮点} | {亮点} | {亮点} |
+| 对比维度 | 教材1 | 教材2 | 教材3 | … |
+|:---------|:------|:------|:------|:-:|
+| **章首引入方式** | {观察} | {观察} | {观察} | |
+| **概念定义深度** | {观察} | {观察} | {观察} | |
+| **公式数量和使用方式** | {观察} | {观察} | {观察} | |
+| **案例数量和类型** | {观察} | {观察} | {观察} | |
+| **表格使用** | {观察} | {观察} | {观察} | |
+| **历史叙事** | {观察} | {观察} | {观察} | |
+| **工程实用导向** | {观察} | {观察} | {观察} | |
+| **该章独特亮点** | {亮点} | {亮点} | {亮点} | |
 
-### 2.2 三书融合发挥空间
+### 2.2 共同盲区（发挥空间）
 
-分析三本书**都没有写透**的内容——这就是发挥空间：
+分析各书**都没有写透**的内容——这就是发挥空间：
 
 ```markdown
-### 三书共同盲区
+### 各书共同盲区
 
-1. **{盲区1}** — 三本书都{具体问题}，我们可以{具体发挥}
-2. **{盲区2}** — 三本书都{具体问题}，我们可以{具体发挥}
-3. **{盲区3}** — 三本书都{具体问题}，我们可以{具体发挥}
+1. **{盲区1}** — 所有书都{具体问题}，我们可以{具体发挥}
+2. **{盲区2}** — 所有书都{具体问题}，我们可以{具体发挥}
+3. **{盲区3}** — 所有书都{具体问题}，我们可以{具体发挥}
 ```
 
-### 2.3 该章的12条写作军规适配
+### 2.3 12条写作军规适配
 
 ```markdown
 ### 12条军规的本章适配
 
-1. **详实案例驱动** → 本章使用的案例：{案例A}（来源：{book_a_author}）、{案例B}（来源：{book_b_author}）
+1. **详实案例驱动** → 本章使用的案例：{案例A}（来源：教材1）、{案例B}（来源：教材2）
 2. **历史极致细节** → 本章可用的历史素材：{具体信息}
-3. **系统清晰结构** → 本章的结构建议：{具体建议}
 ...（逐条覆盖）
 ```
 
@@ -202,13 +194,13 @@ grep -l "关键词" {book_a_processed_dir}/*.md
 - 每张图后必须有文字说明：`*图N-M：图标题*`
 - 引言中"如图N-M所示"与图注"*图N-M：*"必须一致
 - 图号修正后必须用 `grep '图N-'` 验证无冲突
-- 禁止使用 subgraph 标题含括号/破折号（Obsidian 崩溃）
+- 禁止 subgraph 标题含括号/破折号（Obsidian 崩溃）
 - 节点标签中禁止 emoji（用"通过/超标"替代）
 
 ### 2.5 临时文件管理
 
 ```bash
-# 各节扩展稿 → 组装成完整章后删除
+# 各节扩展稿 → 组装后删除
 output/section-*.md
 
 # 写作指南 → 保留供后续参考
@@ -222,21 +214,17 @@ rm -f output/section-*.md /tmp/ch*-*.md
 
 ## Step 3：生成写作指南
 
-### 3.1 写作指南的结构
-
-生成的写作指南文件（`写作大纲/writing-guide-chN.md`）内容模板见 `templates/writing-guide-template.md`，至少包含：
+写作指南存放在 `output/写作大纲/writing-guide-ch{N}.md`，用 `templates/writing-guide-template.md` 模板，至少包含：
 
 - 本章定位
 - 结构建议表（每节字数 + 主导手法 + 素材来源）
 - 每节逐项写作指南（引入方式 + 必须要素 + 设问过渡 + 案例建议）
-- 素材清单（从三本书提取的具体数据/标准号/案例）
+- 素材清单（从各参考教材提取的具体数据/标准号/案例）
 - 图量规划（≥6~8张Mermaid，标注图号/位置/类型）
 - 12条军规落实检查清单
 
-### 3.2 输出定位
-
 ```bash
-# 写作指南文件存放在：
+# 输出路径获取
 python3 -c "from book_config import Config; c=Config(); print(c.writing_guide_path(N))"
 ```
 
@@ -248,9 +236,9 @@ python3 -c "from book_config import Config; c=Config(); print(c.writing_guide_pa
 
 ```markdown
 写作前：
-  □ 已通读三书对应章节
-  □ 已完成三书手法对比表
-  □ 已标注三书共同盲区
+  □ 已通读所有参考教材对应章节
+  □ 已完成各书手法对比表
+  □ 已标注共同盲区
   □ 写作指南文件已生成
 
 写作中：
@@ -268,11 +256,13 @@ python3 -c "from book_config import Config; c=Config(); print(c.writing_guide_pa
 ### 4.2 写作中回看原文
 
 ```bash
-# 通过 book_config.py 获取三书路径
-python3 -c "from book_config import Config; c=Config(); print(f'书A: {c.book_a_path}'); print(f'书B: {c.book_b_path}'); print(f'书C: {c.book_c_path}')"
+# 列出所有参考教材路径
+python3 -c "from book_config import Config; c=Config()
+for i, b in enumerate(c.source_books, 1):
+    print(f'教材{i}: {b[\"path\"]}')"
 
 # 用 read_file 打开对应的节
-read_file {book_a_path} --offset {行号} --limit 50
+# read_file {某教材路径} --offset {行号} --limit 50
 ```
 
 ---
@@ -280,12 +270,12 @@ read_file {book_a_path} --offset {行号} --limit 50
 ## 执行入口
 
 ```bash
-# 1. 获取三书路径信息
+# 1. 查看所有参考教材概览
 python3 -c "from book_config import Config; c=Config()
 for b in c.source_books:
     import os
     sz = os.path.getsize(b['path']) if os.path.exists(b['path']) else 0
-    print(f\"{b['author']}: {b['display_name']} ({sz} 字节)\")
+    print(f\"{b['author']}: {b['display_name']} ({sz} 字节)\")"
 
 # 2. 通读各书章首和章末
 # （使用 read_file 工具）
@@ -293,4 +283,5 @@ for b in c.source_books:
 
 > **路径工具**：
 > - `book_config.py` → `Config()` 加载 `config.yaml`（`project` + `source_books` + `knowledge_base` 三节）
-> - 修改 `config.yaml` 即可切换参考教材，无需改动本工作流文件
+> - 各动态命令中的 `c.source_books` 返回当前配置的所有参考教材，按 priority 排序
+> - 修改 `config.yaml` 即可切换/增删参考教材，无需改动本工作流文件

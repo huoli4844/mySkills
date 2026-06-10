@@ -35,13 +35,13 @@ metadata:
 
 **L2 — 结构层：** 大纲解析确定章节树；内容类型判别（6种模式）选择写作结构；写作指令生成器（gen_prompt.py）综合大纲定位+素材+写作规则，生成每节的提示词。
 
-**L3 — 写作层：** Agent 按提示词写出正文，遵守 13 条军规。每章必须经过"三书研读→写作指南→动笔"的 Phase 0.5 流程。写作指南存放在 `写作大纲/` 子目录下。
+**L3 — 写作层：** Agent 按提示词写出正文，遵守 13 条军规。每章必须经过"教材研读→写作指南→动笔"的 Phase 0.5 流程。写作指南存放在 `写作大纲/` 子目录下。
 
 **L4 — 校验层：** 每章写完后经过 6 要素检查 + 13 维度自审评分 + 体量铁律验证。
 
 **工作流模式**（`config.yaml` → `workflow.default_mode`）：
-- **`fast`**（默认）：Phase 0（大纲解析）→ Phase 3（写作）→ Phase 4.5（质量检查）→ Phase 6（提交）。跳过三书研读（Phase 0.5）和内容差距分析（Phase 0.6）。
-- **`full`**：保留完整的 11 Phase 管线。每章写前必须执行三书研读，写完后执行完整审计。
+- **`fast`**（默认）：Phase 0（大纲解析）→ Phase 3（写作）→ Phase 4.5（质量检查）→ Phase 6（提交）。跳过教材研读（Phase 0.5）和内容差距分析（Phase 0.6）。
+- **`full`**：保留完整的 11 Phase 管线。每章写前必须执行教材研读，写完后执行完整审计。
 
 **领域参数**：所有领域特有路径/名称在 `config.yaml` 集中管理。`scripts/book_config.py` 统一加载，脚本中不再硬编码。
 
@@ -85,7 +85,7 @@ metadata:
 
 ```
 Phase 0:   大纲解析 → 章节分层树 (/tmp/outline.json)
-Phase 0.5: 三书研读 → 写作指南生成 (output/写作大纲/writing-guide-ch{N}.md)
+Phase 0.5: 教材研读 → 写作指南生成 (output/写作大纲/writing-guide-ch{N}.md)
 Phase 1:   kb-qa 检索 → 素材包
 Phase 2:   内容类型判别 → 6种模式选一
 Phase 3:   学术写作 → 遵守13条军规
@@ -104,23 +104,23 @@ python3 scripts/parse_outline.py 大纲.docx -o /tmp/outline.json
 
 支持 .docx、.md、/dev/stdin 三种输入。输出 JSON 含章/节/子节三级树。
 
-**Phase 0.5：三书研读 → 写作指南 → 动笔**（铁律——不读三书不落笔）
+**Phase 0.5：教材研读 → 写作指南 → 动笔**（铁律——不读参考教材不落笔）
 
 每章写前必须执行以下5步流程：
 
 ```bash
 # ── 标准入口 ──
-# Step 1: 找到三本书对应内容并通读
-# Step 2: 填写三书手法对比表
-# Step 3: 标注三书共同盲区
+# Step 1: 找到各教材对应内容并通读
+# Step 2: 填写各教材手法对比表
+# Step 3: 标注各教材共同盲区
 # Step 4: 生成 writing-guide-ch{N}.md → output/写作大纲/
 # Step 5: 严格按指南写作
 ```
 
-**Step 1：研读三书** — 每本至少读章首(前30%)+核心节(全部)+章末(后20%)
+**Step 1：研读参考教材** — 每本至少读章首(前30%)+核心节(全部)+章末(后20%)
 
 ```bash
-# 通过 book_config.py 获取三书路径后，grep 搜索对应关键词
+# 通过 book_config.py 获取各教材路径后，grep 搜索对应关键词
 # 路径在 config.yaml → source_books 中定义
 python3 -c "from scripts.book_config import Config; c=Config()
 for b in c.source_books:
@@ -138,11 +138,11 @@ for b in c.source_books:
 " "关键词"
 ```
 
-**Step 2：填写三书手法对比表**（向用户汇报）
+**Step 2：填写各教材手法对比表**（向用户汇报）
 
 从8个维度对比：章首引入 / 概念定义深度 / 公式数量与使用 / 案例类型 / 表格使用 / 历史叙事 / 工程实用导向 / 独特亮点。
 
-**三书对标分析表**（推荐格式——量化三书可用素材）：
+**各教材对标分析表**（推荐格式——量化可用素材）：
 
 | 维度 | 书A（如柯金良第X章） | 书B（如路宏敏第X章） | 本教材定位 |
 |:----|:-------------------|:-------------------|:----------|
@@ -150,7 +150,7 @@ for b in c.source_books:
 | **结构优势** | A独有的组织方式 | B独有的组织方式 | 以A为主干+B补充 |
 | **体量对标** | XX KB | XX KB | 目标XX~XX KB |
 
-**三书定位**（Role Assignment）：
+**各教材定位**（Role Assignment）：
 
 | 书 | 角色 | 对应教材节段 |
 |:---|:-----|:------------|
@@ -162,20 +162,20 @@ for b in c.source_books:
 
 **Step 3：标注发挥空间**
 
-分析三本书都有但写得不透的内容，形成3-5个发挥空间。
+分析各教材都有但写得不透的内容，形成3-5个发挥空间。
 
 **Step 4：生成写作指南** — 文件 `output/写作大纲/writing-guide-ch{N}.md`
 
 用模板 `templates/writing-guide-template.md`，至少包含：
-- 研读分析（三书对应关系 + 8维度手法对比 + 发挥空间）
+- 研读分析（各教材对应关系 + 8维度手法对比 + 发挥空间）
 - 结构建议（每节字数 + 主导手法 + 素材来源）
 - 每节写作指南（引入方式 + 要素 + 设问 + 案例建议）
-- 素材清单（从三本书提取的具体数据/标准号/案例）
+- 素材清单（从各教材提取的具体数据/标准号/案例）
 - **图量规划**（≥6~8张Mermaid，标注每张图号/位置/类型）
 - 12条军规落实检查
 
 完成后向用户汇报：`第N章写作指南已生成 → output/写作大纲/writing-guide-ch{N}.md`
-汇报时列出三书手法对比表和发挥空间。**如 config.yaml 中 `phase_0_5_auto: true`（默认），跳过用户确认直接进入 Step 5 动笔。**
+汇报时列出各教材手法对比表和发挥空间。**如 config.yaml 中 `phase_0_5_auto: true`（默认），跳过用户确认直接进入 Step 5 动笔。**
 
 第6章实战示例：详见 `output/写作大纲/writing-guide-ch6.md`（含完整的8维度对比+7Mermaid图规划+14条军规检查清单），可直接作为后续章节写作指南的参考模板。
 
@@ -185,16 +185,16 @@ for b in c.source_books:
 
 **Phase 0.6：内容差距分析 —— 当章写完后感觉"单薄"时**
 
-当用户反馈某章体量不足时，执行三书内容差距分析：
+当用户反馈某章体量不足时，执行内容差距分析：
 
-1. **搜索三本书的对应主题**：用 grep 命令在三本书中获取所有相关内容
-2. **逐书阅读完整章节**：路宏敏优先（最详尽），张亮次之，梁振光最后
-3. **编制定量对比表**：按公式/例题/Mermaid图/对比表/习题六个维度对比当前输出 vs 三本书
+1. **搜索各教材的对应主题**：用 grep 命令在教材中获取所有相关内容
+2. **逐书阅读完整章节**：按 priority 读（最高优先级的书最先）
+3. **编制定量对比表**：按公式/例题/Mermaid图/对比表/习题六个维度对比当前输出 vs 各教材
 4. **标记三类素材**：✅已使用 / ⬜可补充 / ❌超范围
 5. **估算补充量**：每项增加的行数/字节数→排列优先顺序
 6. **确认内容天花板**——不是所有章都能达到104KB（第4章体量）。有些主题的核心公式就3-4个，补充方向：案例深度→对比表→工程经验值→Mermaid图
 
-详见 `references/gap-analysis-checklist.md`。第5章实战示例：`output/第5章-搭接技术.md` 经本分析补充了8项（射频电阻公式/20种结构/π形滤波器失效分析/经验值讨论等），从40KB扩展到63KB/5张Mermaid图/32条公式。
+详见 `references/gap-analysis-checklist.md`。第5章实战示例：`output/第5章-搭接技术.md` 经本分析补充了8项，从40KB扩展到63KB/5张Mermaid图/32条公式。
 
 **Phase 1~2：kb-qa 检索 + 内容类型判别**
 
@@ -409,7 +409,7 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 
 实验证明（第8章实战）：delegate_task 写入的教材正文不包含`\tag{}`公式编号、不包含`*图N-X：`图注、不遵循`**例N-X**`格式。subagent无法继承当前会话的写作风格约定。因此：
 - 教材正文必须由主Agent直接编写（write_file / patch）
-- subagent只能用于：研读三书并输出摘要、收集素材、生成对比表、运行审计脚本、按模板扩展案例/实验文件
+- subagent只能用于：研读参考教材并输出摘要、收集素材、生成对比表、运行审计脚本、按模板扩展案例/实验文件
 - 如果确实需要subagent写大批内容（如案例/实验），必须在context中**显式包含**以下格式约束：
   ```
   约束1: 每个$$显示公式后立即加独占一行的\tag{8-N}
@@ -462,7 +462,7 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 6. **Mermaid 图太小** → 加 `%%{init: {"flowchart": {"useMaxWidth": false}}}%%` 防止 Obsidian 缩放
 7. **插入新图后图号冲突** → 在已有章节中插入新Mermaid图后，必须全局搜索 `图N-` 检查是否产生重复编号。插入→搜索→修正，三步闭环
 8. **公式校验脚本误报** → grep `\\\\lef`/`\\\\righ` 会在 `\\\\left`/`\\\\right` 内部匹配子串——这是误报。公式语法检查应优先用 python3 的 `re` 模块而非纯字符串搜索
-9. **写作指南不经用户确认直接开写** → 三书研读完成后生成writing-guide-ch{N}.md，**默认直接动笔**（config.yaml 中 `phase_0_5_auto: true`）。如需用户确认改为 `false`。
+9. **写作指南不经用户确认直接开写** → 教材研读完成后生成writing-guide-ch{N}.md，**默认直接动笔**（config.yaml 中 `phase_0_5_auto: true`）。如需用户确认改为 `false`。
 10. **自动修复脚本将\\tag放在$$外部** → `post_generation_check.py --fix` 的 `_fix_missing_tag` 曾错误地将 `\\tag{N-M}` 插入在 `$$` 之前而非内部。当前版本已修复。如果发现 `\\tag` 行出现在 `$$` 之前，运行 `python3 scripts/renumber.py output/第N章.md` 统一修复。
 11. **编号重排前未备份** → `renumber.py` 默认自动创建 `.bak` 备份，无需手动 `cp`。如果使用旧版 `fix_*.py` 系列脚本，必须手动备份。
 12. **公式章号前缀写错（跨章素材污染）** → 从第N+1章素材复制公式时，`\tag{8-X}`容易被遗忘不改为当前章号。写完后必须扫描 `\tag{` 批量核对章号前缀
@@ -494,7 +494,7 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 | `references/case-writing-template.md` | **8大模块案例编写模板** — 工程背景→测试诊断→根因分析(6步推导)→方案设计→验证→经验→拓展→思考题 |
 | `references/experiment-writing-standard.md` | **实验编写标准（8章节高质量实验指导书）** — 目的→原理→设备→步骤→数据→分析→思考→注意事项 |
 | `references/volume-standards.md` | **体量铁律 + 13条军规逐项勾选清单 + 公式全编号检查** |
-| `references/chapter-writing-standard.md` | **三书融合写作法 + 章首/正文/章末完整模板** |
+| `references/chapter-writing-standard.md` | **三教材融合写作法 + 章首/正文/章末完整模板** |
 | `references/chapter-writing-workflow.md` | **Phase 0.5 五步研读流程**（必读） |
 | `references/textbook-style-guide.md` | 教材学术叙事风格指南 |
 | `references/writing-patterns.md` | 6种内容类型完整写作示例 + 通用模板 |

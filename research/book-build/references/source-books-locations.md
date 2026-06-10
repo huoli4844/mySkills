@@ -1,19 +1,18 @@
 # 参考教材源文件位置
 
-> 本文件中的路径和书名均为示例。实际使用前修改 `config.yaml` → `source_books` 即可。
+> 本文件的命令通过 `book_config.py` 动态加载配置，不假设数量。
 
-## 当前配置的三书
+## 查看当前配置的参考教材
 
 ```bash
 python3 -c "from book_config import Config; c=Config()
-for b in c.source_books:
-    print(f'{b[\"author\"]}: {b[\"display_name\"]} ({b[\"path\"]})')"
+for i, b in enumerate(c.source_books, 1):
+    print(f'参考教材{i}: {b[\"author\"]}《{b[\"display_name\"]}》→ {b[\"path\"]}')"
 ```
 
 ## 快速查找某主题
 
 ```bash
-# 通过 book_config.py 的快捷方法搜索
 python3 -c "
 from book_config import Config
 c = Config()
@@ -26,10 +25,10 @@ for name, lines in results.items():
 
 ## 各书对照表
 
-| 角色 | 作者 | 匹配度 | 参考策略 |
-|:----|:-----|:------:|:---------|
-| 书A (主骨架) | {book_a_author} | 高 | 直接使用 |
-| 书B (补充) | {book_b_author} | 中 | 辅助参考 |
-| 书C (辅助) | {book_c_author} | 中低 | 仅借鉴手法 |
+| 编号 | 作者 | 书名 | 匹配度 | 参考策略 |
+|:----:|:-----|:-----|:------:|:---------|
+| 1 | (从 config 读取) | | 高/中/低 | 直接使用/辅助参考/仅借鉴手法 |
+| 2 | (同上) | | | |
+| … | | | | |
 
-> 不同章节各书的匹配度不同，需根据关键词搜索判断。详见 `chapter-writing-workflow.md` Step 1.3。
+> 匹配度和策略因章节而异，需根据关键词搜索判断。

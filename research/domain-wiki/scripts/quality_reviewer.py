@@ -497,6 +497,87 @@ def check_and_block(book_dir: str, book_id: str, chapter: str,
 # Main
 # ════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════
+# 修正自进化：日志记录
+# ════════════════════════════════════════════════════════════
+
+CORRECTIONS_FILENAME = "wiki-corrections.yaml"
+
+
+def _corrections_path(book_dir: str) -> str:
+    """修正日志路径：{book_dir}/.dag/wiki-corrections.yaml"""
+    dag_dir = os.path.join(book_dir, ".dag")
+    os.makedirs(dag_dir, exist_ok=True)
+    return os.path.join(dag_dir, CORRECTIONS_FILENAME)
+
+
+def _log_corrections(book_dir: str, book_id: str, chapter: str,
+                     result: dict[str, Any]) -> None:
+    """审查修复完成后，将本次发现的问题记录到修正日志。"""
+    fix_manifest = result.get("fix_manifest", [])
+    if not fix_manifest:
+        return  # 无问题需记录
+
+    try:
+        import yaml
+    except ImportError:
+        return
+
+    path = _corrections_path(book_dir)
+    # 加载已有日志
+    existing = []
+    if os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if isinstance(data, list):
+                    existing = data
+        except (yaml.YAMLError, OSError):
+            existing = []
+
+    # 从 fix_manifest 提取新条目
+    today = datetime.now().strftime("%Y-%m-%d")
+    new_entries = []
+    seen = set()
+    for fm in fix_manifest:
+        ftype = fm.get("type", "unknown")
+        fields = fm.get("fields_to_fix", [])
+        for field in fields:
+            field_name = field.get("field", "unknown")
+            key = f"{ftype}:{field_name}"
+            if key in seen:
+                continue
+            seen.add(key)
+            new_entries.append({
+                "chapter": chapter,
+                "date": today,
+                "type": ftype,
+                "fields_affected": [field_name],
+                "issue": field.get("reason",
+                                   f"{field_name} 评分不足"),
+                "action": (f"需要丰富至 ≥{field.get('target_len', 0)}字"
+                           if field.get("action") == "enrich"
+                           else "需要自动修复"),
+            })
+
+    if not new_entries:
+        return
+
+    all_entries = new_entries + existing
+    # 限制总量，只保留最近 200 条
+    if len(all_entries) > 200:
+        all_entries = all_entries[:200]
+
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(all_entries, f, allow_unicode=True,
+                      default_flow_style=False, sort_keys=False)
+        print(f"📝 修正日志已追加: {path} ({len(new_entries)} 条)",
+              file=sys.stderr)
+    except OSError as e:
+        print(f"⚠️ 修正日志写入失败: {e}", file=sys.stderr)
+
+
 def main():
     p = argparse.ArgumentParser(description="质量审查引擎 v2.1 (模块化)")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -573,6 +654,8 @@ def main():
                                  ensure_ascii=False, indent=2))
             else:
                 print_fix_instructions(result, thr)
+        # 修正自进化：记录本次修复到修正日志
+        _log_corrections(a.book_dir, a.book_id, a.chapter, result)
         sys.exit(0)
 
     elif a.cmd == "check-item":

@@ -21,6 +21,52 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from yaml_schema import load_schema, write_yaml, validate_yaml_file  # noqa: E402
 
+# ════════════════════════════════════════════════════════════
+# 修正自进化：加载历史修正日志
+# ════════════════════════════════════════════════════════════
+
+CORRECTIONS_FILENAME = "wiki-corrections.yaml"
+
+
+def _load_corrections_for_type(book_dir: str, type_name: str,
+                               chapter_num: str) -> list[dict]:
+    """加载修正日志中与当前类型和章节相关的历史问题。"""
+    path = os.path.join(book_dir, ".dag", CORRECTIONS_FILENAME)
+    if not os.path.isfile(path):
+        return []
+    try:
+        import yaml
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, list):
+            return []
+    except Exception:
+        return []
+    # 筛选：类型匹配，且不是当前章节自己（只暴露历史问题）
+    cur_int = _chapter_to_int(chapter_num)
+    filtered = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != type_name:
+            continue
+        ch = _chapter_to_int(item.get("chapter", "0"))
+        if ch is not None and cur_int is not None and ch >= cur_int:
+            continue  # 跳过当前章及未来章节的记录
+        filtered.append(item)
+    # 最多返回 5 条最近记录
+    return filtered[:5]
+
+
+def _chapter_to_int(ch: str | None) -> int | None:
+    """将 '3' 或 '03' 转为 int，失败返回 None"""
+    if not ch:
+        return None
+    try:
+        return int(ch)
+    except (ValueError, TypeError):
+        return None
+
 
 # ════════════════════════════════════════════════════════════
 # CLI 命令
@@ -127,6 +173,21 @@ def cmd_self_instruct(type_name: str, chapter_num: str, book_dir: str = None):
     lines.append("⚠️ 顶层 file 字段规则：值为该类型节点的名称（如概念名/技能点名），")
     lines.append('   不含 .md 后缀。禁止使用 source_from 的值（源章节文件名含 .md），')
     lines.append("   否则生成文件名会变成 xxx.md.md。file 不设时默认用 name 字段。")
+
+    # ── 修正自进化：加载历史修正日志 ──
+    if book_dir:
+        corrections = _load_corrections_for_type(book_dir, type_name, chapter_num)
+        if corrections:
+            lines.append("")
+            lines.append("## 📌 历史修正提醒（自进化注入）")
+            lines.append("")
+            lines.append("以下问题在先前章节中已被检测并修复。本章写作时请特别注意：")
+            for c in corrections:
+                fields_str = ", ".join(c.get("fields_affected", []))
+                lines.append(f"  ⚠️ [{c.get('chapter','?')}章] {c.get('type','?')}/{fields_str}")
+                lines.append(f"    问题: {c.get('issue', '')}")
+                lines.append(f"    措施: {c.get('action', '')}")
+            lines.append("")
 
     if source_sections:
         lines.append("")

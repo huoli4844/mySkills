@@ -1,7 +1,7 @@
 ---
 name: domain-wiki
 description: "从教材源文件构建结构化 Obsidian 知识库：write_yaml → pipeline_v2 phase-a → 40+文件/章。模板@prompt + dag_state状态管理 + KG索引 + 测试套件"
-version: "3.0"
+version: "4.0"
 author: Hermes Agent
 license: MIT
 metadata:
@@ -9,7 +9,7 @@ metadata:
   related_skills: [source-prepare, file2md]
 ---
 
-# Domain Wiki Builder (v3.0)
+# Domain Wiki Builder (v4.0)
 
 ## Anti-Bloat Maintenance Covenant
 
@@ -31,6 +31,8 @@ yaml_writer.py          → schema+校验(.py) + 信号词引擎(.py) + CLI入�
 pipeline_v2.py          → 编排器(.py) + review-fix(.py) + 索引构建(.py)
 ```
 每层只能单向 import：`配置数据 ← 引擎 ← 格式化输出/CLI`。禁止逆向 import。
+
+> **⚠️ v4.0 红线告警：** `quality_reviewer.py` 当前 673 行（超 600 行线），yaml_writer.py 478 行（尚在安全区）。下次编辑 quality_reviewer.py 时建议按分解模式拆分为 `review_field_depth.py`(已有) + `review_format.py`(已有) + 引擎+CLI(.py)。
 
 ### 死代码清理检查表
 每次提交前（或至少每 3 次迭代后）执行：
@@ -60,7 +62,7 @@ grep -rn "EMC\|dB\|MHz\|GHz\|PCB\|FDTD" scripts/ --include="*.py"
 
 用户要求从教材构建结构化 Obsidian 知识库，包含核心概念、知识要素、知识点、技能点、应用场景、实体、习题和解答。支持整书全自动流程（Phase A → 质量门 → L2/L3/L4索引 → 状态持久化）。
 
-## v3 Pipeline 概览
+## v4 Pipeline 概览
 
 ```
 写 YAML → yaml_writer.py validate → pipeline_v2.py phase-a
@@ -139,6 +141,19 @@ grep -rn "EMC\|dB\|MHz\|GHz\|PCB\|FDTD" scripts/ --include="*.py"
 grep -c '@prompt' ~/.hermes/skills/research/domain-wiki/assets/templates/concept_template.md
 # 期望 24 — 如果得到 0，说明改错技能了
 ```
+
+### 守则5: 跨章节上下文预算管理
+
+多章处理时，Agent 上下文会累积已完成章节的全部素材/渲染文件/审查报告，造成注意力稀释、质量下降。每次切换章节时必须执行上下文清理：
+
+```bash
+# 每完成一章处理后的清理流程
+① pipeline_v2.py run 完成 → 确认 dag_state 已保存
+② 当前章内容不再需要在后续章的上下文出现
+③ 下一章开始前重新加载 dag_state（自动）并重读写作指引
+```
+
+**规则**：处理第 N+1 章时，上下文只包含：第 N+1 章源文 + 写作指引（self-instruct 输出）+ 全书修正日志（wiki-corrections.yaml）。已完成章节的素材、渲染文件、审查报告不出现在上下文中。
 
 ## 核心设计原则
 
@@ -295,6 +310,62 @@ python3 scripts/quality_reviewer.py check-item \
 # 触发方式：在 book 级审查中自动执行
 python3 scripts/pipeline_v2.py review --book-dir /path --book-id 01_ID
 ```
+
+### 三道质量闸门（v4.0 命名）
+
+domain-wiki 已有的质量检查被正式命名为三道显式闸门（Gate），每道闸门有明确的触发位置和阻断语义。Agent 不得自行跳过任何闸门。
+
+| 闸门 | 位置 | 条件 | 阻断动作 | 对应命令 |
+|:-----|:-----|:-----|:---------|:---------|
+| **Gate A：YAML 合规闸门** | 写入聚合 YAML 前 | `check-item` 评分 < 阈值 | 阻止写入，返回丰富后重检 | `quality_reviewer.py check-item --threshold 0.9` |
+| **Gate B：渲染完整性闸门** | Phase A Step 0（preflight） | YAML 缺失/语法错误/confidence 越界 | 阻止进入 Step 1-2 渲染 | `pipeline_v2.py phase-a` 自动触发 |
+| **Gate C：图链质量闸门** | Phase A Step 3 | Mermaid 语法错误 / wikilink 孤立率 > 阈值 | 阻止进入质量审查 | `pipeline_v2.py phase-a` 自动触发 |
+
+**闸门行为规则**：
+
+- 闸门不是"提醒"，是**强制阻断**——当前阶段必须通过才能推进
+- Gate B 和 Gate C 在 `pipeline_v2.py phase-a` 内部自动执行，无需 Agent 手动脉冲
+- Gate A 由 Agent 在 delegate_task 写 YAML 时手动触发（写一个查一件），详见"内联质量检查流程"
+- 任何绕过闸门的行为（如直接手动改渲染文件）必须记录到 wiki 修正日志
+
+**对比 Loop Engineering 的 Gate 概念**：这里的三个闸门等价于 Loop Engineering 的"终止条件"——确保循环可靠地停在正确的质量位置。
+
+### 修正自进化机制（v4.0 新增）
+
+**问题**：质量审查发现问题→review-fix 修复→修复完成。但同样的质量问题（如某字段经常偏短、Mermaid 标签格式常错）在下一章会重复发生。domain-wiki 会"修"但不会"学"。
+
+**解决方案**：自动记录每次审查-修复操作到 `wiki-corrections.yaml`。后续 `self-instruct` 生成写作指导时加载这些修正经验，在字段工作台顶部显示"本章需关注的历史问题"。
+
+```yaml
+# .dag/wiki-corrections.yaml（自动管理）
+corrections:
+  - chapter: 5
+    date: "2026-06-10"
+    type: concept
+    fields_affected: [mathematical_model]
+    issue: "8/29 概念缺公式（27%）"
+    action: "已从源文提取公式自动补齐"
+  - chapter: 5
+    date: "2026-06-10"
+    type: mermaid
+    fields_affected: [core_concept_map]
+    issue: "3 个概念图的标签含未引用括号"
+    action: "已自动修复"
+```
+
+**自进化工作流**：
+
+| 步骤 | 谁执行 | 说明 |
+|:-----|:-------|:-----|
+| ① **检测** | quality_reviewer.py chapter/book | 发现问题，生成 fix_manifest |
+| ② **修复** | pipeline_fix.py review-fix | 自动修复 YAML → 重渲染 |
+| ③ **记录** | quality_reviewer.py（v4.0 新增） | 修复完成后写入 `.dag/wiki-corrections.yaml` |
+| ④ **注入** | yaml_writer.py self-instruct（v4.0 新增） | 下章写作时加载修正日志，历史问题标注到字段工作台 |
+| ⑤ **预防** | Agent 写 YAML 时 | 看到历史问题 → 写当前章时主动避免同类错误 |
+
+**设计原则**：修正日志不是归档文件——是给 Agent 下一轮写作时的"先验知识"注入源。每条修正必须有 `type` + `fields_affected` 字段，使 self-instruct 能精确匹配到受影响类型和字段。
+
+**实现**：`quality_reviewer.py` 新增 `_log_corrections()` 函数（在 `fix-manifest` 子命令中自动调用），`yaml_writer.py` 新增 `_load_corrections_for_type()` 函数（在 `self-instruct` 命令中自动加载并注入"历史修正提醒"节）。
 
 ## Quickstart
 
@@ -538,7 +609,7 @@ The `pipeline_v2.py run` command processes ALL pending phases automatically. Whe
 **Do NOT ask the user "should I proceed?" or "what next?" — just do the next step.**
 
 **Why this matters:** There are TWO near-identically-named skills:
-- `research/domain-wiki/` — **ACTIVE** (v3.0, `pipeline_v2.py`, 24 `@prompt`) ← USE THIS
+- `research/domain-wiki/` — **ACTIVE** (v4.0, `pipeline_v2.py`, 24 `@prompt`) ← USE THIS
 - `research/domain-book-wiki/` — **HISTORICAL BACKUP** (v52.x, `dag_controller.py`, 0 `@prompt`) ← DO NOT TOUCH
 
 Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki/ (v2.x)。此目录仅作历史参考。"*
@@ -601,7 +672,7 @@ Commit `8c3cd15` explicitly states: *"当前活跃技能为 research/domain-wiki
 
 | | **`split_book_to_chapters.py` TOC 块过滤过严 → 章节编号不连续** | 保留所有章节，仅跳过 <15行的TOC片段。TOC条目是章节存在形式。详见 [toc-detection-design.md](references/toc-detection-design.md)。 |
 | | **`git add -A` 污染其他技能目录 → 提交时会把 book-build/ 等无关目录一并 stage，违反用户「git add只能domain-wiki/目录」规则** | 提交前 `git diff --cached --stat` 确认只有 domain-wiki 文件。用 `git add research/domain-wiki/` 替代 `git add -A`。 |
-| | **`sed` 字符串替换引入 Mermaid 语法 bug** → `sed 's/flowchart/graph TD/g'` 将 `flowchart TD` 变成 `graph TD TD`（关键字重复），导致 Obsidian 完全不渲染。22个文件受到影响。 | Mermaid 关键字替换必须用精确模式：`sed 's/^flowchart /graph /'` 或 `sed 's/^flowchart TD/graph TD/'`。替换后立即运行 `validate_mermaid.py` 确认无 `graph TD TD` 残留。validate_mermaid 已在 `check_mermaid_block()` 中增加 `graph X X` 关键字重复检测。 |
+| | **`re.sub` 在 Mermaid 块上操作会吃掉闭口 ```** → `re.sub(r'```mermaid(.*?)```', fn, content, flags=re.DOTALL)` 替换后闭口可能丢失。文件只剩开口 ```mermaid，变成一个大 Mermaid 块。（2026-06-09 修复 `{峰值<限值}→{峰值小于限值}` 时犯的错） | **任何对 Mermaid 块的 regex 操作后必须验证 `````` 计数为偶数：** `grep -c '```' file | awk '$1%2==1'`。<br><br>**Mermaid 菱形节点内 `<` 的正确修复：** 用中文 `小于`/`大于` 替代符号，如 `{峰值小于限值?}`。不要用 `#lt;`（部分渲染器不支持），不要用 `{\"引号\"}`（diamond 内引号支持不确定）。| |
 | | **`read_file` 读大文件撑爆上下文** → 用 `read_file` 读取 >500 行的文件会将全部内容注入上下文窗口。4本书 800+ 文件的全文读入 = 几十万行文本 = 上下文爆炸。 | 大文件用 `terminal` 的 `head/sed/wc/grep` 替代 `read_file`：`head -30 file`、`wc -l file`、`grep "pattern" file` 等。避免 `open(fpath).read()` 一次性加载全书内容。 |
 | | **`split_book_to_chapters.py` 不报告各章内容质量 → 源文件缺失正文的章节静默生成瘦文件** | `split_book()` 中按文件大小分级输出 `✅有正文(>20KB)／⚠️少量(2-20KB)／❌仅标题(<2KB)`，让用户明确知道哪些章节有实质内容、哪些仅为标题大纲。对于 `❌` 级别的章节，根因通常是源文件本身缺失正文（OCR/MinerU提取遗漏），不是拆分工具的问题。 |
 | | **源文件部分章节缺失正文（MinerU/OCR提取遗漏）** → 拆分后部分章节只有标题大纲(<2KB)，无段落文字。根因不是拆分工具而是源文件本身。 | 检查源文件目录是否有 `_content_list_v2.json`（MinerU/常规提取器的按页内容清单）。用 `split_book_to_chapters.py reconstruct -w BOOK --v2-path RAW/xxx_content_list_v2.json` 按页眉章节边界重建正文。reconstruct 命令提取每页的 `page_header`（如"第3章"）确定章节归属，然后提取 `title(标题)+paragraph(正文)` 内容重组章节文件。实测7章从0-4KB恢复至11-84KB。无 page_header 的 PDF 提取文件不适用此方法。 |

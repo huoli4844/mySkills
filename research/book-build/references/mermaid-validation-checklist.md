@@ -31,6 +31,14 @@
 | 缩进层级 | 严格用空格缩进表示层级关系，2或4空格一致即可 |
 | 根节点 | `root((内容))` — 必须以 `root` 作为根节点 |
 
+## emoji / 特殊字符检查
+
+| 检查项 | 正确 | 错误 | 原因 |
+|:-------|:-----|:-----|:------|
+| emoji 表情 | 纯文字 | `🔄` `⚠️` `🚫` `📋` 等 | emoji 在 Mermaid 解析器中被解释为特殊 Unicode，导致节点标签解析失败 |
+| 星号评分 | `5` 或 `★★★★★`（纯文字） | `⭐⭐⭐⭐⭐` | emoji 星号 `⭐` 在 Mermaid 中不可用 |
+| 特殊符号 | 常规文字 | `→` `←` 等箭头字符 | 部分箭头符号在 Mermaid 标签内可能被误解析为连接线语法 |
+
 ## 验证方法
 
 ```bash
@@ -39,4 +47,7 @@ python3 scripts/quality_audit.py --project /path/to/教材
 
 # JSON 格式查看详情
 python3 scripts/quality_audit.py --project /path/to/教材 --json | python3 -c "import sys,json; d=json.load(sys.stdin); [print(f\"第{r['chapter']}章: {r.get('mermaid_issues',[])}\") for r in d if r.get('mermaid_issues')]"
+
+# 手动检查 emoji（无审计工具时）
+grep -n '🔄\|⚠️\|🚫\|📋\|⭐' output/第*.md
 ```

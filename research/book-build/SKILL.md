@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交。提供写作大纲解析、内容差距分析、P0/P1 分阶段补充、公式编号批量修复、全章质量审计等工具。适用场景：基于多本参考书进行的中文专业教材（特别是电磁兼容/EMC领域）的结构化编写。"
-version: 3.2.0
+version: 3.3.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -95,9 +95,16 @@ python3 scripts/setup_project.py /path/to/教材 \
 
 从提纲 docx 解析章节结构，创建 `output/写作大纲/writing-guide-chX.md`，包含全部 15 个板块的空白模板。同时输出 `output/outline_tasks.json` 供第二阶段使用。
 
-**第二阶段：Agent 填充完整内容**
+**第二阶段：Agent 填充完整内容**（⚠️ 关键：必须用模板结构，不得自创格式）
 
-读取 `output/outline_tasks.json`，对每个 `pending` 任务执行 `delegate_task`。**每一章的填充是一个独立委托任务**，因为各章参考书内容不同。
+读取 `output/outline_tasks.json`，对每个 `pending` 任务执行 `delegate_task`。Agent 填充时 **必须使用脚本生成的模板结构**，不得创建自己的格式。以下为填充要求：
+
+- ✅ **在现有模板的每个板块中填充内容**，不删减已有板块
+- ✅ **保留模板的标题层级和表格格式**
+- ❌ 不要创建诸如 `# 第X章 标题 — 写作大纲` 的自定义格式
+- ❌ 不要跳过 `格式规范`、`各教材章节对应关系`、`写作手法对比表` 等分析板块
+
+每一章的填充是一个独立委托任务，因为各章参考书内容不同。
 
 Agent 需填充全部 15 个板块，重点关注**每节写作指南**（写作手法/必含要素/设问过渡/案例建议）。填充标准见本章**写作大纲标准**节。
 
@@ -325,10 +332,13 @@ Agent 为每节填充 4 个维度：
 4. **先读后写** — 永远 `read()` 再 `write()`，绝不先写后读
 5. **Mermaid 圆边节点** — `[("text")]`（对）而非 `[("text)"]`（错）
 6. **Mermaid 禁止 emoji** — 节点标签中的 `🔄⚠️🚫📋⭐` 等 emoji 导致渲染器解析失败，用纯文字替代（已在 `references/mermaid-compatibility-guide.md` 中详细说明可用/禁用语法）
-7. **Mermaid subgraph 内 direction** — subgraph 内使用 `direction TB/LR` 可能引发渲染问题
-8. **Mermaid timeline 中文书名号** — timeline 内容中避免使用 `《》`，可能导致渲染中断
-9. **写作说明不写入正文** — 军规检查/核心公式总结是内部工具，不得写入章节文件
-10. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
+7. **Mermaid `<br>` 非 `\n`** — 节点换行用 `<br>`，`\n` 在 Mermaid 中无效
+8. **Mermaid subgraph 内 direction** — subgraph 内使用 direction TB/LR 可能引发渲染问题
+9. **Mermaid timeline 中文书名号** — timeline 内容中避免使用书名号，可能导致渲染中断
+10. **Mermaid ---config--- 语法** — 部分渲染器不支持，改用 %%{init}%%
+11. **写作说明不写入正文** — 军规检查/核心公式总结是内部工具，不得写入章节文件
+12. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
+13. **写作大纲必须用模板结构** — Agent 填充大纲时必须在现有模板板块中填充，不得创建自定义格式
 
 ## Reference Index
 

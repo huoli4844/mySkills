@@ -103,38 +103,82 @@ class Config:
 
     @staticmethod
     def setup(project_root: str, config_template: Optional[str] = None):
-        """初始化项目：创建目录 + 复制 book-build.yaml 模板。
+        """初始化项目：补齐缺失的目录和配置文件，绝不删除已有内容。
 
-        参数:
-            project_root: 项目根路径
-            config_template: 可选的配置模板路径（默认用技能内置模板）
+        行为：
+        - 如果 project_root 不存在 → 创建
+        - 如果 book-build.yaml 不存在 → 从模板复制
+        - 如果 input/ output/ 等目录不存在 → 创建
+        - 如果已有章节文件/子目录 → 保留不动
         """
+        existed_root = os.path.exists(project_root)
         os.makedirs(project_root, exist_ok=True)
-        project_config = os.path.join(project_root, "book-build.yaml")
 
+        # ── 盘点已有内容 ──
+        existing_dirs = set()
+        existing_files = set()
+        if existed_root:
+            for entry in os.listdir(project_root):
+                full = os.path.join(project_root, entry)
+                if os.path.isdir(full) and not entry.startswith("."):
+                    existing_dirs.add(entry)
+                elif os.path.isfile(full):
+                    existing_files.add(entry)
+
+        # ── book-build.yaml ──
+        project_config = os.path.join(project_root, "book-build.yaml")
         if not os.path.exists(project_config):
             if config_template and os.path.exists(config_template):
                 shutil.copy2(config_template, project_config)
             else:
-                # 用技能内置模板
                 default_template = os.path.join(
                     _get_skill_dir(), "templates", "project-config-template.yaml"
                 )
                 if os.path.exists(default_template):
                     shutil.copy2(default_template, project_config)
-            print(f"✅ 已创建项目配置: {project_config}")
+            print(f"➕ book-build.yaml → 已创建")
         else:
-            print(f"ℹ️  项目配置已存在: {project_config}")
+            print(f"✓ book-build.yaml → 已存在（保留）")
 
-        # 创建目录结构
-        cfg = Config(project_root=project_root)
-        cfg._ensure_project_dirs()
-        print(f"✅ 已创建目录结构:")
-        print(f"   {cfg.input_dir}")
-        print(f"   {cfg.output_dir}")
-        for d in [cfg.writing_guide_dir, cfg.cases_dir,
-                  cfg.experiments_dir, cfg.exercise_dir]:
-            print(f"   {d}/")
+        # ── input/ 目录 ──
+        input_path = os.path.join(project_root, "input")
+        if not os.path.exists(input_path):
+            os.makedirs(input_path, exist_ok=True)
+            print(f"➕ input/ → 已创建")
+        else:
+            input_files = [f for f in os.listdir(input_path)
+                           if os.path.isfile(os.path.join(input_path, f))
+                           and not f.startswith(".")]
+            if input_files:
+                print(f"✓ input/ → 已存在（含 {len(input_files)} 个文件，保留）")
+            else:
+                print(f"✓ input/ → 已存在（空目录）")
+
+        # ── output/ 及子目录 ──
+        for subdir_name in ["写作大纲", "案例", "实验", "习题解答"]:
+            sub_path = os.path.join(project_root, "output", subdir_name)
+            if not os.path.exists(sub_path):
+                os.makedirs(sub_path, exist_ok=True)
+                print(f"➕ output/{subdir_name}/ → 已创建")
+            else:
+                contents = [f for f in os.listdir(sub_path)
+                            if not f.startswith(".")]
+                if contents:
+                    print(f"✓ output/{subdir_name}/ → 已存在（含 {len(contents)} 项，保留）")
+                else:
+                    print(f"✓ output/{subdir_name}/ → 已存在（空目录）")
+
+        # output/ 本身
+        output_path = os.path.join(project_root, "output")
+        if not os.path.exists(output_path):
+            os.makedirs(output_path, exist_ok=True)
+
+        # ── 总结 ──
+        files_in_root = len([f for f in os.listdir(project_root)
+                             if os.path.isfile(os.path.join(project_root, f))
+                             and not f.startswith(".")])
+        if files_in_root > 1:  # 超过 book-build.yaml
+            print(f"\nℹ️  根目录含 {files_in_root-1} 个已有文件，全部保留")
 
     # ── 合并工具 ──
 

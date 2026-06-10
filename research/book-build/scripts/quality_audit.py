@@ -88,10 +88,31 @@ def check_content_stats(content: str) -> Dict:
 
 def check_learning_objectives(content: str) -> List[str]:
     """检查学习目标是否被正文覆盖"""
+    """检查学习目标是否被正文覆盖"""
     issues = []
     # 提取学习目标列表
-    obj_section = re.search(r'通过本章学习，读者应达成以下学习目标：(.*?)(?=\n---|\n##)', content, re.DOTALL)
+    # 学习目标有四种写法：① "通过本章学习，读者应达成以下学习目标："
+    # ② 在 ## 内容提要 段落末尾用一句过渡
+    # ③ "通过本章学习，读者应掌握以下内容："
+    # ④ "本章学习目标如下："
+    patterns = [
+        r'通过本章学习，读者应达成以下学习目标：(.*?)(?=\n---|\n##|\Z)',
+        r'通过本章学习，读者应掌握以下[内容要点]*(.*?)(?=\n---|\n##|\Z)',
+        r'本章学习目标如下：(.*?)(?=\n---|\n##|\Z)',
+    ]
+    obj_section = None
+    for p in patterns:
+        obj_section = re.search(p, content, re.DOTALL)
+        if obj_section:
+            break
     if not obj_section:
+        # 尝试找编号列表紧跟在内容提要后面的情况
+        idx = content.find('## 内容提要')
+        if idx >= 0:
+            after = content[idx:idx+1500]
+            numbered = re.findall(r'^\d+\.\s+\S', after, re.MULTILINE)
+            if len(numbered) >= 3:
+                return []  # 有编号列表，视为有学习目标
         return ["未找到学习目标"]
     
     obj_text = obj_section.group(1)

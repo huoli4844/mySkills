@@ -1,0 +1,42 @@
+# =============================================================================
+# book-build 项目配置
+# 把此文件放到教材项目根目录（如 ~/Desktop/查老师教材/book-build.yaml），
+# book-build 会在此目录下自动创建 input/ output/ 及子目录。
+# =============================================================================
+
+# --- 教材信息 ---
+textbook:
+  name: "查老师教材"                          # 教材名称/项目名
+  outline_file: "教材提纲.docx"               # 大纲文件名（放在 input/ 下）
+
+# --- 参考教材配置 ---
+# 按 priority 排序，数字越小优先级越高（最详尽的设为 1）
+source_books:
+  - display_name: "工程电磁兼容（第3版）"
+    author: "路宏敏"
+    priority: 1
+    path: "/Users/huoli4844/Desktop/电磁兼容/处理后/工程电磁兼容第3版_路宏敏/优先级1-十二五规划教材_工程电磁兼容第3版_路宏敏.md"
+    path_processed: "/Users/huoli4844/Desktop/电磁兼容/处理后/工程电磁兼容第3版_路宏敏/"
+
+  - display_name: "电磁兼容EMC技术及应用实例详解"
+    author: "张亮"
+    priority: 2
+    path: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC技术及应用实例详解_张亮/优先级2-电磁兼容EMC技术及应用实例详解-张亮.md"
+    path_processed: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC技术及应用实例详解_张亮/"
+
+  - display_name: "电磁兼容原理、技术及应用（第2版）"
+    author: "梁振光"
+    priority: 4
+    path: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容原理技术及应用第2版_梁振光/优先级4-十三五_电磁兼容原理技术及应用第2版_梁振光.md"
+    path_processed: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容原理技术及应用第2版_梁振光/"
+
+# --- 知识库路径（可选） ---
+# knowledge_base:
+#   processed_dir: "/path/to/processed/"
+#   raw_dir: "/path/to/raw/"
+#   domain_dir: "/path/to/domain/"
+
+# --- 覆盖技能默认工作流设置（可选）---
+# workflow:
+#   default_mode: "fast"
+#   phase_0_5_auto: true

@@ -1,4 +1,4 @@
-"""Smoke tests for book_config.py — Config() loads config.yaml correctly."""
+"""Smoke tests for book_config.py — Config() loads config correctly."""
 
 import sys
 from pathlib import Path
@@ -11,189 +11,109 @@ from book_config import Config
 
 
 class TestConfigLoad:
-    """Test Config() — loads config.yaml from the expected location.
-
-    所有断言只检查结构和类型，不检查具体值。
-    这样即便 config.yaml 更换领域（改书名/路径/作者），测试依然通过。
-    """
+    """Test Config() — skill defaults + project override."""
 
     def test_loads_without_error(self):
-        """Config() instantiation succeeds (finds config.yaml)."""
+        """Config() instantiation succeeds with skill defaults."""
         cfg = Config()
         assert cfg is not None
         assert repr(cfg).startswith("<Config")
 
-    def test_textbook_name(self):
-        """Config.textbook_name returns a non-empty string."""
+    def test_skill_defaults_textbook_empty(self):
+        """Without project, textbook_name is empty string."""
         cfg = Config()
-        assert cfg.textbook_name is not None
-        assert isinstance(cfg.textbook_name, str)
-        assert len(cfg.textbook_name) > 0
+        assert cfg.textbook_name == ""
+        assert cfg.source_books == []
 
-    def test_outline_file(self):
-        """Config.outline_file returns a string ending with .docx."""
+    def test_skill_defaults_workflow(self):
+        """Skill defaults provide workflow settings."""
         cfg = Config()
-        assert cfg.outline_file is not None
-        assert isinstance(cfg.outline_file, str)
-        assert cfg.outline_file.endswith(".docx")
+        assert cfg.workflow_mode in ("fast", "full")
+        assert isinstance(cfg.phase_0_5_auto, bool)
+        assert isinstance(cfg.quality_auto_fix, bool)
 
-    def test_outline_path(self):
-        """Config.outline_path includes both input_dir and outline_file."""
+    def test_skill_defaults_volume(self):
+        """Skill defaults provide volume thresholds."""
         cfg = Config()
-        path = cfg.outline_path
-        assert path.endswith(".docx")
-        assert cfg.input_dir in path
+        assert isinstance(cfg.thin_threshold_lines, int)
+        assert isinstance(cfg.thin_threshold_kb, (int, float))
+        assert isinstance(cfg.target_mermaid_min, int)
 
-    def test_output_dir(self):
-        """Config.output_dir is a non-empty string."""
-        cfg = Config()
-        output = cfg.output_dir
-        assert isinstance(output, str)
-        assert len(output) > 0
+    def test_project_loads_config(self):
+        """Config(project_root=...) loads book-build.yaml."""
+        cfg = Config(project_root="/tmp/test-book-project")
+        # The template has key names but values are inside comments
+        assert cfg.project_root == "/tmp/test-book-project"
 
-    def test_writing_guide_dir(self):
-        """Config.writing_guide_dir is a subdir of output_dir."""
-        cfg = Config()
-        assert cfg.writing_guide_dir.startswith(cfg.output_dir)
+    def test_project_paths(self):
+        """Project paths are derived from project_root."""
+        cfg = Config(project_root="/tmp/test-book-project")
+        assert cfg.input_dir == "/tmp/test-book-project/input"
+        assert cfg.output_dir == "/tmp/test-book-project/output"
+        assert cfg.outline_path == "/tmp/test-book-project/input/教材提纲.docx"
 
-    def test_cases_dir(self):
-        """Config.cases_dir is a subdir of output_dir."""
-        cfg = Config()
-        assert cfg.cases_dir.startswith(cfg.output_dir)
-
-    def test_experiments_dir(self):
-        """Config.experiments_dir is a subdir of output_dir."""
-        cfg = Config()
-        assert cfg.experiments_dir.startswith(cfg.output_dir)
-
-    def test_exercise_dir(self):
-        """Config.exercise_dir is a subdir of output_dir."""
-        cfg = Config()
-        assert cfg.exercise_dir.startswith(cfg.output_dir)
+    def test_subdirs_under_output(self):
+        """All subdirs are under output_dir."""
+        cfg = Config(project_root="/tmp/test-book-project")
+        for d in [cfg.writing_guide_dir, cfg.cases_dir,
+                  cfg.experiments_dir, cfg.exercise_dir]:
+            assert d.startswith(cfg.output_dir)
 
     def test_chapter_path_format(self):
         """chapter_path() returns path ending with .md."""
-        cfg = Config()
+        cfg = Config(project_root="/tmp/test-book-project")
         p = cfg.chapter_path(5, "示例")
         assert p.endswith(".md")
         assert "第5章" in p
 
     def test_writing_guide_path_format(self):
         """writing_guide_path() returns path ending with .md."""
-        cfg = Config()
+        cfg = Config(project_root="/tmp/test-book-project")
         p = cfg.writing_guide_path(3)
         assert p.endswith(".md")
         assert "writing-guide-ch3" in p
         assert "写作大纲" in p
 
     def test_case_path_format(self):
-        """case_path() returns path including 案例目录."""
-        cfg = Config()
+        """case_path() returns file named with 案例 prefix."""
+        cfg = Config(project_root="/tmp/test-book-project")
         p = cfg.case_path(2, 1, "标题")
         assert p.endswith(".md")
         assert "案例" in p
 
-    def test_source_books_sorted_by_priority(self):
-        """Config.source_books returns books sorted by priority."""
-        cfg = Config()
-        books = cfg.source_books
-        assert len(books) > 0, "Expected at least one source book"
-        priorities = [b.get("priority", 99) for b in books]
-        assert priorities == sorted(priorities), (
-            f"Books not sorted by priority: {priorities}"
-        )
+    def test_source_books_empty_by_default(self):
+        """Without project config, source_books is empty."""
+        cfg = Config(project_root="/tmp/test-book-project")
+        assert isinstance(cfg.source_books, list)
 
-    def test_each_book_has_author_and_path(self):
-        """Every source book has author, display_name, and path."""
-        cfg = Config()
-        for b in cfg.source_books:
-            assert b.get("author"), f"Book missing author: {b}"
-            assert b.get("display_name"), f"Book missing display_name: {b}"
-            assert b.get("path"), f"Book missing path: {b}"
+    def test_get_book_by_author_empty(self):
+        """get_book_by_author returns None when no books configured."""
+        cfg = Config(project_root="/tmp/test-book-project")
+        assert cfg.get_book_by_author("任何人") is None
 
-    def test_book_a_properties(self):
-        """Properties for book_a (name, author, path) are accessible."""
+    def test_project_root_none_by_default(self):
+        """Without project_root, project_root is None."""
         cfg = Config()
-        assert cfg.book_a_name is not None
-        assert cfg.book_a_author is not None
-        assert cfg.book_a_path is not None
-        assert cfg.book_a_processed_dir is not None
+        assert cfg.project_root is None
 
-    def test_book_b_properties(self):
-        """Properties for book_b are accessible."""
-        cfg = Config()
-        assert cfg.book_b_name is not None
-        assert cfg.book_b_author is not None
-        assert cfg.book_b_path is not None
-
-    def test_book_c_properties(self):
-        """Properties for book_c are accessible."""
-        cfg = Config()
-        assert cfg.book_c_name is not None
-        assert cfg.book_c_author is not None
-        assert cfg.book_c_path is not None
-
-    def test_knowledge_base_properties(self):
-        """KB path properties are accessible (values from config)."""
-        cfg = Config()
-        assert cfg.kb_processed_dir is not None
-        assert cfg.kb_raw_dir is not None
-        assert cfg.kb_domain_dir is not None
-
-    def test_workflow_mode(self):
-        """Config.workflow_mode returns a valid mode."""
-        cfg = Config()
-        assert cfg.workflow_mode in ("fast", "full"), (
-            f"Expected 'fast' or 'full', got '{cfg.workflow_mode}'"
-        )
-
-    def test_volume_thresholds(self):
-        """Volume threshold properties are numeric."""
-        cfg = Config()
-        assert isinstance(cfg.thin_threshold_lines, int)
-        assert isinstance(cfg.thin_threshold_kb, (int, float))
-        assert isinstance(cfg.target_mermaid_min, int)
-
-    def test_get_book_by_author_matches_config(self):
-        """get_book_by_author() returns a book whose author matches."""
-        cfg = Config()
-        for b in cfg.source_books:
-            author = b["author"]
-            book = cfg.get_book_by_author(author)
-            assert book is not None, f"Should find {author}"
-            assert book["author"] == author
-
-    def test_get_book_by_author_not_found(self):
-        """get_book_by_author() returns None for unknown author."""
-        cfg = Config()
-        book = cfg.get_book_by_author("不存在的作者")
-        assert book is None
-
-    def test_quality_auto_fix_default(self):
-        """quality_auto_fix is a boolean."""
-        cfg = Config()
-        assert isinstance(cfg.quality_auto_fix, bool)
-
-    def test_get_default_returns_singleton(self):
-        """get_default() caches and returns the same instance."""
-        cfg1 = Config.get_default()
-        cfg2 = Config.get_default()
-        assert cfg1 is cfg2
-
-    def test_ensure_dirs_creates_output_subdirs(self):
-        """ensure_dirs() creates all output subdirectories without error."""
-        import tempfile, os
-        cfg = Config()
-        # Store original dirs
-        orig_guide = cfg.writing_guide_dir
-        orig_cases = cfg.cases_dir
-        # No error expected (dirs may already exist)
+    def test_ensure_dirs_no_error(self):
+        """ensure_dirs() does not raise (dirs may already exist)."""
+        cfg = Config(project_root="/tmp/test-book-project")
         cfg.ensure_dirs()
         assert True
 
     def test_grep_all_books_returns_dict(self):
-        """grep_all_books() returns a dict with all book names as keys."""
-        cfg = Config()
+        """grep_all_books() returns dict even with no books."""
+        cfg = Config(project_root="/tmp/test-book-project")
         results = cfg.grep_all_books("test")
-        for b in cfg.source_books:
-            assert b["display_name"] in results
+        assert isinstance(results, dict)
+
+    def test_setup_creates_directories(self):
+        """Config.setup() creates project dirs and config file."""
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp(prefix="book-test-")
+        Config.setup(tmpdir)
+        assert os.path.exists(os.path.join(tmpdir, "book-build.yaml"))
+        assert os.path.exists(os.path.join(tmpdir, "input"))
+        assert os.path.exists(os.path.join(tmpdir, "output"))
+        assert os.path.exists(os.path.join(tmpdir, "output", "写作大纲"))

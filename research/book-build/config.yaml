@@ -1,65 +1,21 @@
 # =============================================================================
-# book-build 领域配置
-# 所有领域特有参数在此集中管理，技能 SKILL.md 和 references/ 中引用时
-# 通过脚本 scripts/book_config.py 加载，而不是硬编码路径/名称。
+# book-build 技能默认配置
+# 此文件定义技能级默认值。项目级配置在 project/ 下的 book-build.yaml 中。
+# book_config.py 会先加载本文件，再用项目配置覆盖。
 # =============================================================================
-
-# --- 教材信息 ---
-textbook:
-  name: "查老师教材"                          # 教材名称/项目名
-  outline_file: "教材提纲.docx"               # 大纲文件名（存放在 input/ 下）
-
-# --- 项目目录结构 ---
-project:
-  root: "/Users/huoli4844/Desktop/查老师教材"
-  input_dir: "/Users/huoli4844/Desktop/查老师教材/input"
-  output_dir: "/Users/huoli4844/Desktop/查老师教材/output"
-  subdirs:
-    writing_guide: "写作大纲"                  # 写作指导文件
-    cases: "案例"                              # 案例文件
-    experiments: "实验"                        # 实验文件
-    exercise_solutions: "习题解答"             # 习题解答（全书完成后处理）
-
-# --- 参考教材（三书）配置 ---
-source_books:
-  book_a:
-    display_name: "工程电磁兼容（第3版）"
-    author: "路宏敏"
-    priority: 1
-    role: "主骨架 — 公式最全、结构最完整、有定量推导例"
-    path: "/Users/huoli4844/Desktop/电磁兼容/处理后/工程电磁兼容第3版_路宏敏/优先级1-十二五规划教材_工程电磁兼容第3版_路宏敏.md"
-    path_processed: "/Users/huoli4844/Desktop/电磁兼容/处理后/工程电磁兼容第3版_路宏敏/"
-    kb_path: "/Users/huoli4844/Desktop/电磁兼容知识库/raw/工程电磁兼容第3版_路宏敏/"
-
-  book_b:
-    display_name: "电磁兼容EMC技术及应用实例详解"
-    author: "张亮"
-    priority: 2
-    role: "补充 — 工程案例多、实用性最强、有实际测量数据"
-    path: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC技术及应用实例详解_张亮/优先级2-电磁兼容EMC技术及应用实例详解-张亮.md"
-    path_processed: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容EMC技术及应用实例详解_张亮/"
-    kb_path: "/Users/huoli4844/Desktop/电磁兼容知识库/raw/电磁兼容EMC技术及应用实例详解_张亮/"
-
-  book_c:
-    display_name: "电磁兼容原理、技术及应用（第2版）"
-    author: "梁振光"
-    priority: 4
-    role: "辅助 — 多标准并列定义、概念对比表、教学门槛低"
-    path: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容原理技术及应用第2版_梁振光/优先级4-十三五_电磁兼容原理技术及应用第2版_梁振光.md"
-    path_processed: "/Users/huoli4844/Desktop/电磁兼容/处理后/电磁兼容原理技术及应用第2版_梁振光/"
-    kb_path: "/Users/huoli4844/Desktop/电磁兼容知识库/raw/电磁兼容原理技术及应用第2版_梁振光/"
-
-# --- 知识库路径 ---
-knowledge_base:
-  processed_dir: "/Users/huoli4844/Desktop/电磁兼容/处理后/"
-  raw_dir: "/Users/huoli4844/Desktop/电磁兼容知识库/"
-  domain_dir: "/Users/huoli4844/Desktop/电磁兼容知识库/电磁兼容领域/"
 
 # --- 工作流模式 ---
 workflow:
   default_mode: "fast"               # "fast" 或 "full"
   phase_0_5_auto: true               # true = 跳过用户确认直接动笔
   quality_auto_fix: true             # true = 质量检查自动修复
+
+# --- 默认输出子目录结构（用户可在项目 book-build.yaml 覆盖） ---
+subdirs:
+  writing_guide: "写作大纲"
+  cases: "案例"
+  experiments: "实验"
+  exercise_solutions: "习题解答"
 
 # --- 体量基准 ---
 volume:

@@ -19,7 +19,25 @@ metadata:
 
 **专业教材 = 权威定义 + 直观引入 + 编号公式 + "式中"变量解释 + 含数字实例 + 层次化习题。**
 
-## When to Use
+## Setup（首次使用）
+
+```bash
+# 1. 创建项目目录
+mkdir ~/Desktop/我的教材
+
+# 2. 初始化项目（创建 book-build.yaml + input/ + output/ 及子目录）
+python3 scripts/book_config.py --project ~/Desktop/我的教材 --setup
+
+# 3. 编辑项目配置
+#    vim ~/Desktop/我的教材/book-build.yaml
+#    填入教材名、参考教材路径等
+
+# 4. 把提纲文件放入 input/
+#    cp 教材提纲.docx ~/Desktop/我的教材/input/
+
+# 5. 启动写作
+#    每次加载项目: cfg = Config(project_root="~/Desktop/我的教材")
+```
 
 - 用户提供教材大纲（.docx / .md / 纯文本），要求按大纲逐章编写
 - 用户指定一个 domain-wiki 格式的知识库目录作为内容来源
@@ -43,7 +61,17 @@ metadata:
 - **`fast`**（默认）：Phase 0（大纲解析）→ Phase 3（写作）→ Phase 4.5（质量检查）→ Phase 6（提交）。跳过教材研读（Phase 0.5）和内容差距分析（Phase 0.6）。
 - **`full`**：保留完整的 11 Phase 管线。每章写前必须执行教材研读，写完后执行完整审计。
 
-**领域参数**：所有领域特有路径/名称在 `config.yaml` 集中管理。`scripts/book_config.py` 统一加载，脚本中不再硬编码。
+**配置层次**（双层覆盖）：
+- **技能默认值**：`~/.hermes/skills/research/book-build/config.yaml`（工作流/体量/子目录模板）
+- **项目配置**：`{project_root}/book-build.yaml`（教材名/参考教材路径/知识库路径）
+- 项目配置覆盖技能默认值。`scripts/book_config.py(project_root=...)` 自动合并。
+
+**零硬编码设计原则（冰点法则）**：
+1. **不写路径** — 所有路径从 `config.yaml` → `book_config.py` 动态读取
+2. **不写数量** — 不假设 `source_books` 有几本、`subdirs` 有几个。所有代码/文档/测试通过 `len(c.source_books)` 或遍历动态适配
+3. **不写具体值到文档** — reference 文件和 SKILL.md 正文只讲方法论。示例用 `{book_a_author}` 等占位符，不出现领域特有术语
+4. **不写具体值到测试** — 测试只断言结构（`isinstance`/`endswith`/`is not None`），不断言 config.yaml 中定义的具体文本/路径/数字
+5. **不写领域词到通用方法** — 方法名和文档用"参考教材"而非"三书/路宏敏"
 
 **项目目录结构**（config.yaml → project）：
 ```
@@ -142,21 +170,21 @@ for b in c.source_books:
 
 从8个维度对比：章首引入 / 概念定义深度 / 公式数量与使用 / 案例类型 / 表格使用 / 历史叙事 / 工程实用导向 / 独特亮点。
 
-**各教材对标分析表**（推荐格式——量化可用素材）：
+**各教材对标分析表**（推荐格式——量化可用素材，列数 = 实际配置的教材数）：
 
-| 维度 | 书A（如柯金良第X章） | 书B（如路宏敏第X章） | 本教材定位 |
-|:----|:-------------------|:-------------------|:----------|
-| **核心内容** | 一句话概括该章 | 一句话概括该章 | 融合两者+大纲 |
-| **结构优势** | A独有的组织方式 | B独有的组织方式 | 以A为主干+B补充 |
-| **体量对标** | XX KB | XX KB | 目标XX~XX KB |
+| 维度 | 教材1 | 教材2 | ... | 本教材定位 |
+|:----|:------|:------|:---|:----------|
+| **核心内容** | 概括 | 概括 | | 融合+大纲 |
+| **结构优势** | 独有的组织方式 | 独有的组织方式 | | 主骨架+补充 |
+| **体量对标** | XX KB | XX KB | | 目标XX KB |
 
-**各教材定位**（Role Assignment）：
+**各教材定位**（Role Assignment —— 行数 = 实际配置的教材数）：
 
-| 书 | 角色 | 对应教材节段 |
-|:---|:-----|:------------|
-| 书A | **主骨架** | §X.X~§X.X（理论/概念部分） |
-| 书B | **补充**/细节 | §X.X（扩展/案例/软件部分） |
-| 书C | **辅助**/交叉参考 | §X.X（边缘/关联部分） |
+| 教材 | 角色 | 对应教材节段 |
+|:----|:-----|:------------|
+| （按 priority 最高者） | **主骨架** | §X.X~§X.X（理论/概念部分） |
+| （次高者） | **补充**/细节 | §X.X（扩展/案例/软件部分） |
+| （其余） | **辅助**/交叉参考 | §X.X（边缘/关联部分） |
 
 这个对标分析表直接决定每节的素材来源分配——主骨架书提供70%以上基础内容，补充书提供案例/扩展内容。
 
@@ -487,6 +515,8 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 
 25. **子代理不写公式的$$包装** → `delegate_task` 的子代理经常把显示公式写成纯文本 LaTeX。策略：子代理 context 中必须显式包含约束。如果文件已写完发现公式缺 `$$`，需手动补 `$$` 包裹。
 
+26. **配置数量假设** → 不要假设 `source_books` 一定有 3 本、`subdirs` 一定有某个子目录。所有遍历用 `c.source_books` 动态迭代，文档/表格中不出现"书A/书B/书C"固定角色名，测试不断言 `len >= 3`。
+
 ## Reference Index
 
 | 需要时加载 | 内容 |
@@ -505,6 +535,6 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 | `references/mermaid-troubleshooting.md` | **Mermaid错误排查速查表（Obsidian版）** — 错误信号→根因→修复方案 |
 | `references/pitfalls.md` | 完整陷阱列表（35+条） |
 | `references/changelog.md` | 版本更新历史 |
-| `references/source-books-locations.md` | **参考教材源文件路径 + 各书对照表** |
+| `references/source-books-locations.md` | 参考教材源文件路径与搜索方法 |
 | `references/six-dimension-audit.md` | **六维编号审计脚本 + 常见失败场景 + 链路风暴修复** |
 | `references/kb-enrichment-workflow.md` | **KB素材扩展工作流** — 写作前多轮搜索KB获取素材，含Ch9实案例 |

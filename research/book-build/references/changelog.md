@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 2.5.1 (2026-06-10)
+- **新增4条Pitfall** (#36-#39)：`\rightarrow`→`\right`子串误报、`%%{init}`图表类型误识别、`clean_formula_numbers.py`跳过inline $$、子代理公式缺$$包裹
+- **增强case-writing-template.md**：公式编号跨文件偏移计算+多案例批量修复流程+子代理context约束模板(10条铁律)
+- **实战验证**：批量重写11个EMC案例（16,271行/698公式/43图），全部通过质量检查
+
+## 2.5.0 (2026-06-10)
+- **新增 `check_tag_placement()`**：检测 `\tag{}` 在 `$$` 块外部（孤立标签），杜绝渲染失败
+- **SKILL.md**：新增 pitfall #24（子代理写出的 \\tag{} 在 $$ 块外部）和 #25（子代理不写公式的 $$ 包装）
+- **新增 `references/case-writing-template.md`**：8大模块案例编写模板（命名规范/公式要求/Mermaid规范/质量审查流程）
+- **更新质量审查管线为8项**：公式→Mermaid(7项)→Wikilink→\\tag{}放置→拼写→自动修复→统计
+
 ## 2.3.0 (2026-06-10)
 - **Mermaid语法校验全面升级**：`post_generation_check.py` 检查 Mermaid 图内语法而非仅检查闭合标签
 - **新增6项Mermaid检查**：图表类型合法性、xychart-beta关键字白名单（`block_lines[1:]`首行跳过防误报）、flowchart节点引号要求、emoji禁令、`%%{init}`格式规范、classDef定义覆盖

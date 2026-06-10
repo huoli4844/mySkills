@@ -72,6 +72,7 @@ Phase 4:   格式输出 → .md 或 .docx
 Phase 4.5: 清理临时文件 + 图号核验 + 公式全编号检查
 Phase 5:   质量核验 → 6要素 + 13维度自审
 Phase 6:   版本提交 → git 每个功能单独commit
+Phase 7:   案例/实验扩展 — 按模板用delegate_task并行重写，写完后clean→renumber→audit三步修复
 ```
 
 **Phase 0：大纲解析**
@@ -408,8 +409,8 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 
 实验证明（第8章实战）：delegate_task 写入的教材正文不包含`\tag{}`公式编号、不包含`*图N-X：`图注、不遵循`**例N-X**`格式。subagent无法继承当前会话的写作风格约定。因此：
 - 教材正文必须由主Agent直接编写（write_file / patch）
-- subagent只能用于：研读三书并输出摘要、收集素材、生成对比表、运行审计脚本
-- 如果确实需要subagent写大批内容，必须在context中**显式包含**以下格式约束：
+- subagent只能用于：研读三书并输出摘要、收集素材、生成对比表、运行审计脚本、按模板扩展案例/实验文件
+- 如果确实需要subagent写大批内容（如案例/实验），必须在context中**显式包含**以下格式约束：
   ```
   约束1: 每个$$显示公式后立即加独占一行的\tag{8-N}
   约束2: 每个Mermaid块后立即加*图8-N：描述*
@@ -490,7 +491,9 @@ print(f'✅ Tags sequential {N}-1~{N}-{len(tags)}' if ok else '❌ FAIL')
 
 | 需要时加载 | 内容 |
 |:-----------|:------|
-| `references/case-writing-template.md` | **8大模块案例编写模板** — 工程背景→测试诊断→根因分析(6步推导)→方案设计→验证→经验→拓展→思考题 |\n| `references/volume-standards.md` | **体量铁律 + 13条军规逐项勾选清单 + 公式全编号检查** |
+| `references/case-writing-template.md` | **8大模块案例编写模板** — 工程背景→测试诊断→根因分析(6步推导)→方案设计→验证→经验→拓展→思考题 |
+| `references/experiment-writing-standard.md` | **实验编写标准（8章节高质量实验指导书）** — 目的→原理→设备→步骤→数据→分析→思考→注意事项 |
+| `references/volume-standards.md` | **体量铁律 + 13条军规逐项勾选清单 + 公式全编号检查** |
 | `references/chapter-writing-standard.md` | **三书融合写作法 + 章首/正文/章末完整模板** |
 | `references/chapter-writing-workflow.md` | **Phase 0.5 四步研读流程**（必读） |
 | `references/textbook-style-guide.md` | 教材学术叙事风格指南（三本已出版教材分析） |

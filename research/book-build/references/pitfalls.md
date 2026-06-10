@@ -42,4 +42,8 @@
 | 32 | **Mermaid mindmap 崩溃** | >100节点或含emoji导致Obsidian渲染崩溃 | ≤30节点，不用emoji |
 | 33 | **``{init}` JSON 语法** | 单引号或缺失闭合 `%%` 导致Error | 双引号JSON+闭合`%%` |
 | 34 | **YAML 多行 Mermaid** | `\n`转义在yaml.safe_load中不识别 | 用 `|` block scalar |
-| 35 | **公式 \left/\right 不匹配** | `\left(` 无 `\right)` → 渲染失败 | 每个 `\left` 必须配对 `\right` |
+| 35 | **公式 \\left/\\right 不匹配** | `\\left(` 无 `\\right)` → 渲染失败 | 每个 `\\left` 必须配对 `\\right` |
+| 36 | **`\\rightarrow` 含 `\\right` 子串导致误报** | 检查器用 `count('\\\\right')` 在 `\\rightarrow` 中匹配到 `\\right` → 误报 \"\\left(0)与\\right(1)不匹配\" | 检查器必须用正则 `r'\\\\right(?![a-zA-Z])'` 而非 `count()` |
+| 37 | **`%%{init}` 被误识别为图表类型** | Mermaid第一行为 `%%{init:...}%%` 时检查器报\"未知图表类型\" | 检查器必须跳过 `%%{init}` 行再判定类型 |
+| 38 | **`clean_formula_numbers.py` 跳过 inline $$** | 该脚本只处理 `$$...$$` 块（开闭在不同行），不处理单行 `$$inline$$` 和裸公式 | 运行前先用 `re.sub(r'\\$\\$(.+?)\\$\\$', r'\\n$$\\n\\1\\n$$\\n', text)` 转 inline 为 block 格式 |
+| 39 | **子代理写公式缺 `$$` 包裹** | `delegate_task` 子代理常把公式写成纯文本或无 `$$` 的 `\\tag{}` | context 必须显式约束\"每个独立行公式用 $$...$$ 包裹，\\\\tag{} 在 $$ 内部\"；写完后 `--fix` + `clean_formula_numbers.py` 两步修复 |

@@ -691,7 +691,9 @@ python3 -c "import re, glob; text=''.join(open(f).read() for f in glob.glob('out
 
 26. **配置数量假设** → 不要假设 `source_books` 一定有 3 本、`subdirs` 一定有某个子目录。所有遍历用 `c.source_books` 动态迭代，文档/表格中不出现"书A/书B/书C"固定角色名，测试不断言 `len >= 3`。
 
-27. **未初始化项目直接使用 Config** → 客户告知项目路径后，必须先检查 `book-build.yaml` 是否存在。不存在时调用 `Config.setup(project_root)` 自动创建目录和模板，否则 `Config(project_root=...)` 因无项目配置导致 `textbook_name=""` 和 `source_books=[]`。正确的启动流程见「Agent 启动工作流」。
+| 27 | **未初始化项目直接使用 Config** → 客户告知项目路径后，必须先检查 `book-build.yaml` 是否存在。不存在时调用 `Config.setup(project_root)` 自动创建目录和模板，否则 `Config(project_root=...)` 因无项目配置导致 `textbook_name=""` 和 `source_books=[]`。正确的启动流程见「Agent 启动工作流」。
+|
+| 28 | **`path_processed` 死字段残留在 book-build.yaml 中** → 早期版本在 `source_books` 中同时写了 `path`（指向整书 .md）和 `path_processed`（指向目录），但 `book_config.py` 的 `grep_all_books()` 只用 `path`。`path_processed` 在代码中零引用，是个死字段。| 每个 source_book 只需 `display_name`、`author`、`priority`、`path` 四个字段。移除 `path_processed`。已从 `project-config-template.yaml` 和 `chapter-writing-workflow.md` 中清除。 |
 
 28. **Mermaid emoji 污染** → `✅❌⚠️★` 等 emoji 出现在 Mermaid 节点标签中会导致 Obsidian 整图不渲染。修复运行 `python3 scripts/fix_common_issues.py output/`。
 29. **公式链无推导文字** → AI 写作的典型特征：连续 3+ 个显示公式间无任何推导叙述（"由…得""代入…"）。第4章至第14章实战中共发现 86 处此类问题，需逐处插入推导文字。自动化检查由 `fix_common_issues.py` 报告，修复用 `delegate_task` 配合上下文理解进行 LLM 辅助插入。

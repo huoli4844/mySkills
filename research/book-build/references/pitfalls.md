@@ -39,9 +39,9 @@
 
 | # | 陷阱 | 说明 | 正确做法 |
 |:-:|:-----|:-----|:---------|
-| 32 | **Mermaid mindmap 崩溃** | >100节点或含emoji导致Obsidian渲染崩溃 | ≤30节点，不用emoji |
-| 33 | **``{init}` JSON 语法** | 单引号或缺失闭合 `%%` 导致Error | 双引号JSON+闭合`%%` |
-| 34 | **YAML 多行 Mermaid** | `\n`转义在yaml.safe_load中不识别 | 用 `|` block scalar |
+| 44 | **Mermaid mindmap 崩溃** | >100节点或含emoji导致Obsidian渲染崩溃 | ≤30节点，不用emoji |
+| 45 | **``{init}` JSON 语法** | 单引号或缺失闭合 `%%` 导致Error | 双引号JSON+闭合`%%` |
+| 46 | **YAML 多行 Mermaid** | `\n`转义在yaml.safe_load中不识别 | 用 `|` block scalar |
 | 35 | **公式 \\left/\\right 不匹配** | `\\left(` 无 `\\right)` → 渲染失败 | 每个 `\\left` 必须配对 `\\right` |
 | 36 | **`\\rightarrow` 含 `\\right` 子串导致误报** | 检查器用 `count('\\\\right')` 在 `\\rightarrow` 中匹配到 `\\right` → 误报 \"\\left(0)与\\right(1)不匹配\" | 检查器必须用正则 `r'\\\\right(?![a-zA-Z])'` 而非 `count()` |
 | 37 | **`%%{init}` 被误识别为图表类型** | Mermaid第一行为 `%%{init:...}%%` 时检查器报\"未知图表类型\" | 检查器必须跳过 `%%{init}` 行再判定类型 |
@@ -50,3 +50,4 @@
 | 40 | **参考教材数量写死** | 文档/表格/测试中假设恰好3本（书A/书B/书C），但 config 可配置任意数量 | 所有遍历用 `c.source_books` 动态迭代；表格行数 = `len(c.source_books)`；避免"书A/书B/书C"或"三书"字眼 |
 | 41 | **测试断言具体配置值** | 测试中断言 `"查老师教材" in output` 或 `get_book_by_author("路宏敏")`，结果 config 换领域后测试炸了 | 测试只断言结构（`isinstance`/`endswith`/`is not None`），不断言 config.yaml 中定义的具体文本/路径/数字 |
 | 42 | **忽略项目目录初始化** | 客户给了项目路径，Agent 直接去读 `book-build.yaml`，但该文件还不存在 | 收到项目路径后先检查 `{path}/book-build.yaml` 是否存在。不存在则自动调用 `Config.setup(path)` 创建目录结构和模板 |
+| 43 | **Phase 重编号的链路风暴** | 修改 Phase 编号（如去掉小数/合并阶段）后，漏更新工作流概览块、各节标题、Design 中 fast mode 引用、闸门表、闸门Mermaid图、项目目录注释、pitfalls 自身引用等，导致文档内部矛盾 | Phase 重编号后必须用全局搜索 `Phase` 逐处核对。检查点：①工作流概览块 ②各 `**Phase N：**` 标题 ③Design fast mode 引用 ④闸门表与 Mermaid 图 ⑤项目目录注释 ⑥pitfalls 引用 ⑦Loop Engineering 理念表 |

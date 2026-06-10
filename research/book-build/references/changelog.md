@@ -1,11 +1,33 @@
 # Changelog
 
-# Changelog
+## 2.9.0 (2026-06-10)
+- **上下文预算管理层（L5）**：Design 新增第五层，每章写完后释放上下文，下一章仅加载写作指南+当前章素材+全书修正日志，防止上下文膨胀导致质量下降
+- **修正自进化机制**：新增 `book-build-corrections.yaml`，自动记录每次修正操作（含 applicable_to 适用范围字段），下一章 Phase 2 写作指南生成时自动注入修正经验。Phase 6 检查是否重犯之前修正过的问题
+- **Phase 3 并行搜索**：差距分析时用 delegate_task 并行 grep 所有参考教材，而非串行一本本读
+- **Loop Engineering 理念表扩充为 5 项**：新增「自进化 (Self-Evolution)」组件
+- **零硬编码原则新增**：`corrections.yaml` 的索引和数据获取通过 book_config.py 动态适配
 
-## 2.5.1 (2026-06-10)
-- **新增4条Pitfall** (#36-#39)：`\rightarrow`→`\right`子串误报、`%%{init}`图表类型误识别、`clean_formula_numbers.py`跳过inline $$、子代理公式缺$$包裹
-- **增强case-writing-template.md**：公式编号跨文件偏移计算+多案例批量修复流程+子代理context约束模板(10条铁律)
-- **实战验证**：批量重写11个EMC案例（16,271行/698公式/43图），全部通过质量检查
+## 2.8.0 (2026-06-10)
+- **Loop Engineering 理念框架**：从"写提示词"到"设计验收标准"，在 Design 后新增概念层说明
+- **自动反馈钩子**：每次 write_file 后自动触发 post_generation_check.py --fix，失败循环重试最多5次，不依赖 Agent 记忆
+- **硬闸门系统**：4 道强制阻断闸门（体量闸门→自动差距分析、编号审计闸门→锁定提交、Mermaid渲染闸门、差距分析循环闸门），含 Mermaid 流程图
+- **防漂移指南针机制**：每轮写作前（含中断恢复）强制重读 writing-guide-chN.md，解决长时间写作的目标漂移
+- **Phase 3 自动触发差距分析**：post_generation_check.py 自动测量体量，低于偏薄阈值自动进入差距分析循环，无需等用户反馈
+- **差距分析新增循环补充步骤（第7步）**：补充后再次测量，达标或确认内容天花板后停止
+- **Phase 编号体系重整**：Phase 0/0.5/0.6/1~2/4.5 统一映射为 Phase 1-9，43 处引用全部更新，零残留
+
+## 2.7.0 (2026-06-10)
+- **双层配置架构**: config.yaml 只存技能默认值（工作流/体量/子目录名）,
+  book-build.yaml 存项目配置（教材名/参考教材/知识库路径）
+- **project-config-template.yaml**: 新增项目配置模板文件
+- **setup() 幂等**: 先盘点已有内容，只补缺失不删已有。原样保留已有章节/案例/实验
+- **task_tracker.py**: 新增任务进度管理，在项目根目录创建 book-build-progress.yaml
+  支持 init_from_outline / mark_in_progress/completed / next_pending / 中断恢复
+- **冰点法则（零硬编码设计原则）**: 不写路径/数量/具体值到文档和测试
+- **去除"三本书"假设**: source_books 改为 list，所有文档/表格/测试动态适配
+- **去除 book_a/b/c 固定属性**: book_a_author/book_a_path 等全部移除，通过
+  source_books 列表遍历
+- **56 个测试**（16 book_config + 13 task_tracker + 27 其他），全部通过
 
 ## 2.5.0 (2026-06-10)
 - **新增 `check_tag_placement()`**：检测 `\tag{}` 在 `$$` 块外部（孤立标签），杜绝渲染失败
@@ -30,7 +52,7 @@
 - **Pitfall 10**: `\tag` 与 `$$` 边界问题——自动修复脚本可能将tag放在 $$ 外部
 - **Pitfall 11**: `clean_formula_numbers.py` 使用前必须备份
 - **Bug fix**: `_fix_missing_tag` 函数将 `\tag` 插入在 `$$` 之后而非之前，确保在公式块内部
-- **新增 `references/gap-analysis-checklist.md`** — Phase 0.6 三书内容差距分析模板
+- **新增 `references/gap-analysis-checklist.md`** — Phase 0.6 内容差距分析模板
 
 ## 2.0.0 (2026-06-09)
 - **重大重构**：SKILL.md 从 2012 行/80KB → 168 行/8.6KB（减量89%）
@@ -56,7 +78,7 @@
 
 ## 1.6.0 (2026-06-08)
 - 12条军规完整版
-- 三书融合写作法（张亮引入→梁振光结构→路宏敏细节）
+- 多教材融合写作法（张亮引入→梁振光结构→路宏敏细节）
 - 写作禁止清单
 
 ## 1.0.0 (2026-06-06)

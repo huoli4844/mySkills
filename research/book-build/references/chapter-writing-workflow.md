@@ -88,18 +88,21 @@ for b in c.source_books:
 
 当章号不匹配时的标准搜索法：
 ```bash
-# 在参考教材路径中搜索关键词
+# 在参考教材路径中搜索关键词（利用 book_config.py 的 grep_all_books）
 python3 -c "
 from book_config import Config
 c = Config()
-import subprocess, sys
+import sys
 kw = sys.argv[1] if len(sys.argv) > 1 else '关键词'
-for b in c.source_books:
-    r = subprocess.run(['grep', '-l', kw, b['path_processed'] + '*.md'],
-                       capture_output=True, text=True, timeout=10, shell=True)
-    if r.stdout.strip():
-        print(f'{b[\"author\"]}: 匹配章节→ {r.stdout.strip()}')"
-"关键词"
+hits = c.grep_all_books(kw)
+for name, lines in hits.items():
+    if lines:
+        print(f'{name}:')
+        for l in lines:
+            print(f'  {l}')
+    else:
+        print(f'{name}: （未匹配）')
+" "关键词"
 
 # 记录每本书的匹配度和参考策略
 # 格式示例：

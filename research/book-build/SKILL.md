@@ -36,6 +36,28 @@ Step 3: 编辑 book-build.yaml 填入参考教材路径
 
 完成后，Agent 即可加载项目配置开始写作：
   cfg = Config(project_root="~/Desktop/我的教材")
+
+### 任务进度自动管理
+
+每次从大纲解析出章节列表后，Agent 会在项目根目录创建 `book-build-progress.yaml`：
+
+```yaml
+chapters:
+  - number: 1
+    title: "绪论"
+    status: completed
+  - number: 2
+    title: "电磁兼容概述"
+    status: completed
+  - number: 3
+    title: "电磁骚扰源"
+    status: in_progress
+current_index: 2
+last_updated: "2026-06-10 14:30:00"
+```
+
+**中断恢复**：Agent 每次启动时检查该文件，找到 `status: pending` 的第一章继续。
+**手动查看**：`python3 scripts/task_tracker.py --project ~/Desktop/我的教材 --status`
 ```
 
 - 用户提供教材大纲（.docx / .md / 纯文本），要求按大纲逐章编写
@@ -71,6 +93,15 @@ Step 3: 编辑 book-build.yaml 填入参考教材路径
 3. **不写具体值到文档** — reference 文件和 SKILL.md 正文只讲方法论。示例用 `{book_a_author}` 等占位符，不出现领域特有术语
 4. **不写具体值到测试** — 测试只断言结构（`isinstance`/`endswith`/`is not None`），不断言 config.yaml 中定义的具体文本/路径/数字
 5. **不写领域词到通用方法** — 方法名和文档用"参考教材"而非"三书/路宏敏"
+
+**Agent 初始化流程**：客户告知项目路径后，立即执行：
+```python
+from scripts.book_config import Config
+import os
+if not os.path.exists(os.path.join(project_root, "book-build.yaml")):
+    Config.setup(project_root)  # 自动创建目录 + book-build.yaml 模板
+cfg = Config(project_root=project_root)
+```
 
 **项目目录结构**（config.yaml → project）：
 ```

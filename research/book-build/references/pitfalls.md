@@ -22,7 +22,7 @@
 | 18 | **大纲是.docx格式未先提取** | 用 `file2md` 或 `parse_outline.py` 预处理 |
 | 19 | **Obsidian Mermaid 图太小** | 加 `%%{init: {"flowchart": {"useMaxWidth": false}}}%%` |
 | 20 | **本章总结只有文字没有图** | 必须图文并茂——Mermaid图+要点表格 |
-| 21 | **忽视三书共同盲区分析** | 系统分析每本书没写透的内容是独创价值所在 |
+| 21 | **忽视各教材共同盲区分析** | 系统分析各书没写透的内容是独创价值所在 |
 | 22 | **某本书主题不匹配却硬套** | 只借鉴写作手法，内容从其他来源补充 |
 | 23 | **文字型决策树未转Mermaid图** | 所有决策树/时间线/因果链须转为Mermaid图 |
 | 24 | **图号冲突** | 添加Mermaid图后用 `grep -n '图N-'` 验证 |
@@ -46,4 +46,7 @@
 | 36 | **`\\rightarrow` 含 `\\right` 子串导致误报** | 检查器用 `count('\\\\right')` 在 `\\rightarrow` 中匹配到 `\\right` → 误报 \"\\left(0)与\\right(1)不匹配\" | 检查器必须用正则 `r'\\\\right(?![a-zA-Z])'` 而非 `count()` |
 | 37 | **`%%{init}` 被误识别为图表类型** | Mermaid第一行为 `%%{init:...}%%` 时检查器报\"未知图表类型\" | 检查器必须跳过 `%%{init}` 行再判定类型 |
 | 38 | **`clean_formula_numbers.py` 跳过 inline $$** | 该脚本只处理 `$$...$$` 块（开闭在不同行），不处理单行 `$$inline$$` 和裸公式 | 运行前先用 `re.sub(r'\\$\\$(.+?)\\$\\$', r'\\n$$\\n\\1\\n$$\\n', text)` 转 inline 为 block 格式 |
-| 39 | **子代理写公式缺 `$$` 包裹** | `delegate_task` 子代理常把公式写成纯文本或无 `$$` 的 `\\tag{}` | context 必须显式约束\"每个独立行公式用 $$...$$ 包裹，\\\\tag{} 在 $$ 内部\"；写完后 `--fix` + `clean_formula_numbers.py` 两步修复 |
+| 39 | **子代理写公式缺 `$$` 包裹** | `delegate_task` 子代理常把公式写成纯文本或无 `$$` 的 `\\tag{}` | context 必须显式约束"每个独立行公式用 $$...$$ 包裹，\\tag{} 在 $$ 内部"；写完后 `--fix` + `renumber.py` 两步修复 |
+| 40 | **参考教材数量写死** | 文档/表格/测试中假设恰好3本（书A/书B/书C），但 config 可配置任意数量 | 所有遍历用 `c.source_books` 动态迭代；表格行数 = `len(c.source_books)`；避免"书A/书B/书C"或"三书"字眼 |
+| 41 | **测试断言具体配置值** | 测试中断言 `"查老师教材" in output` 或 `get_book_by_author("路宏敏")`，结果 config 换领域后测试炸了 | 测试只断言结构（`isinstance`/`endswith`/`is not None`），不断言 config.yaml 中定义的具体文本/路径/数字 |
+| 42 | **忽略项目目录初始化** | 客户给了项目路径，Agent 直接去读 `book-build.yaml`，但该文件还不存在 | 收到项目路径后先检查 `{path}/book-build.yaml` 是否存在。不存在则自动调用 `Config.setup(path)` 创建目录结构和模板 |

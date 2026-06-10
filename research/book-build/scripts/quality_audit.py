@@ -86,6 +86,40 @@ def check_content_stats(content: str) -> Dict:
     }
 
 
+def check_professor_quality(content: str) -> List[str]:
+    """检查教授级写作质量指标"""
+    issues = []
+    
+    # 1. 设问引导（每节至少1个"为什么/如何"）
+    sections = re.split(r'^## \d+\.', content, flags=re.MULTILINE)
+    for i, sec in enumerate(sections[1:], 1):
+        if '为什么' not in sec and '如何' not in sec:
+            issues.append(f"§{i} 缺少设问引导句（为什么/如何）")
+    
+    # 2. 工程直觉提示词
+    intuition_words = ['值得注意的是', '关键在于', '本质上', '工程启示']
+    if not any(w in content for w in intuition_words):
+        issues.append("全章缺少工程直觉提示词")
+    
+    # 3. 教学视角
+    teaching_words = ['读者', '初学者', '在学习中', '建议读者', '值得思考']
+    if sum(content.count(w) for w in teaching_words) < 3:
+        issues.append("教学视角提示不足（建议≥3处）")
+    
+    # 4. 案例叙事三要素
+    cases = re.findall(r'案例[一二三四五六七八九十\d]', content)
+    if cases:
+        has_scene = '年' in content and '月' in content
+        has_analysis = '分析' in content or '模型' in content
+        has_lesson = '启示' in content or '教训' in content
+        if not has_scene:
+            issues.append("案例缺少场景设定（时间/地点）")
+        if not has_lesson:
+            issues.append("案例缺少工程启示")
+    
+    return issues
+
+
 def check_learning_objectives(content: str) -> List[str]:
     """检查学习目标是否被正文覆盖"""
     issues = []
@@ -371,12 +405,65 @@ def check_technical_depth(content: str, chapter: int) -> List[str]:
               f"{status}")
     
     passed = sum(1 for r in results if r["pass"])
-    print(f"\n--- 汇总 ---")
+    print("\n--- 汇总 ---")
     print(f"审计: {len(results)} 章 | 通过: {passed} | 问题: {total_issues}")
     print(f"公式: {sum(r['formulas']['formula_tags'] for r in results)} 个")
     
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
+
+
+
+
+def main():
+    parser = argparse.ArgumentParser(description="统一质量审计")
+    parser.add_argument("--project", help="项目根目录")
+    parser.add_argument("--chapter", type=int, default=None, help="指定章节")
+    parser.add_argument("--quick", action="store_true", help="快速审计")
+    parser.add_argument("--json", action="store_true", help="输出JSON")
+    args = parser.parse_args()
+    
+    if args.project:
+        output_dir = Path(args.project) / "output"
+        files = sorted(output_dir.glob("第*.md"))
+        files = [f for f in files if '报告' not in f.name]
+    else:
+        print("❌ 请指定 --project")
+        sys.exit(1)
+    
+    if args.chapter:
+        files = [f for f in files if f.name.startswith(f"第{args.chapter}章")]
+    
+    results = []
+    total_issues = 0
+    
+    print(f"{'章':>4} {'大小':>7} {'行数':>5} {'公式':>4} {'编号':>4} {'$$':>3} {'图':>3} {'表':>3} {'例题':>3} {'状态':>6}")
+    print("-" * 55)
+    
+    for fpath in files:
+        r = audit_chapter(str(fpath), args.quick)
+        results.append(r)
+        f = r["formulas"]
+        c = r["content"]
+        status = "✅" if r["pass"] else f"❌ {r['issues'][0][:20]}"
+        total_issues += len(r["issues"])
+        
+        print(f" 第{r['chapter']:>2}章 {r['size_kb']:>6.0f}KB {r['lines']:>5} "
+              f"{f['formula_blocks']:>3}/{f['formula_tags']:>3} "
+              f"{'✅' if f['dollars_paired'] else '❌'} "
+              f"{'✅' if f['tags_continuous'] else '❌'} "
+              f"{c['mermaids']:>2} {c['tables']:>2} {c['examples']:>2} "
+              f"{status}")
+    
+    passed = sum(1 for r in results if r["pass"])
+    print("\n--- 汇总 ---")
+    print(f"审计: {len(results)} 章 | 通过: {passed} | 问题: {total_issues}")
+    print(f"公式: {sum(r['formulas']['formula_tags'] for r in results)} 个")
+    
+    if args.json:
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+
+
 
 
 if __name__ == "__main__":

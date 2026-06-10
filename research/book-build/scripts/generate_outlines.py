@@ -214,7 +214,7 @@ def main():
     textbook_cfg = cfg_data.get("textbook", {})
     outline_file = textbook_cfg.get("outline_file", "教材提纲.docx")
     outline_docx = str(project_root / "input" / outline_file)
-    source_book_list = cfg_data.get("source_books", [])
+    source_book_list = cfg_data.get("source_books", []) or []
     
     if not outline_docx:
         print("❌ book-build.yaml 中未配置 outline_file")

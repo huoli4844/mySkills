@@ -76,10 +76,22 @@ python3 scripts/setup_project.py /path/to/教材 \
 ```bash
 # 从提纲 docx 解析章节结构，生成骨架
 python3 scripts/generate_outlines.py --project /path/to/教材
-
-# ⚡ 然后需要 Agent 深度参与：分析参考书内容完善大纲
-# -> "book-build，项目在 /path，完善第3章的写作大纲"
 ```
+
+输出 `output/outline_tasks.json`，每个任务包含：
+
+```json
+{"type": "complete_writing_guide",
+ "chapter": 3,
+ "guide_path": "output/写作大纲/writing-guide-ch3.md",
+ "source_books": [...],
+ "status": "pending"}
+```
+
+Agent 读取后对每个 `pending` 任务执行 `delegate_task`：
+- goal: "为第X章完善写作大纲（分析参考书内容，确定写作手法/体量目标/素材来源）"
+- context: 从 outline_tasks.json 中提取 guide_path + source_books
+- 完成后标记 status 为 completed
 
 ### ③ 大纲 QC
 
@@ -98,14 +110,37 @@ python3 scripts/generate_task_list.py --project /path/to/教材 --mark-done 3
 ### ⑤ 自动写作
 
 ```bash
-# 生成下一条写作指令
+# 生成下一条写作任务
 python3 scripts/auto_write.py --project /path/to/教材
 
 # 遍历全部待写
 python3 scripts/auto_write.py --project /path/to/教材 --all
+
+# 覆盖已有章节
+python3 scripts/auto_write.py --project /path/to/教材 --chapter 3 --force
 ```
 
-`auto_write.py` 会生成 `.hermes/write_chX.prompt.md`，将该文件内容喂给 Agent 即可开始创作。
+`auto_write.py` 输出结构化 JSON 到 `.hermes/tasks/write_chX.json`，格式：
+
+```json
+{"goal": "为教材项目创作第X章完整内容",
+ "context": "...写作大纲+参考书路径+写作规范...",
+ "chapter": X,
+ "guide_path": "output/写作大纲/writing-guide-chX.md",
+ "output_path": "output/第X章-标题.md"}
+```
+
+Agent 读取该 JSON 后直接提交给 `delegate_task`：
+
+```
+delegate_task(
+  goal=task.goal,
+  context=task.context,
+  toolsets=["terminal", "file"]
+)
+```
+
+创作完成后运行 `batch_fix_formula_numbers.py` 修复编号。
 
 ### ⑥ 统一修复公式编号
 
@@ -172,6 +207,7 @@ python3 scripts/outline_vs_chapter_audit.py \
 4. **先读后写** — 永远 `read()` 再 `write()`，绝不先写后读
 5. **Mermaid 圆边节点** — `[("text")]`（对）而非 `[("text)"]`（错）
 6. **写作说明不写入正文** — 军规检查/核心公式总结是内部工具
+7. **book-build.yaml 最小化** — 只放教材名和参考书路径，写作规范在其他地方
 
 ## Reference Index
 

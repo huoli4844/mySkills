@@ -154,10 +154,11 @@ def parse_blocks(md: str) -> list[dict]:
 
 
 def heading_level(text: str):
-    """检测文本是否以 # 开头，返回 (级别, 内容) 或 (None, text)。"""
-    m = re.match(r'^(#{1,3})\s+(.*)', text)
+    """检测文本是否以 # 开头，返回 (级别, 内容) 或 (None, text)。
+    支持 1-6 级标题，4+ 级映射为加粗正文。"""
+    m = re.match(r'^(#{1,6})\s+(.*)', text)
     if m:
-        return len(m.group(1)), m.group(2).strip()
+        return min(len(m.group(1)), 3), m.group(2).strip()
     return None, text
 
 
@@ -336,14 +337,54 @@ def process_inline_math(paragraph, text: str):
 
 
 def add_paragraph_text(doc: Document, text: str):
-    """添加一个段落，处理标题、Markdown 语法、行内公式等。"""
+    """添加一个段落，处理标题、列表、横线、行内公式等。"""
+    # 跳过横线 ---
+    if text.strip().startswith('---') and len(text.strip()) <= 5:
+        p = doc.add_paragraph()
+        pPr = p._element.get_or_add_pPr()
+        pBdr = parse_xml(
+            f'<w:pBdr {nsdecls("w")}>'
+            '  <w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/>'
+            '</w:pBdr>'
+        )
+        pPr.append(pBdr)
+        return p
+
     # 检查标题
     lev, content = heading_level(text)
     if lev is not None:
         p = doc.add_heading(content, level=lev)
         return p
 
-    # 统一交给 process_markdown_text 处理（含 ** * ` $ $$ 等）
+    # 检查列表
+    stripped = text.strip()
+    # 无序列表: -, *, + 开头
+    bullet_match = re.match(r'^[-*+]\s+(.*)', stripped)
+    if bullet_match:
+        text = bullet_match.group(1)
+        # 用 python-docx 列表样式，但简单做法：加缩进+前缀符号
+        p = doc.add_paragraph()
+        p.paragraph_format.left_indent = Cm(1.0)
+        p.paragraph_format.first_line_indent = Cm(-0.5)
+        run = p.add_run("• ")
+        run.bold = False
+        process_markdown_text(p, text)
+        return p
+
+    # 有序列表: 1. 或 1) 开头
+    num_match = re.match(r'^(\d+[.)])\s+(.*)', stripped)
+    if num_match:
+        prefix = num_match.group(1)
+        text = num_match.group(2)
+        p = doc.add_paragraph()
+        p.paragraph_format.left_indent = Cm(1.0)
+        p.paragraph_format.first_line_indent = Cm(-0.5)
+        run = p.add_run(f"{prefix} ")
+        run.bold = False
+        process_markdown_text(p, text)
+        return p
+
+    # 段落 + 行内标记
     p = doc.add_paragraph()
     process_markdown_text(p, text)
     return p

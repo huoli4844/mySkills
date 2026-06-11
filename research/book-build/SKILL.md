@@ -60,6 +60,17 @@ quality_audit.py      ⑦ 统一质量审计
 | 项目层 | 教材名、参考书路径 | `book-build.yaml` |
 | 章节层 | 每章结构、体量、素材 | `写作大纲/writing-guide-chX.md` |
 
+### SKILL.md 设计原则（被纠正的错误不要重犯）
+
+SKILL.md **只放 Agent 加载时需要知道的东西**。以下内容不应出现在 SKILL.md：
+- ❌ 维护契约/自检清单（自身就是膨胀）
+- ❌ 与其他技能的对照表（对当前任务无关）
+- ❌ 重复 references/ 已有的详细内容
+- ❌ 历史记录、实战教训、版本对比数据
+
+以上内容应放入 `references/`，通过 Reference Index 按需加载。
+判断标准：这条内容 Agent 每次加载技能时都必须看到吗？如果不需要 → 放 references/。
+
 ### 脚本 vs Agent 分工
 脚本管流程编排和统计检查；Agent 管内容创作和质量判断。
 

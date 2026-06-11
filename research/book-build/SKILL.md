@@ -24,7 +24,7 @@ setup_project.py      ① 创建项目
 generate_outlines.py  ② 提纲docx → 写作大纲（15板块结构）
 validate_outlines.py  ③ 大纲QC
 generate_task_list.py ④ 生成写作任务
-auto_write.py         ⑤ delegate_task 逐章创作
+auto_write.py         ⑤ 任务JSON → Agent调用delegate_task
 batch_fix_numbers     ⑥ 批量修复公式编号
 quality_audit.py      ⑦ 统一质量审计
 ```
@@ -112,9 +112,7 @@ python3 scripts/outline_vs_chapter_audit.py --project /path/to/教材
 | `references/outline-writing-standards.md` | 写作大纲质量标准 + 15板块 + 体量基准 |
 | `references/chapter-writing-standard.md` | 章节写作军规 |
 | `references/comprehensive-quality-audit.md` | 质量审计工作流 |
-| `references/mermaid-compatibility-guide.md` | Mermaid 禁止语法 + 替代方案 |
-| `references/mermaid-validation-checklist.md` | Mermaid 语法检查清单 |
-| `references/mermaid-guide.md` | Mermaid 陷阱与正确写法 |
+| `references/mermaid-compatibility-guide.md` | Mermaid 兼容性指南（含语法、禁止项、排查表、验证命令） |
 | `references/formula-numbering-diagnosis.md` | 公式编号诊断 |
 | `references/formula-numbering-comprehensive-fix.md` | 公式编号修复流程 |
 | `references/derivation-example-107.md` | 公式推导示例 |

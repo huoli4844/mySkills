@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交"
-version: 3.6.0
+version: 3.7.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -118,7 +118,7 @@ setup_project.py 初始化流程：
 **规则4：references/ 是模板，非静态文件**
 references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用领域信号渲染后，写入项目目录。SKILL 层的 references/ 始终保持领域无关。
 
-**规则5：容量红线 — 超限必须拆分**
+**规则6：模板层改进优先 — 质量问题先查模板，不单章修补**\n当某章正文质量弱于预期时，**不要直接改那一章**。根因几乎永远是该章的写作大纲（writing-guide）中每节指南不够具体。正确的排查路线：\n\n```\n章节质量弱\n  └→ 查 writing-guide-chX.md 的每节指南是否足够具体\n       ├→ 每节是否有\"结构化要素\"（概念辨析/数学/可视化/案例/教材交叉）？\n       ├→ 开篇方式是否指定了引入手法？\n       ├→ 案例建议是否含公司名/时间/技术参数？\n       ├→ 设问过渡是否直接写出了过渡语句而不是\"[过渡语句]\"？\n       └→ NO → 改进 templates/chapter-writing-guide-template.md  → 重新生成写作大纲 → 重新写章节\n          \n       └→ YES → 检查 auto_write.py 的 delegate_task context 是否传入了完整指令\n```\n\n**核心原则**：改善永远发生在模板层（`templates/`）或流程层（`auto_write.py` 的 context 构造），从未在单章正文层。一次模板改进影响所有未来章节。\n\n详见 `references/chapter-writing-guide-template.md`。该模板的\"每节写作指南\"部分定义了 5 项结构化要素（概念定义与辨析/数学模型/可视化图示/真实案例/对标教材交叉引用），是控制章节质量的关键杠杆。
 | 类型 | 上限 | 超限处理 |
 |:-----|:-----|:---------|
 | SKILL.md | 300 行 | 拆分到 references/ |
@@ -213,7 +213,9 @@ git push origin book-build-v&lt;version&gt;
 14. **多本书 TOC 合并用知识点图谱** — 单本书的章节结构不代表整个领域。必须合并多本书、按概念频次排序。高频概念（出现 3+/4 本）才是必须覆盖的内容。详见 `references/domain-agnostic-architecture.md`。
 15. **`git add -A` 污染父目录文件** — 在 `book-build/` 目录下执行 `git add -A` 会 stage `.hermes/skills/` 下其他技能的文件（如 `.archive/`、`.webui-managed-skills.json`）。必须用 `git add research/book-build/` 精确限定范围。提交前 `git diff --cached --stat` 确认只有本技能的文件。
 16. **子 Agent 用 `\[ \]` 代替 `$$`** — 委托写章节正文时，子 Agent 经常使用 `\[ ... \tag{1-1} \]` LaTeX 语法而不是 `$$ ... \n\tag{1-1}\n$$` Markdown 语法。这导致 `post_generation_check.py` 报 "tag 在 $$ 块外部"。修复方法：用 Python 正则将 `\\[...\\]` 批量替换为 `$$...$$`，同时确保 `\tag{}` 在 `$$` 内部且独占一行。事后运行 `post_generation_check` 确认修复有效。
-   规避方法：在委托 prompt 的 context 中明确写入"禁止使用 `\[` 和 `\]` 括公式，必须用 `$$` 括公式块"。
+   规避方法：在委托 prompt 的 context 中明确写入"禁止使用 `\\[` 和 `\\]` 括公式，必须用 `$$` 括公式块"。
+
+17. **写作指南的深度决定章节质量** — 章节正文质量上限由写作大纲中每节指南的深度决定。指南越具体（指定引入方式、写好过渡语句、标注公司名+技术参数），正文质量越好。如果正文字数或案例质量弱，排查路线：writing-guide → templates/ 模板 → auto_write context，**不在正文层修补**。改善永远发生在模板层。
 
 ## Reference Index
 
@@ -246,4 +248,5 @@ git push origin book-build-v&lt;version&gt;
 | `references/audit-script-landscape.md` | 审计脚本全景 |
 | `scripts/post_gen_check/` | 质量检查函数包（formulas/mermaid/content） |
 | `templates/chapter-writing-guide-template.md` | 写作大纲模板（generate_outlines.py 加载） |
+| `references/pipeline-comparison-baseline.md` | 管线输出质量基线（新旧对比数据） |
 | `references/chapter-writing-delegation.md` | 章节写作委托指南（公式/Mermaid/案例约束） |

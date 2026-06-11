@@ -180,5 +180,8 @@ git push origin book-build-v&lt;version&gt;
 | `references/content-supplementation-workflow.md` | 内容补充工作流（P0/P1/P2） |
 | `references/domain-agnostic-architecture.md` | 领域无关架构设计（变量+注入策略） |
 | `references/domain-agnostic-audit.md` | 领域无关审计命令 |
+| `scripts/book_toc.py` | 从 minerU .md 提取目录结构 |
+| `scripts/kg_builder.py` | 知识图谱引擎（build/query/show） |
+| `scripts/domain_injector.py` | 领域信号注入（填充 reference 变量） |
 | `references/textbook-style-guide.md` | 排版规范 |
 | `references/audit-script-landscape.md` | 审计脚本全景 |

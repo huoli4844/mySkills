@@ -54,7 +54,7 @@ python3 scripts/quality_audit.py --project /path/to/教材 --quick      # 快速
 `outline_vs_chapter_audit.py` 只检查大纲-章节差距（结构性缺失），不检查军规符合性。必须同时运行质量审计（检查第二人称/Step标记/小结条目数等格式问题）。
 
 ### 教训2：小结条目数必须恰好6条
-军规来源：`references/chapter-writing-standard.md` 第4.1节明确规定小结为6条要点。Mermaid图也算在小结范围内（第4/5章小结包含Mermaid图+文字要点），图表不计入6条。
+军规来源：`references/chapter-writing-rules.md` 第4.1节明确规定小结为6条要点。Mermaid图也算在小结范围内（第4/5章小结包含Mermaid图+文字要点），图表不计入6条。
 
 ### 教训3：正则必须匹配实际格式
 大纲文件的节号使用 `### N.N` 格式，审计正则应同时匹配 `##` 和 `###`。

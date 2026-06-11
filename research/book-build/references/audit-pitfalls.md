@@ -20,7 +20,7 @@
 
 ## Pitfall 2: 小结条目数必须是6条
 
-**军规来源**：`references/chapter-writing-standard.md` 第4.1节明确规定小结为6条要点。
+**军规来源**：`references/chapter-writing-rules.md` 第4.1节明确规定小结为6条要点。
 
 **审计方法**：
 ```python

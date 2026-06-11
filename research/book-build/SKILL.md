@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交"
-version: 3.5.0
+version: 3.6.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -125,6 +125,12 @@ references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用
 脚本层总行数建议 ≤ 6000 行。超出后应有计划地归档或精简。
 新增脚本时同步删除等量旧代码或冗余文件。
 
+**脚本拆分规范（超限时按此顺序尝试）**：
+1. **模板外提** — 脚本内的大段字符串（模板/文档/示例）→ `templates/` 文件，运行时加载
+2. **函数分离** — 独立的 check_*/fix_* 函数 → 新 `*_checks.py` 模块，主脚本 import
+3. **包拆分** — 大型单一脚本（>500行且有多个功能域）→ `package/` 子包，每个子模块 ≤ 300 行
+4. **拆分后立即运行全测试**验证不破坏已有功能
+
 ## Workflow
 
 ### 阶段0: 领域注入（新项目初始化时运行一次）
@@ -205,7 +211,12 @@ git push origin book-build-v&lt;version&gt;
 |:-----------|:------|
 | `references/professor-level-writing-guide.md` | 教授级写作指南 |
 | `references/outline-writing-standards.md` | 写作大纲质量标准 + 15板块 + 体量基准 |
-| `references/chapter-writing-standard.md` | 章节写作军规 |
+| `references/chapter-writing-prep.md` | 章前准备 + 章首模板 + 内容提要 |
+| `references/chapter-writing-style-fusion.md` | 写作风格融合（3.1-3.4） |
+| `references/chapter-writing-style-fusion-2.md` | 写作风格融合（3.5-3.7） |
+| `references/chapter-writing-rules.md` | 12条军规 |
+| `references/chapter-writing-endmatter.md` | 章末模板 + 总结 + 参考文献 |
+| `references/chapter-writing-depth.md` | 深度标准 + 验证 + 工作流 + 已验证模式 |
 | `references/comprehensive-quality-audit.md` | 质量审计工作流 |
 | `references/mermaid-compatibility-guide.md` | Mermaid 兼容性指南（含语法、禁止项、排查表、验证命令） |
 | `references/formula-numbering-diagnosis.md` | 公式编号诊断 |

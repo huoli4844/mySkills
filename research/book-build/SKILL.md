@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交"
-version: 3.4.0
+version: 3.5.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -21,13 +21,19 @@ metadata:
 **例外：** 重大结构性改动（去领域化/架构重构/技能拆分/管线变更），必须先写书面方案 → 用户确认 → 再执行。此规则优先级高于"全自动执行不询问"。
 
 ```
-setup_project.py      ① 创建项目
-generate_outlines.py  ② 提纲docx → 写作大纲（15板块结构）
-validate_outlines.py  ③ 大纲QC
-generate_task_list.py ④ 生成写作任务
-auto_write.py         ⑤ 任务JSON → Agent调用delegate_task
-batch_fix_numbers     ⑥ 批量修复公式编号
-quality_audit.py      ⑦ 统一质量审计
+# 阶段0: 领域注入（新项目初始化时运行）
+book_toc.py          01 从minerU .md提取参考书目录结构
+kg_builder.py        02 合并多书TOC → SQLite知识图谱
+domain_injector.py   03 用领域信号填充references/变量
+
+# 阶段1: 写作管线
+setup_project.py     04 创建项目目录
+generate_outlines.py 05 提纲docx → 写作大纲（15板块）
+validate_outlines.py 06 大纲QC
+generate_task_list.py07 生成写作任务
+auto_write.py        08 任务JSON → Agent调用delegate
+batch_fix_numbers    09 批量修复公式编号
+quality_audit.py     10 统一质量审计
 ```
 
 ## 关键约束（不可违反）
@@ -109,10 +115,40 @@ setup_project.py 初始化流程：
 **规则4：references/ 是模板，非静态文件**
 references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用领域信号渲染后，写入项目目录。SKILL 层的 references/ 始终保持领域无关。
 
+**规则5：容量红线 — 超限必须拆分**
+| 类型 | 上限 | 超限处理 |
+|:-----|:-----|:---------|
+| SKILL.md | 300 行 | 拆分到 references/ |
+| 单个脚本 | 500 行 | 按功能拆分（如 `quality_audit/` 模块包） |
+| 单个 reference | 300 行 | 拆分为多个文件 |
+
+脚本层总行数建议 ≤ 6000 行。超出后应有计划地归档或精简。
+新增脚本时同步删除等量旧代码或冗余文件。
+
 ## Workflow
 
+### 阶段0: 领域注入（新项目初始化时运行一次）
+
 ```bash
-# ① 创建项目
+# 提取参考书的目录结构
+python3 scripts/book_toc.py --json /path/to/参考书A.md
+
+# 构建知识图谱 + 写入 domain-context.yaml
+python3 scripts/kg_builder.py build --project /path/to/教材
+
+# 查看KG内容
+python3 scripts/kg_builder.py show --project /path/to/教材
+
+# 查询某个术语在KG中的位置
+python3 scripts/kg_builder.py query --project /path/to/教材 --term "屏蔽"
+
+# 用领域信号填充references/模板 → output/领域上下文/references/
+python3 scripts/domain_injector.py --project /path/to/教材
+```
+
+### 阶段1: 写作管线
+
+```bash
 python3 scripts/setup_project.py /path/to/教材 --name "教材名" --outline 教材提纲.docx
 
 # ② 生成写作大纲（两阶段：脚本骨架 → Agent 填充15板块）
@@ -142,7 +178,9 @@ python3 scripts/outline_vs_chapter_audit.py --project /path/to/教材
 git tag -a book-build-v&lt;version&gt; -m "版本说明"
 git push origin book-build-v&lt;version&gt;
 ```
-触发条件：测试新增≥20个 / 代码重构 / 版本号修改。
+触发条件：新增测试 ≥20 / 代码重构 / 版本号修改。
+
+禁止对小型修复或纯文档变更打 tag。
 
 ## Common Pitfalls
 

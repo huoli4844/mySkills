@@ -156,7 +156,7 @@ def build_report(results, output_dir):
         if r.get('formula_count', 0) < 5: gaps.append("补充编号公式")
         if r.get('mermaid_count', 0) == 0: gaps.append("补充Mermaid可视化图")
         if r.get('example_count', 0) < 2: gaps.append("补充计算例题")
-        if r.get('case_count', 0) < 2: gaps.append("补充真实EMC案例")
+        if r.get('case_count', 0) < 2: gaps.append("补充真实工程案例")
         if not r.get('has_summary'): gaps.append("补充本章小结")
         if not r.get('has_exercise'): gaps.append("补充习题")
         if missing: gaps.append(f"覆盖{len(missing)}个缺失章节")

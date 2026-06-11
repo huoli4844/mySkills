@@ -7,7 +7,7 @@ license: MIT
 platforms: [macos, linux]
 metadata:
   hermes:
-    tags: [textbook, emc, outline-driven, academic-writing]
+    tags: [textbook, outline-driven, academic-writing, domain-agnostic]
     related_skills: [github-repo-management, file2md]
 ---
 
@@ -17,7 +17,8 @@ metadata:
 
 **核心原则：** 借鉴手法，不照搬内容。参考教材是学写法的老师，不是抄内容的仓库。
 
-**全自动执行：** 不问"要不要/是否继续"，直接做。做错了改比问效率高。
+**全自动执行：** 不改"要不要/是否继续"，直接做。做错了改比问效率高。  
+**例外：** 重大结构性改动（去领域化/架构重构/技能拆分/管线变更），必须先写书面方案 → 用户确认 → 再执行。此规则优先级高于"全自动执行不询问"。
 
 ```
 setup_project.py      ① 创建项目
@@ -53,12 +54,16 @@ quality_audit.py      ⑦ 统一质量审计
 
 ## Design
 
-### 三层配置
+### 四层配置
+
 | 层 | 内容 | 位置 |
 |:---|:-----|:-----|
-| 技能层 | 操作流程、约束、铁律 | SKILL.md + references/ |
-| 项目层 | 教材名、参考书路径 | `book-build.yaml` |
-| 章节层 | 每章结构、体量、素材 | `写作大纲/writing-guide-chX.md` |
+| **技能层** | 操作流程、约束、铁律（领域无关，含 {{变量}} 占位符） | SKILL.md + references/ |
+| **项目配置层** | 教材名、参考书路径 | `book-build.yaml` |
+| **领域上下文层** | 领域信号 + 知识点图谱 + 渲染后的 references（初始化时自动生成） | `output/领域上下文/` |
+| **章节层** | 每章结构、体量、素材 | `写作大纲/writing-guide-chX.md` |
+
+领域上下文层是 v3.5.0 新增：`setup_project.py` 在初始化时从参考书 .md 提取章节标题 → 词频统计 → 生成。
 
 ### SKILL.md 设计原则（被纠正的错误不要重犯）
 
@@ -73,6 +78,36 @@ SKILL.md **只放 Agent 加载时需要知道的东西**。以下内容不应出
 
 ### 脚本 vs Agent 分工
 脚本管流程编排和统计检查；Agent 管内容创作和质量判断。
+
+### 架构规则（2026-06-16 确立）
+
+**规则1：重大改动先方案后动手**
+结构性改动（去领域化/架构重构/技能拆分/管线变更），必须先写书面方案 → 用户确认 → 再执行。
+
+**规则2：领域无关 + 领域注入**
+book-build 是领域无关的工具技能。SKILL.md 和 references/ 中不应写死任何领域词。领域词在项目初始化时自动注入：
+
+```
+setup_project.py 初始化流程：
+  ① 读取 book-build.yaml（教材名 + 参考书路径）
+  ② 遍历 source_books[].path（minerU 处理过的 .md 文件）
+  ③ extract_book_toc() → 提取每本书的章节目录结构
+  ④ build_knowledge_graph() → 多本书 TOC 合并去重 → 词频统计
+  ⑤ 写入 output/领域上下文/domain-context.yaml
+  ⑥ 用领域信号渲染 references/ 模板 → output/领域上下文/references/
+```
+
+**规则3：知识点图谱防止"写偏"**
+多本参考书的组织结构不同。知识点图谱的核心作用：
+- 提取每本书章节标题中的核心概念（去编号、去修饰语）
+- 跨书统计：某概念出现在 4 本书中的几本
+- 高频概念（3+/4 本）→ 写作大纲"必含要素" → 质量审计可检查
+- 不依赖单本书的章节顺序，依赖跨书的概念共识
+
+详见 `references/domain-agnostic-architecture.md`。
+
+**规则4：references/ 是模板，非静态文件**
+references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用领域信号渲染后，写入项目目录。SKILL 层的 references/ 始终保持领域无关。
 
 ## Workflow
 
@@ -102,6 +137,13 @@ python3 scripts/quality_audit.py --project /path/to/教材 [--chapter N] [--quic
 python3 scripts/outline_vs_chapter_audit.py --project /path/to/教材
 ```
 
+### ⑧ 版本标记（重大改动后执行）
+```bash
+git tag -a book-build-v&lt;version&gt; -m "版本说明"
+git push origin book-build-v&lt;version&gt;
+```
+触发条件：测试新增≥20个 / 代码重构 / 版本号修改。
+
 ## Common Pitfalls
 
 1. **行级状态机，不用正则** — `\$\$(.*?)\$\$` 对 `>$$` 无效
@@ -114,6 +156,10 @@ python3 scripts/outline_vs_chapter_audit.py --project /path/to/教材
 8. **单行 `$$...$$` 缺编号** — 转为 `$...$`
 9. **分节写作防超时** — delegate_task 单次最多 ~25KB/路，详见 `references/parallel-section-writing.md`
 10. **Mermaid 白底黑字 + 横排优先** — 禁止深色主题，`graph LR` 优先
+11. **批量写作后"尾巴缺失"** — 连续写多章大纲时，后期章（通常Ch8+）系统性跳过"教授级写作专项"（设问/直觉/教学/呼应）和"参考文献/深入阅读"。写完一批必须逐章扫描6项结构指标（设问引导句/工程直觉提示/教学视角句/前后呼应句/习题/参考文献）→ 只补缺失的，不盲目扩充体量。详见 `references/gap-fill-workflow.md`。
+12. **重大改动先方案后动手** — 去领域化/架构重构/技能合并/管线变更必须预先写方案、确认再执行。不要直接改。此规则优先于"全自动不询问"。
+13. **参考书格式是 minerU，不是 file2md** — `source_books[].path` 指向的是 minerU 处理过的 .md。特点是：`##` 用于所有层级（章节头、子节、元数据），噪声（CIP/前言/目录）混杂其中，不同书格式不一致。TOC 提取必须做噪声过滤。
+14. **多本书 TOC 合并用知识点图谱** — 单本书的章节结构不代表整个领域。必须合并多本书、按概念频次排序。高频概念（出现 3+/4 本）才是必须覆盖的内容。详见 `references/domain-agnostic-architecture.md`。
 
 ## Reference Index
 
@@ -128,9 +174,11 @@ python3 scripts/outline_vs_chapter_audit.py --project /path/to/教材
 | `references/formula-numbering-comprehensive-fix.md` | 公式编号修复流程 |
 | `references/derivation-example-107.md` | 公式推导示例 |
 | `references/volume-standards.md` | 体量基准与映射 |
+| `references/gap-fill-workflow.md` | 写作大纲查疑补漏工作流（6项结构检查+补漏原则） |
 | `references/delegate-vs-direct-write.md` | delegate 边界说明 |
 | `references/parallel-section-writing.md` | 并行分节写作 |
-| `references/content-expansion-workflow.md` | 内容扩充 |
-| `references/audit-pitfalls.md` | 审计常见错误 |
+| `references/content-supplementation-workflow.md` | 内容补充工作流（P0/P1/P2） |
+| `references/domain-agnostic-architecture.md` | 领域无关架构设计（变量+注入策略） |
+| `references/domain-agnostic-audit.md` | 领域无关审计命令 |
 | `references/textbook-style-guide.md` | 排版规范 |
 | `references/audit-script-landscape.md` | 审计脚本全景 |

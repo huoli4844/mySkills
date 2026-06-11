@@ -52,8 +52,11 @@ quality_audit.py     10 统一质量审计
 
 ### delegate_task 边界
 - ✅ 分析参考教材（只读，~200s 3路并行）
-- ❌ 写入大纲/章节（≥35KB 必超时，5次实测）
-- ✅ 正确模式：delegate 做分析 → 主 Agent 用 `write_file` 直写
+- ✅ 写章节正文（已验证：单章 5 节约 400~500s，80~130 万输入 token）
+- ❌ 写入大纲（≥35KB 必超时，5次实测）
+- ✅ 正确模式：大纲用 `delegate 做分析 → write_file 直写`；正文用 `delegate 直接写作`
+- **委托写正文时必须禁止 `\[ \]` LaTeX 语法**（子 Agent 常用 `\[ ... \]` 代替 `$$`，导致 `post_generation_check.py` 误报 tag 在 $$ 外）
+- 详见 `references/chapter-writing-delegation.md`
 
 ### book-build.yaml 最小化
 只放教材名 + 参考书路径。写作规范归 references/，密度底线归写作大纲。
@@ -130,6 +133,7 @@ references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用
 2. **函数分离** — 独立的 check_*/fix_* 函数 → 新 `*_checks.py` 模块，主脚本 import
 3. **包拆分** — 大型单一脚本（>500行且有多个功能域）→ `package/` 子包，每个子模块 ≤ 300 行
 4. **拆分后立即运行全测试**验证不破坏已有功能
+5. **拆分后做端到端验证**：新建测试项目 → 跑一遍 Phase 0（book_toc→kg_builder→domain_injector）+ Phase 1（generate_outlines→quality_audit→post_generation_check）确认管线完整
 
 ## Workflow
 
@@ -169,6 +173,9 @@ python3 scripts/generate_task_list.py --project /path/to/教材 --force-init
 # ⑤ 自动写作（auto_write.py 输出 JSON → delegate_task）
 python3 scripts/auto_write.py --project /path/to/教材
 
+# ⑤b 修复子 Agent 常见的 `\[ \]` LaTeX 语法（如有）
+python3 -c "import re; f=open('output/第*.md').read(); f=re.sub(r'\\\\\[(.*?)\\\\\\]', lambda m: '\$\$' + m.group(1) + '\n\$\$', f, flags=re.DOTALL); open('output/第*.md','w').write(f)"
+
 # ⑥ 修复公式编号
 python3 scripts/batch_fix_formula_numbers.py /path/教材/output/第*.md
 
@@ -204,6 +211,9 @@ git push origin book-build-v&lt;version&gt;
 12. **重大改动先方案后动手** — 去领域化/架构重构/技能合并/管线变更必须预先写方案、确认再执行。不要直接改。此规则优先于"全自动不询问"。
 13. **参考书格式是 minerU，不是 file2md** — `source_books[].path` 指向的是 minerU 处理过的 .md。特点是：`##` 用于所有层级（章节头、子节、元数据），噪声（CIP/前言/目录）混杂其中，不同书格式不一致。TOC 提取必须做噪声过滤。
 14. **多本书 TOC 合并用知识点图谱** — 单本书的章节结构不代表整个领域。必须合并多本书、按概念频次排序。高频概念（出现 3+/4 本）才是必须覆盖的内容。详见 `references/domain-agnostic-architecture.md`。
+15. **`git add -A` 污染父目录文件** — 在 `book-build/` 目录下执行 `git add -A` 会 stage `.hermes/skills/` 下其他技能的文件（如 `.archive/`、`.webui-managed-skills.json`）。必须用 `git add research/book-build/` 精确限定范围。提交前 `git diff --cached --stat` 确认只有本技能的文件。
+16. **子 Agent 用 `\[ \]` 代替 `$$`** — 委托写章节正文时，子 Agent 经常使用 `\[ ... \tag{1-1} \]` LaTeX 语法而不是 `$$ ... \n\tag{1-1}\n$$` Markdown 语法。这导致 `post_generation_check.py` 报 "tag 在 $$ 块外部"。修复方法：用 Python 正则将 `\\[...\\]` 批量替换为 `$$...$$`，同时确保 `\tag{}` 在 `$$` 内部且独占一行。事后运行 `post_generation_check` 确认修复有效。
+   规避方法：在委托 prompt 的 context 中明确写入"禁止使用 `\[` 和 `\]` 括公式，必须用 `$$` 括公式块"。
 
 ## Reference Index
 
@@ -236,3 +246,4 @@ git push origin book-build-v&lt;version&gt;
 | `references/audit-script-landscape.md` | 审计脚本全景 |
 | `scripts/post_gen_check/` | 质量检查函数包（formulas/mermaid/content） |
 | `templates/chapter-writing-guide-template.md` | 写作大纲模板（generate_outlines.py 加载） |
+| `references/chapter-writing-delegation.md` | 章节写作委托指南（公式/Mermaid/案例约束） |

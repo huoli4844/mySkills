@@ -1,14 +1,15 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交。提供写作大纲解析、内容差距分析、P0/P1 分阶段补充、公式编号批量修复、全章质量审计等工具。适用场景：基于多本参考书进行的中文专业教材（特别是电磁兼容/EMC领域）的结构化编写。"
-version: 3.3.0
+version: 3.4.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
 metadata:
+  category: research
   hermes:
     tags: [textbook, emc, outline-driven, academic-writing]
-    related_skills: [github-repo-management, file2md]
+    related_skills: [github-repo-management, file2md, domain-wiki]
 ---
 
 # book-build（教材写作管线）
@@ -37,6 +38,40 @@ quality_audit.py      ⑦ 统一质量审计 + 修复
 
 **全自动执行（核心偏好）**：执行时不问"要不要/是否继续"，直接做。
 
+## Anti-Bloat Maintenance Covenant
+
+每次修改本技能时，Agent 必须遵守以下守则，防止重蹈 domain-book-wiki 的覆辙：
+
+### 模块容量红线
+| 规则 | 阈值 | 违规处理 |
+|------|------|----------|
+| SKILL.md ≤600行 | 超过即拆 | 提取为独立 reference 文件（见"模块分解模式"） |
+| 单脚本 ≤400行 | 超过即拆 | 提取内部函数或拆分逻辑 |
+| 配置数据不混入引擎代码 | 发现即移 | 纯字典/列表 → 独立文件 |
+
+### 模块分解模式
+当一个文件超过 600 行时，按以下模式拆分：
+```
+原文件（多职责混杂）    → 拆分方向
+quality_audit.py (470行) → 公式检查(.py) + 内容检查(.py) + CLI(.py)
+SKILL.md (580行) → Pitfalls 提取为 references/pitfalls.md
+```
+
+### 死代码清理检查表（每次提交前执行）
+```bash
+① grep -rln "script_name" scripts/      # 检查是否被任何 py 文件 import
+② grep -rn "script_name" SKILL.md       # 检查是否在技能文档中引用
+③ grep -rn "script_name" references/    # 检查是否在参考文档中引用
+④ 如果零引用 → rm + 更新文档            # 确认删除
+```
+
+### Reference Index 去重规则
+Reference Index 中每个条目必须唯一。每次编辑后执行：
+```bash
+# 检查重复引用
+awk '/^| /{print $NF}' SKILL.md | sort | uniq -d | grep -v '^$'
+```
+
 ## When to Use
 
 - 用户要求**新建**教材项目 → `setup_project.py`
@@ -53,7 +88,7 @@ quality_audit.py      ⑦ 统一质量审计 + 修复
 ### 三层配置架构
 
 | 层 | 内容 | 存放位置 |
-|:---|:-----|:---------|
+:---|:-----|:---------|
 | **技能层** | 操作流程、陷阱清单、公式格式铁律 | SKILL.md + references/ |
 | **项目层** | 教材名、参考书路径（仅此而已） | `book-build.yaml` |
 | **章节层** | 每章内容结构、建议体量、素材来源 | `写作大纲/writing-guide-chX.md` |
@@ -75,6 +110,17 @@ quality_audit.py      ⑦ 统一质量审计 + 修复
 ### 脚本与 Agent 分工
 - **脚本**管流程编排、文件操作、统计检查
 - **Agent**管内容创作、质量判断、调整决策
+
+### ⚠️ 脚本职责边界（v3.4.0 新增）
+
+| 脚本 | 唯一职责 | 禁止职责 |
+|:-----|:---------|:---------|
+| `quality_audit.py` | 统一质量审计入口（公式、Mermaid、内容统计、军规合规） | 不得依赖已废弃的独立脚本 |
+| `batch_fix_formula_numbers.py` | 公式编号批量修复 | 不得检查 Mermaid/表格/其他内容 |
+| `post_generation_check.py` | 生成后自动修复（格式类） | 不得用于大纲验证 |
+| `outline_vs_chapter_audit.py` | 大纲-章节差距分析（结构性） | 不得用于军规符合性检查 |
+
+
 
 ## Workflow
 
@@ -166,7 +212,7 @@ python3 scripts/batch_fix_formula_numbers.py /path/教材/output/第*.md
 ### ⑦ 质量审计
 
 ```bash
-# 全量（检查公式编号、$$配对、Mermaid语法、禁止内容）
+# 全量（检查公式编号、$$配对、Mermaid语法、禁止内容、教授级9项指标）
 python3 scripts/quality_audit.py --project /path/to/教材
 
 # 单章
@@ -176,7 +222,7 @@ python3 scripts/quality_audit.py --project /path/to/教材 --chapter 7
 python3 scripts/quality_audit.py --project /path/to/教材 --quick
 ```
 
-审计覆盖范围：公式编号连续性、$$配对、内容统计（表格/图/例题）、Mermaid 语法校验（`---config---` 兼容性、subgraph括号、round node顺序、timeline书名号）、禁止内容检查（写作说明/军规/公式总结/Bloom标签）。
+审计覆盖范围：公式编号连续性、$$配对、内容统计（表格/图/例题）、Mermaid 语法校验（`---config---` 兼容性、subgraph括号、round node顺序、timeline书名号）、禁止内容检查（写作说明/军规/公式总结/Bloom标签）、教授级9项指标。
 
 ### 补充已有章节
 
@@ -226,10 +272,10 @@ python3 scripts/outline_vs_chapter_audit.py \
 |:-:|:-----|:---------|:---------|
 | 1 | **章节开头** | `# 第X章 标题` → `## 内容导读` → 段落 → `通过本章学习，读者应达成以下学习目标：` → 列表 | 格式严格一致 |
 | 2 | **学习目标覆盖** | 每一条学习目标必须有对应的正文内容，逐条验证 | `quality_audit.py` 学习目标检查 |
-| 3 | **公式写法** | 行内`$...$`、块级`$$...$$`、`\\tag{X-XX}`独占一行在`$$`闭合前 | `batch_fix_formula_numbers.py` |
+| 3 | **公式写法** | 行内`$...$`、块级`$$...$$`、`\\tag{N-M}`独占一行在`$$`闭合前 | `batch_fix_formula_numbers.py` |
 | 4 | **核心公式推导** | ≥4步，按"物理原理→建模假设→数学代入→导出结果→参数解释"五步展开 | 手动检查推导步骤数 |
 | 5 | **Mermaid图** | 仅`graph TD`/`graph LR`；换行用`<br>`不用`\\n`；禁止emoji/星号/timeline/mindmap/`%%{init}%%`/`<-->`/subgraph跨边界 | `quality_audit.py` Mermaid检查 |
-| 6 | **图注位置** | Mermaid图下方：空行后 `*图X-X 标题*` | 正则 `\\`\\`\\`\\n\\n\\*图` |
+| 6 | **图注位置** | Mermaid图下方：空行后 `*图X-X 标题*` | 正则 `` \` ``\`\` \` `\n\n*图 `` |
 | 7 | **表题位置** | Markdown表格上方：`**表X-X 标题**` | 表前一行检查 |
 | 8 | **案例密度** | 每节≥2个（1生活化+1工程），每个≥150字，含技术参数，结构为"背景→技术分析→后果→启示" | 逐节计数 |
 | 9 | **禁止内容** | 无Bloom标签（`**记忆层**`）、无`本章写作说明`、无`12条军规落实检查`、无`全章核心公式总结` | `grep -c` 结果为0 |
@@ -349,7 +395,29 @@ Agent 为每节填充 4 个维度：
 
 **案例建议**：公开真实事件（非教材摘抄），标注用在哪个知识点后。例如"阿波罗12号雷击事件（用在EMI概念后，NASA报告MSC-01855重新叙述）"。
 
-### ⚠️ 量化底线（2026-06-12 实战验证）
+### ⚠️ 写作大纲体量硬性基准（不达标=不合格）
+
+写作大纲不是"填充完就行"，必须达到与章节节数相匹配的体量。基准对标Ch2（97KB/5节/20子节=19.4KB/节）。
+
+| 章类型 | 节数 | 最低体量 | 验证数据 |
+|:------|:---:|:--------|:--------|
+| 5节章（如Ch2） | 5 | ≥90KB | Ch2=97KB |
+| 4节章（如Ch3/Ch5） | 4 | ≥70KB | Ch3=75KB（达标），Ch5=42KB（不合格） |
+| 3节章（如Ch4） | 3 | ≥55KB | Ch4=56KB（达标） |
+
+**自检三指标（生成后立即验证，不达标=重写）**：
+1. **每节写作指南KB数** — 4节章≥15KB，3节章≥12KB
+2. **要素字数/组** — 每组的"必须包含的要素"≥2000字（Ch3级=2213字/组）
+3. **案例详情标签数** — `grep -c "场景设定\|技术分析\|工程启示\|教学价值"` ≥30处（Ch3级=34处）
+
+三项全部达标才算合格。若任一项不达标，需重新生成而非打补丁——补丁效率低于重写。
+
+### ⚠️ delegate_task 使用边界（2026-06-12 实战验证）
+
+- **分析参考教材**：delegate_task 可用，只读取不写入，≈200s完成（3路并行）
+- **写入大纲/章节**：delegate_task **不可用**——写入≥35KB文件必超时（5次实测，600s/4~10次API调用）
+- **正确模式**：①delegate_task 做参考教材分析（返回纯文本摘要）→ ②主Agent用 `write_file` 直写完整大纲
+- 此模式已稳定产出Ch3(75KB)/Ch4(56KB)/Ch5(44KB)，delegate单独写从未成功过
 
 **写作大纲的密度直接决定章节的体量。** 验证数据：
 
@@ -372,11 +440,21 @@ Agent 为每节填充 4 个维度：
 
 | 大纲大小 | 预期正文大小 | 验证数据 |
 |:---------|:-----------|:---------|
-| ~50KB（缺细节） | ~34KB | 第1章初版（大纲未全量填充前） |
+| ~50KB（缺细节） | ~34KB | 第1章初版 |
+| ~72KB（全量填充） | ~80-100KB | 第3章（预估） |
 | ~88KB（全量填充） | ~79KB | 第1章终版 |
 | ~97KB（全量填充） | ~131KB | 第2章 |
 
-大纲中每一节的必含要素数量、案例建议密度、公式规划数量直接映射到正文体量。如果大纲某一节的"必含要素"只有2~3条光秃秃的文字，正文该节必然单薄。**大纲 = 正文的"设计图纸"，图纸不详细，成品不可能饱满。**
+### ⚠️ 要素块写法决定大纲体量（2026-06-12 Ch3重写教训）
+
+Ch3初版55KB vs Ch2的97KB，差距38%。根因：**"必须包含的要素"是清单式（每条1行）vs 段落式（每条3-5句）**。
+
+| 格式 | 每条长度 | 大纲体量 | 正文效果 |
+|:-----|:--------|:--------|:--------|
+| 清单式（Ch3初版） | ~80字 | 55KB | 正文单薄，缺教学纵深 |
+| 段落式（Ch2标杆） | ~300-500字 | 97KB | 正文饱满，教授级水准 |
+
+**Agent 写大纲时每条"必须包含的要素"不得写清单**。必须是3-5句的完整教学段落：教学内容+教学意图（为什么这样教）+参考教材出处+一个教学提示（"让学生做X练习"或"用Y类比解释"）。这是大纲体量从50KB跃升到70KB+的**第一大杠杆**。修复方法：不用逐条patch，用Python脚本定位所有要素块→一次性整体替换为扩充版。
 
 ### ⚠️ 常见错误
 
@@ -404,13 +482,13 @@ Agent 为每节填充 4 个维度：
 
 ## Common Pitfalls
 
-1. **行级状态机，不用正则** — `\$\$(.*?)\$\$` 对 `>$$` 格式无效。必须用行级状态机
+1. **行级状态机，不用正则** — `$$(.*?)$$` 对 `>$$` 格式无效。必须用行级状态机
 2. **空 `$$...$$` 块** — 编号前先删除
 3. **`>$$` 保留 `>` 前缀** — v3 做法，不要替换为 `$$`
 4. **先读后写** — 永远 `read()` 再 `write()`，绝不先写后读
 5. **Mermaid 圆边节点** — `[("text")]`（对）而非 `[("text)"]`（错）
 6. **Mermaid 禁止 emoji** — 节点标签中的 `🔄⚠️🚫📋⭐` 等 emoji 导致渲染器解析失败，用纯文字替代（已在 `references/mermaid-compatibility-guide.md` 中详细说明可用/禁用语法）
-7. **Mermaid `<br>` 非 `\n`** — 节点换行用 `<br>`，`\n` 在 Mermaid 中无效
+7. **Mermaid `<br>` 非 `\\n`** — 节点换行用 `<br>`，`\\n` 在 Mermaid 中无效
 8. **Mermaid subgraph 内 direction** — subgraph 内使用 direction TB/LR 可能引发渲染问题
 9. **Mermaid timeline 中文书名号** — timeline 内容中避免使用书名号，可能导致渲染中断
 10. **Mermaid ---config--- 语法** — 部分渲染器不支持，改用 %%{init}%%
@@ -420,13 +498,14 @@ Agent 为每节填充 4 个维度：
 14. **大规模填充防超时** — delegate_task 填充≥35KB完整大纲时易超时（实测600s/7次API调用），此时应先用 delegate_task 做参考书分析（不含写入任务），再用直接 write_file 写入完整大纲。详见 `references/delegate-vs-direct-write.md`
 15. **整章写作防超时：并行分节法** — delegate_task 单次创作整章（60~80KB）必超时（实测两次600s），改用 `delegate_task(tasks=[...])` 并行3路分节创作：part1(§X.1+§X.2)、part2(§X.3+§X.4)、part3(§X.5)，每路目标15~25KB。完成后用 Python 脚本组装（剥离多余标题 → 拼接 → 追加章末总结/习题/参考文献）。详见 `references/parallel-section-writing.md`
 16. **单行 `$$...$$` 缺编号** — 行内的 `$$10\lg(4/3)=1.25\mathrm{dB}$$` 被 `quality_audit.py` 计为公式但无 `\tag`，报"缺编号"。修复：转为行内 `$...$`（如 `$\approx1.25\,\mathrm{dB}$`），小计算不需要独立编号。
-17. **Mermaid 图样式：白底黑字优先** — 禁止使用深色主题（`theme:'dark'`/`'forest'`等），保持默认透明背景。禁止在 `%%{init}%%` 中设置背景色或全局样式覆盖。文档渲染后自动呈现为白底黑字。
+17. **Mermaid 图样式：白底黑字优先** — 禁止使用深色主题（`theme:'dark'`/'forest'等），保持默认透明背景。禁止在 `%%{init}%%` 中设置背景色或全局样式覆盖。文档渲染后自动呈现为白底黑字。
 18. **Mermaid 图横排优先 + 打印友好** — 所有图优先使用 `graph LR`（横向排列），适合屏幕阅读和打印。节点标签每节点≤30字，过长用 `<br>` 换行。不要硬编码图尺寸，由 Markdown 渲染器通过 `width:100%` 自动缩放。
 19. **表格对齐行禁止前置 + 列数必须匹配** — Agent 生成的表格两种常见错误：(a) 表头行**之前**额外添加 `|:--|`（空对齐行），使表格不渲染；(b) 对齐行列数与表头列数不匹配（如4列表头配6列对齐）。正确结构：表头行 → 对齐行（列数=表头列数）→ 数据行。一检查：`python3 scripts/check_table_columns.py output/*.md`。一修复：`python3 scripts/check_table_columns.py --fix output/第X章-*.md`
+20. **Reference Index 去重** — Reference Index 中每个条目必须唯一。编辑后检查 `awk '/^| /{print $NF}' SKILL.md | sort | uniq -d` 无输出。
 
 ## 教授级9分标准（2026-06-12，基于Ch1→Ch2实战对比验证）
 
-第1章（教授指南前）5.0分 → 第2章（指南后）8.4分。**写作大纲中的"9分之星要求"节 + 以下10项检查 = 第3章起自动达标。**
+第1章（教授指南前）5.0分 → 第2章（指南后）8.4分 → 第3章（要素段落式填充后）预估≥9.0分。**写作大纲中的"9分之星要求"节 + 以下10项检查 = 第3章起自动达标。**
 
 | # | 指标 | 9分标准 | 检查命令 |
 |:--|:-----|:-------|:---------|
@@ -493,14 +572,20 @@ Agent 为每节填充 4 个维度：
 |:-----------|:------|
 | `references/formula-numbering-diagnosis.md` | 公式编号根因诊断 + 陷阱 A-E |
 | `references/formula-numbering-comprehensive-fix.md` | 综合修复流程 + 诊断决策树 |
-| `references/comprehensive-quality-audit.md` | 全章质量审计工作流 |
+| `references/comprehensive-quality-audit.md` | 全章质量审计工作流（历史文档，现以 quality_audit.py 为准） |
 | `references/content-expansion-workflow.md` | 内容扩充工作流 |
-| `references/mermaid-compatibility-guide.md` | Mermaid 兼容性指南（禁止语法+替代方案） |
-| `references/mermaid-validation-checklist.md` | Mermaid 语法质量检查清单 |
-| `references/mermaid-guide.md` | Mermaid 陷阱与正确写法 |
-| `references/derivation-example-107.md` | 公式推导示例 |
-| `references/chapter-writing-standard.md` | 章节写作标准 |
-| `references/mermaid-compatibility-guide.md` | Mermaid 兼容性指南（禁止语法+替代方案） |
+|| `references/mermaid-compatibility-guide.md` | Mermaid 兼容性指南（禁止语法+替代方案） |
+|| `references/mermaid-validation-checklist.md` | Mermaid 语法质量检查清单 |
+|| `references/mermaid-guide.md` | Mermaid 陷阱与正确写法 |
+|| `references/derivation-example-107.md` | 公式推导示例 |
+|| `references/chapter-writing-standard.md` | 章节写作标准 |
+|| `references/outline-writing-standards.md` | 写作大纲质量标准（量化指标/核查步骤/体量基准） |
+|| `references/professor-level-writing-guide.md` | 教授级写作指南（叙述风格/案例三要素/习题三层级） |
+|| `references/textbook-style-guide.md` | 教材排版规范 |
+|| `references/volume-standards.md` | 体量基准与映射规律 |
+|| `references/delegate-vs-direct-write.md` | delegate_task vs write_file 边界 |
+|| `references/parallel-section-writing.md` | 并行分节写作 |
+|| `references/audit-pitfalls.md` | 审计阶段常见错误 |
 
 ## 学习目标覆盖检查
 
@@ -548,3 +633,18 @@ Agent 为每节填充 4 个维度：
 | **兼容电平图** | 发射限值/抗扰度限值/兼容电平的层次关系 |
 
 `quality_audit.py` 的 `check_technical_depth()` 函数会自动检查第1章是否覆盖这些内容。
+
+## 与 domain-wiki 的对照（v3.4.0 新增）
+
+book-build 从 domain-wiki 学习了以下最佳实践并已集成：
+
+| domain-wiki 实践 | book-build 集成状态 | 说明 |
+|:----------------|:------------------|:-----|
+| Anti-Bloat Covenant（600行/80行红线） | ✅ 已集成 | 第2节新增完整守则 |
+| 死代码清理检查表 | ✅ 已集成 | Reference Index 去重 + 脚本引用检查 |
+| 三道质量闸门（Gate A/B/C） | ❌ 待实现 | 当前依赖生成后审计，未做到生成前防御 |
+| 内联质量检查（check-item） | ❌ 待实现 | 写作时逐项检查，不留给事后 |
+| 修正自进化机制（wiki-corrections.yaml） | ❌ 待实现 | 记录问题 → 下章注入先验知识 |
+| `--fix-threshold` 与 `--threshold` 分离 | ❌ 待实现 | quality_audit.py 需拆分退出阈值与修复阈值 |
+
+**优先级建议**：Gate A（大纲生成前验证）和 Gate B（正文生成时即时修复）是下一个重大改进方向。

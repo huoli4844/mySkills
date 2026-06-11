@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 quality_audit.py — 统一质量审计入口。
-整合 comprehensive_audit.py、post_generation_check.py、outline_vs_chapter_audit.py，
-输出结构化的审计报告。
+
+所有审计函数在此单文件内，不再分散到独立脚本。
+所有审计函数集中管理，不再分散到独立脚本。
+但保持函数独立、可复用，不再互相调用。
 
 用法：
   python3 scripts/quality_audit.py --project /path/to/教材              # 全量审计
@@ -15,47 +17,22 @@ import re
 import sys
 import json
 import argparse
-import subprocess
 from pathlib import Path
-from datetime import datetime
 from typing import List, Dict, Optional
-
-
-def run_script(script_name: str, args: List[str], cwd: str) -> Dict:
-    """运行某个审计脚本，捕获输出"""
-    script_path = os.path.join(os.path.dirname(__file__), script_name)
-    if not os.path.exists(script_path):
-        return {"script": script_name, "status": "not_found", "output": ""}
-    
-    try:
-        result = subprocess.run(
-            [sys.executable, script_path] + args,
-            capture_output=True, text=True, timeout=120,
-            cwd=cwd
-        )
-        return {
-            "script": script_name,
-            "status": "ok" if result.returncode == 0 else "error",
-            "returncode": result.returncode,
-            "stdout": result.stdout[-2000:],
-            "stderr": result.stderr[-1000:],
-        }
-    except subprocess.TimeoutExpired:
-        return {"script": script_name, "status": "timeout", "output": ""}
 
 
 def check_formulas(content: str, prefix: str) -> Dict:
     """检查公式编号"""
     tags = [int(t) for t in re.findall(r'\\tag\{' + prefix + r'-(\d+)\}', content)]
     blocks = len(re.findall(r'\$\$(.*?)\$\$', content, re.DOTALL))
-    
-    # 配对检查
+
+    # 配对检查（行级状态机，处理 >$$ 格式）
     in_math = False
     for line in content.split('\n'):
         s = line.strip()
         if s == '$$' or s == '> $$':
             in_math = not in_math
-    
+
     return {
         "formula_blocks": blocks,
         "formula_tags": len(tags),
@@ -74,7 +51,7 @@ def check_content_stats(content: str) -> Dict:
     has_summary = '本章总结' in content
     has_exercises = '## 习题' in content or '思考题' in content
     has_refs = '## 参考文献' in content
-    
+
     return {
         "tables": max(0, tables),
         "mermaids": mermaids,
@@ -86,59 +63,148 @@ def check_content_stats(content: str) -> Dict:
     }
 
 
+# ============================================================
+# 军规合规检查
+# ============================================================
+
+def check_second_person(content: str) -> List[str]:
+    """检查正文中是否使用第二人称'你'（习题前）"""
+    issues = []
+    if '## 习题' in content:
+        before_exam = content.split('## 习题')[0]
+        for line in before_exam.split('\n'):
+            if '你' in line:
+                issues.append(f"正文含第二人称'你': {line.strip()[:80]}")
+    return issues
+
+
+def check_step_markers(content: str) -> List[str]:
+    """检查是否存在Step标记（应为'第一步/第二步'等学术表述）"""
+    issues = []
+    match = re.search(r'Step\s+\d', content)
+    if match:
+        issues.append(f"存在Step标记: '{match.group(0)}'")
+    return issues
+
+
+def check_summary_count(content: str) -> List[str]:
+    """检查小结条目数（必须恰好6条）"""
+    issues = []
+    if '## 本章总结' not in content:
+        return issues  # 无小结不算军规违规
+
+    summary_match = re.search(r'## 本章总结(.*?)## 习题', content, re.DOTALL)
+    if not summary_match:
+        return issues
+
+    summary_text = summary_match.group(1)
+
+    # 检查数字编号：1. xxx / ① xxx
+    numbered = re.findall(r'^[\d①②③④⑤⑥⑦⑧⑨⑩]+\.?\s+', summary_text, re.MULTILINE)
+
+    # 检查表格形式：| ① | 设计方法 | ...
+    table_rows = re.findall(r'^\|\s*[①②③④⑤⑥⑦⑧⑨⑩\d]+\s*\|', summary_text, re.MULTILINE)
+
+    if numbered:
+        count = len(numbered)
+    elif table_rows:
+        count = len(table_rows)
+    else:
+        count = 0
+
+    if count != 6:
+        issues.append(f"小结条目数{count}，应为6条")
+    return issues
+
+
+def check_placeholders(content: str) -> List[str]:
+    """检查占位符"""
+    issues = []
+    placeholders = ['[待补充]', '[TODO]', '[请填写]', '[补充]', '[占位]']
+    for ph in placeholders:
+        if ph in content:
+            issues.append(f"存在占位符: {ph}")
+    return issues
+
+
+def check_footnotes_format(content: str) -> List[str]:
+    """检查参考文献格式"""
+    issues = []
+    if '## 参考文献' not in content:
+        issues.append("缺少参考文献章节")
+        return issues
+
+    ref_section = content.split('## 参考文献')[1].split('##')[0] if '## 深入阅读' in content else content.split('## 参考文献')[1]
+    refs = re.findall(r'\[\s*[MS]\s*\]', ref_section)
+    if not refs:
+        issues.append("参考文献缺少[M]或[S]标识")
+    return issues
+
+
+def check_dollar_pairing(content: str) -> List[str]:
+    """检查$$配对"""
+    issues = []
+    dollar_count = content.count('$$')
+    if dollar_count % 2 != 0:
+        issues.append(f"奇数个$$（{dollar_count}个），存在未闭合公式块")
+    return issues
+
+
+def check_tag_chapter_prefix(content: str, chapter: int) -> List[str]:
+    """检查公式标签章号前缀"""
+    issues = []
+    tags = re.findall(r'\\tag\{(\d+)-(\d+)\}', content)
+    wrong = []
+    for major, minor in tags:
+        if major != str(chapter):
+            wrong.append(f"\\tag{{{major}-{minor}}}")
+    if wrong:
+        issues.append(f"公式标签章号错误: {', '.join(wrong[:5])}")
+    return issues
+
+
+# ============================================================
+# 写作规范检查
+# ============================================================
+
 def check_professor_quality(content: str) -> List[str]:
     """检查教授级写作质量指标"""
     issues = []
-    
+
     # 1. 设问引导（每节至少1个"为什么/如何"）
     sections = re.split(r'^## \d+\.', content, flags=re.MULTILINE)
     for i, sec in enumerate(sections[1:], 1):
         if '为什么' not in sec and '如何' not in sec:
             issues.append(f"§{i} 缺少设问引导句（为什么/如何）")
-    
+
     # 2. 工程直觉提示词
     intuition_words = ['值得注意的是', '关键在于', '本质上', '工程启示']
     if not any(w in content for w in intuition_words):
         issues.append("全章缺少工程直觉提示词")
-    
+
     # 3. 教学视角
     teaching_words = ['读者', '初学者', '在学习中', '建议读者', '值得思考']
     if sum(content.count(w) for w in teaching_words) < 3:
         issues.append("教学视角提示不足（建议≥3处）")
-    
-    # 4. 案例叙事三要素
-    cases = re.findall(r'案例[一二三四五六七八九十\d]', content)
-    if cases:
-        has_scene = '年' in content and '月' in content
-        has_analysis = '分析' in content or '模型' in content
-        has_lesson = '启示' in content or '教训' in content
-        if not has_scene:
-            issues.append("案例缺少场景设定（时间/地点）")
-        if not has_lesson:
-            issues.append("案例缺少工程启示")
-    
+
     return issues
 
 
 def check_learning_objectives(content: str) -> List[str]:
     """检查学习目标是否被正文覆盖"""
     issues = []
-    # 提取学习目标：学习目标前面的标识可能在## 内容提要段落之后
-    # 支持多种写法
     patterns = [
         r'通过本章学习，读者(?:应)?(?:达成以下学习目标|掌握以下内容|应掌握)(.*?)(?=\n\s*\n---|\n\s*\n##|\Z)',
         r'本章学习目标如下：(.*?)(?=\n\s*\n---|\n\s*\n##|\Z)',
     ]
-    
-    # 先找"通过本章学习"开头的目标块
+
     obj_section = None
     for p in patterns:
         obj_section = re.search(p, content, re.DOTALL)
         if obj_section:
             break
-    
+
     if not obj_section:
-        # 容错：在 ## 内容提要 后找编号列表
         idx = content.find('## 内容提要')
         if idx >= 0:
             after = content[idx:idx+2000]
@@ -146,109 +212,20 @@ def check_learning_objectives(content: str) -> List[str]:
             if len(numbered) >= 3:
                 return []
         return ["未找到学习目标"]
-    
+
     obj_text = obj_section.group(1)
     objectives = re.findall(r'\d+\.\s*(.*?)(?=\n\s*\d+\.|\Z)', obj_text, re.DOTALL)
     if not objectives:
         objectives = [obj_text.strip()]
-    
+
     for i, obj in enumerate(objectives):
         obj_clean = obj.strip()[:80]
-        # 从学习目标中提取关键词
         keywords = re.findall(r'[A-Za-z\u4e00-\u9fff\u0391-\u03c9]{2,}', obj)
-        # 检查每个关键词是否在正文中出现
         missing_kw = [kw for kw in keywords if len(kw) > 2 and kw not in content]
-        if len(missing_kw) > len(keywords) * 0.5:  # 超过一半关键词缺失
+        if len(missing_kw) > len(keywords) * 0.5:
             issues.append(f"学习目标{i+1}: \"{obj_clean}\" 可能未被正文覆盖")
-    
+
     return issues
-
-
-def audit_chapter(fpath: str, quick: bool = False) -> Dict:
-    """审计单章"""
-    with open(fpath, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    ch = re.search(r'第(\d+)章', os.path.basename(fpath))
-    if not ch:
-        return {"file": fpath, "error": "无法识别章节号"}
-    prefix = ch.group(1)
-    
-    lines = content.count('\n') + 1
-    size_kb = os.path.getsize(fpath) / 1024
-    
-    result = {
-        "chapter": int(prefix),
-        "file": os.path.basename(fpath),
-        "size_kb": round(size_kb, 1),
-        "lines": lines,
-    }
-    
-    # 公式检查
-    result["formulas"] = check_formulas(content, prefix)
-    
-    # 内容统计
-    result["content"] = check_content_stats(content)
-    
-    # 快速模式不检查大纲差距
-    if not quick:
-        # 检查写作说明/军规等不应出现在正文的内容
-        has_forbidden = {
-            "writing_notes": '本章写作说明' in content,
-            "rules_check": '12条军规' in content or '军规落实' in content,
-            "formula_summary": '全章核心公式总结' in content,
-        }
-        result["forbidden"] = has_forbidden
-    
-    # 综合评分
-    issues = []
-    f = result["formulas"]
-    if not f["dollars_paired"]:
-        issues.append("$$ 未配对")
-    if f["orphan_tags"] > 0:
-        issues.append(f"{f['orphan_tags']}个孤立tag")
-    if not f["tags_continuous"]:
-        issues.append("编号不连续")
-    if f["formula_tags"] < f["formula_blocks"]:
-        issues.append(f"缺{f['formula_blocks']-f['formula_tags']}个编号")
-    
-    if not quick and result.get("forbidden"):
-        for k, v in result["forbidden"].items():
-            if v:
-                issues.append(f"正文含{k}")
-    
-    result["issues"] = issues
-    result["pass"] = len(issues) == 0
-    
-    # Mermaid 语法检查
-    mermaid_issues = check_mermaid(content)
-    result["mermaid_issues"] = mermaid_issues
-    if mermaid_issues:
-        result["pass"] = False
-        result["issues"].extend(mermaid_issues[:3])
-    
-    # 学习目标覆盖检查
-    obj_issues = check_learning_objectives(content)
-    result["learning_objective_issues"] = obj_issues
-    if obj_issues:
-        result["pass"] = False
-        result["issues"].extend(obj_issues[:3])
-    
-    # 图注位置检查（图注必须在Mermaid下方）
-    fig_issues = check_figure_captions(content)
-    result["figure_caption_issues"] = fig_issues
-    if fig_issues:
-        result["pass"] = False
-        result["issues"].extend(fig_issues[:2])
-    
-    # 技术深度检查（第1章特有）
-    td_issues = check_technical_depth(content, int(prefix))
-    result["tech_depth_issues"] = td_issues
-    if td_issues:
-        result["pass"] = False
-        result["issues"].extend(td_issues[:2])
-    
-    return result
 
 
 def check_mermaid(content: str) -> List[str]:
@@ -258,12 +235,12 @@ def check_mermaid(content: str) -> List[str]:
     for idx, block in enumerate(blocks):
         lines = block.strip().split('\n')
         first = lines[0].strip() if lines else ''
-        
-        # 1. 检查 ---config--- 语法（兼容性问题）
+
+        # 1. ---config--- 语法
         if block.strip().startswith('---'):
-            issues.append(f"Mermaid图{idx+1}: 使用 ---config--- 语法，建议改用 %%{{init}}%%")
-        
-        # 2. 检查 subgraph 标题中的括号和 direction 指令
+            issues.append(f"Mermaid图{idx+1}: 使用 ---config--- 语法")
+
+        # 2. subgraph 标题括号 + direction
         in_subgraph = False
         for i, line in enumerate(lines):
             s = line.strip()
@@ -273,77 +250,59 @@ def check_mermaid(content: str) -> List[str]:
                 if title.startswith('"') and title.endswith('"'):
                     title = title[1:-1]
                 if '(' in title or ')' in title:
-                    issues.append(f"Mermaid图{idx+1} L{i+1}: subgraph 标题含括号: '{title[:40]}'")
+                    issues.append(f"Mermaid图{idx+1} L{i+1}: subgraph 标题含括号")
             if s == 'end' and in_subgraph:
                 in_subgraph = False
-            # 检查 subgraph 内的 direction 指令
             if in_subgraph and 'direction ' in s:
-                issues.append(f"Mermaid图{idx+1} L{i+1}: subgraph 内 direction 可能导致渲染问题，建议移除")
-        
-        # 3. 检查 mindmap 中的特殊字符
-        if 'mindmap' in first or 'mindmap' in block:
-            # mindmap 中不能有 --- 除非是 init 后的分隔
-            pass
-        
-        # 4. 检查 unclosed quotes in node labels
+                issues.append(f"Mermaid图{idx+1} L{i+1}: subgraph 内 direction")
+
+        # 3. 引号配对
         for i, line in enumerate(lines):
-            s = line.strip()
-            if s.count('"') % 2 != 0:
+            if line.count('"') % 2 != 0:
                 issues.append(f"Mermaid图{idx+1} L{i+1}: 引号未配对")
-        
-        # 5. 检查 round node 括号顺序 [("text")] vs [("text)"]
+
+        # 4. 圆边节点
         for i, line in enumerate(lines):
-            # 检查 [("...")] 中圆括号位置
-            if re.search(r'\[\(\"[^"]*\)\"\]', line):
-                issues.append(f"Mermaid图{idx+1} L{i+1}: [(\"text)\"] 应为 [(\"text\")]（圆括号被吞入标签）")
-        
-        # 6. 检查 timeline 中文书名号
-        if 'timeline' in first:
-            for i, line in enumerate(lines):
-                if '《' in line or '》' in line:
-                    issues.append(f"Mermaid图{idx+1} L{i+1}: timeline 中含书名号《》, 可能导致渲染问题")
-        
-        # 7. 检查是否有 %%{init 配置语法
+            if re.search(r'\[\(""[^\"]*\)\"\]', line):
+                issues.append(f"Mermaid图{idx+1} L{i+1}: 圆边节点括号位置错误")
+
+        # 5. emoji 检测
+        emoji_pattern = re.compile(
+            r'[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B50\uFE00-\uFE0F\u2702-\u27B0]'
+        )
         for i, line in enumerate(lines):
-            if '%%{' in line and '}%%' not in line:
-                issues.append(f"Mermaid图{idx+1} L{i+1}: init 配置块未闭合")
-        
-        # 8. 检查 emoji 和特殊 Unicode 字符
-        emoji_pattern = re.compile(r'[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B50\uFE00-\uFE0F\u2702-\u27B0]')
-        for i, line in enumerate(lines):
-            emojis = emoji_pattern.findall(line)
-            if emojis:
-                issues.append(f"Mermaid图{idx+1} L{i+1}: 含 emoji 字符")
+            if emoji_pattern.search(line):
+                issues.append(f"Mermaid图{idx+1} L{i+1}: 含 emoji")
             if '⭐' in line:
-                issues.append(f"Mermaid图{idx+1} L{i+1}: 含星号字符 ⭐，可能导致渲染失败")
-        
-        # 9. 检查不完全支持的语法
+                issues.append(f"Mermaid图{idx+1} L{i+1}: 含星号 ⭐")
+
+        # 6. 禁用语法
         if 'timeline' in block:
-            issues.append(f"Mermaid图{idx+1}: 使用 timeline 语法（部分渲染器不支持），建议改用 graph LR")
+            issues.append(f"Mermaid图{idx+1}: 使用 timeline 语法")
         if 'mindmap' in block:
-            issues.append(f"Mermaid图{idx+1}: 使用 mindmap 语法（部分渲染器不支持），建议改用 graph TD")
+            issues.append(f"Mermaid图{idx+1}: 使用 mindmap 语法")
         if '%%{' in block:
-            issues.append(f"Mermaid图{idx+1}: 使用 %%{{init}}%% 配置（部分渲染器不支持），建议移除")
+            issues.append(f"Mermaid图{idx+1}: 使用 %%{{init}}%% 配置")
         if '<-->' in block:
-            issues.append(f"Mermaid图{idx+1}: 使用 <--> 双向箭头（部分渲染器不支持），建议改用两条单向箭头")
-    
+            issues.append(f"Mermaid图{idx+1}: 使用 <--> 双向箭头")
+
     return issues
 
 
 def check_figure_captions(content: str) -> List[str]:
     """检查图注位置（图注应在Mermaid下方，表题在表格上方）"""
     issues = []
-    # 检查Mermaid块后紧跟的图注
-    mermaid_blocks = re.findall(r'```mermaid\n(.*?)```\n', content, re.DOTALL)
+    mermaid_blocks = re.findall(r'```mermaid\n(.*?)```', content, re.DOTALL)
     for idx, block in enumerate(mermaid_blocks):
-        after = content[content.find(block) + len(block) + 3:]
-        after = after[:100]
-        # 找图注（*图X-Y* 格式）
+        block_start = content.find(block)
+        if block_start < 0:
+            continue
+        after = content[block_start + len(block) + 3:block_start + len(block) + 103]
         caption = re.search(r'\*图[\d\-]+[^*]+\*', after)
         if not caption:
             issues.append(f"Mermaid图{idx+1} 缺少图注（应在图下方加 *图X-Y 标题*）")
         elif after.find(caption.group()) > 50:
-            issues.append(f"Mermaid图{idx+1} 图注距离图太远（应在紧接```的下一行）")
+            issues.append(f"Mermaid图{idx+1} 图注距离图太远")
     return issues
 
 
@@ -364,106 +323,178 @@ def check_technical_depth(content: str, chapter: int) -> List[str]:
         if missing:
             issues.append(f"缺技术深度内容: {', '.join(missing)}")
     return issues
-    parser = argparse.ArgumentParser(description="统一质量审计")
-    parser.add_argument("--project", help="项目根目录")
-    parser.add_argument("--chapter", type=int, default=None, help="指定章节")
-    parser.add_argument("--quick", action="store_true", help="快速审计（仅编号+$$）")
-    parser.add_argument("--json", action="store_true", help="输出JSON")
-    args = parser.parse_args()
-    
-    if args.project:
-        output_dir = Path(args.project) / "output"
-        files = sorted(output_dir.glob("第*.md"))
-        files = [f for f in files if '报告' not in f.name]
-    else:
-        print("❌ 请指定 --project 或 --file")
-        sys.exit(1)
-    
-    if args.chapter:
-        files = [f for f in files if f.name.startswith(f"第{args.chapter}章")]
-    
+
+
+def check_forbidden_content(content: str) -> Dict:
+    """检查不应出现在正文的内容（军规检查/写作说明等）"""
+    return {
+        "writing_notes": '本章写作说明' in content,
+        "rules_check": '12条军规' in content or '军规落实' in content,
+        "formula_summary": '全章核心公式总结' in content,
+    }
+
+
+# ============================================================
+# 审计入口
+# ============================================================
+
+def audit_chapter(fpath: str, quick: bool = False) -> Dict:
+    """审计单章"""
+    with open(fpath, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    ch = re.search(r'第(\d+)章', os.path.basename(fpath))
+    if not ch:
+        return {"file": fpath, "error": "无法识别章节号"}
+    prefix = ch.group(1)
+
+    lines = content.count('\n') + 1
+    size_kb = os.path.getsize(fpath) / 1024
+
+    result = {
+        "chapter": int(prefix),
+        "file": os.path.basename(fpath),
+        "size_kb": round(size_kb, 1),
+        "lines": lines,
+    }
+
+    # 公式检查
+    result["formulas"] = check_formulas(content, prefix)
+
+    # 内容统计
+    result["content"] = check_content_stats(content)
+
+    # 军规合规检查（综合审计项）
+    compliance = []
+    compliance.extend(check_second_person(content))
+    compliance.extend(check_step_markers(content))
+    compliance.extend(check_summary_count(content))
+    compliance.extend(check_placeholders(content))
+    compliance.extend(check_footnotes_format(content))
+    compliance.extend(check_dollar_pairing(content))
+    compliance.extend(check_tag_chapter_prefix(content, int(prefix)))
+    result["compliance"] = compliance
+
+    # 快速模式不检查大纲差距和写作规范
+    if not quick:
+        # 禁止内容
+        result["forbidden"] = check_forbidden_content(content)
+
+    # 综合评分
+    issues = []
+    f = result["formulas"]
+    if not f["dollars_paired"]:
+        issues.append("$$ 未配对")
+    if f["orphan_tags"] > 0:
+        issues.append(f"{f['orphan_tags']}个孤立tag")
+    if not f["tags_continuous"]:
+        issues.append("编号不连续")
+    if f["formula_tags"] < f["formula_blocks"]:
+        issues.append(f"缺{f['formula_blocks']-f['formula_tags']}个编号")
+
+    # 军规合规问题
+    for c in compliance:
+        issues.append(c)
+
+    if not quick and result.get("forbidden"):
+        for k, v in result["forbidden"].items():
+            if v:
+                issues.append(f"正文含{k}")
+
+    result["issues"] = issues
+    result["pass"] = len(issues) == 0
+
+    # Mermaid 语法检查
+    mermaid_issues = check_mermaid(content)
+    result["mermaid_issues"] = mermaid_issues
+    if mermaid_issues:
+        result["pass"] = False
+        result["issues"].extend(mermaid_issues[:3])
+
+    # 学习目标覆盖检查
+    obj_issues = check_learning_objectives(content)
+    result["learning_objective_issues"] = obj_issues
+    if obj_issues:
+        result["pass"] = False
+        result["issues"].extend(obj_issues[:3])
+
+    # 图注位置检查
+    fig_issues = check_figure_captions(content)
+    result["figure_caption_issues"] = fig_issues
+    if fig_issues:
+        result["pass"] = False
+        result["issues"].extend(fig_issues[:2])
+
+    # 技术深度检查（第1章特有）
+    td_issues = check_technical_depth(content, int(prefix))
+    result["tech_depth_issues"] = td_issues
+    if td_issues:
+        result["pass"] = False
+        result["issues"].extend(td_issues[:2])
+
+    return result
+
+
+def audit_project(project_path: str, chapter: Optional[int] = None,
+                  quick: bool = False, output_json: bool = False) -> List[Dict]:
+    """审计整个项目"""
+    output_dir = Path(project_path) / "output"
+    files = sorted(output_dir.glob("第*.md"))
+    files = [f for f in files if '报告' not in f.name]
+
+    if chapter:
+        files = [f for f in files if f.name.startswith(f"第{chapter}章")]
+
+    if not files:
+        print(f"未找到章节文件: {output_dir}/第*.md")
+        return []
+
     results = []
     total_issues = 0
-    
+
     print(f"{'章':>4} {'大小':>7} {'行数':>5} {'公式':>4} {'编号':>4} {'$$':>3} {'图':>3} {'表':>3} {'例题':>3} {'状态':>6}")
     print("-" * 55)
-    
+
     for fpath in files:
-        r = audit_chapter(str(fpath), args.quick)
+        r = audit_chapter(str(fpath), quick)
         results.append(r)
-        
+
         f = r["formulas"]
         c = r["content"]
         status = "✅" if r["pass"] else f"❌ {r['issues'][0][:20]}"
         total_issues += len(r["issues"])
-        
+
         print(f" 第{r['chapter']:>2}章 {r['size_kb']:>6.0f}KB {r['lines']:>5} "
               f"{f['formula_blocks']:>3}/{f['formula_tags']:>3} "
               f"{'✅' if f['dollars_paired'] else '❌'} "
               f"{'✅' if f['tags_continuous'] else '❌'} "
               f"{c['mermaids']:>2} {c['tables']:>2} {c['examples']:>2} "
               f"{status}")
-    
+
     passed = sum(1 for r in results if r["pass"])
-    print("\n--- 汇总 ---")
+    print(f"\n--- 汇总 ---")
     print(f"审计: {len(results)} 章 | 通过: {passed} | 问题: {total_issues}")
     print(f"公式: {sum(r['formulas']['formula_tags'] for r in results)} 个")
-    
-    if args.json:
+
+    if output_json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
 
-
+    return results
 
 
 def main():
     parser = argparse.ArgumentParser(description="统一质量审计")
     parser.add_argument("--project", help="项目根目录")
     parser.add_argument("--chapter", type=int, default=None, help="指定章节")
-    parser.add_argument("--quick", action="store_true", help="快速审计")
+    parser.add_argument("--quick", action="store_true", help="快速审计（仅编号+$$）")
     parser.add_argument("--json", action="store_true", help="输出JSON")
     args = parser.parse_args()
-    
-    if args.project:
-        output_dir = Path(args.project) / "output"
-        files = sorted(output_dir.glob("第*.md"))
-        files = [f for f in files if '报告' not in f.name]
-    else:
+
+    if not args.project:
         print("❌ 请指定 --project")
         sys.exit(1)
-    
-    if args.chapter:
-        files = [f for f in files if f.name.startswith(f"第{args.chapter}章")]
-    
-    results = []
-    total_issues = 0
-    
-    print(f"{'章':>4} {'大小':>7} {'行数':>5} {'公式':>4} {'编号':>4} {'$$':>3} {'图':>3} {'表':>3} {'例题':>3} {'状态':>6}")
-    print("-" * 55)
-    
-    for fpath in files:
-        r = audit_chapter(str(fpath), args.quick)
-        results.append(r)
-        f = r["formulas"]
-        c = r["content"]
-        status = "✅" if r["pass"] else f"❌ {r['issues'][0][:20]}"
-        total_issues += len(r["issues"])
-        
-        print(f" 第{r['chapter']:>2}章 {r['size_kb']:>6.0f}KB {r['lines']:>5} "
-              f"{f['formula_blocks']:>3}/{f['formula_tags']:>3} "
-              f"{'✅' if f['dollars_paired'] else '❌'} "
-              f"{'✅' if f['tags_continuous'] else '❌'} "
-              f"{c['mermaids']:>2} {c['tables']:>2} {c['examples']:>2} "
-              f"{status}")
-    
-    passed = sum(1 for r in results if r["pass"])
-    print("\n--- 汇总 ---")
-    print(f"审计: {len(results)} 章 | 通过: {passed} | 问题: {total_issues}")
-    print(f"公式: {sum(r['formulas']['formula_tags'] for r in results)} 个")
-    
-    if args.json:
-        print(json.dumps(results, ensure_ascii=False, indent=2))
 
-
+    audit_project(args.project, args.chapter, args.quick, args.json)
 
 
 if __name__ == "__main__":

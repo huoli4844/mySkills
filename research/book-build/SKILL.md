@@ -223,3 +223,5 @@ git push origin book-build-v&lt;version&gt;
 | `scripts/domain_injector.py` | 领域信号注入（填充 reference 变量） |
 | `references/textbook-style-guide.md` | 排版规范 |
 | `references/audit-script-landscape.md` | 审计脚本全景 |
+| `scripts/post_gen_check/` | 质量检查函数包（formulas/mermaid/content） |
+| `templates/chapter-writing-guide-template.md` | 写作大纲模板（generate_outlines.py 加载） |

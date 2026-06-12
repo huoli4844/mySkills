@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.0 (2026-06-17)
+- **3→1 脚本合并**：book_toc.py + kg_builder.py + domain_injector.py → `domain_init.py`（827→683行，-144行）
+- **Reference Index 分层**：旧 41 行平铺表 → L1/L2/L3 三级，新增 `references/INDEX.md` + `references/ref-quickref.md`
+- **模板质量改进**：开篇三法加单行展开示例（含可直接使用的句子）、结构化要素改为 6 选 3 勾选制、概念建构四步法加展开模板、设问过渡加实例
+- **噪声过滤报告**：`domain_init.py --noise-report` 新增噪声过滤明细输出
+- **SKILL.md 修复**：管道流程图更新、规则6转义损坏修复、重复条目清理
+- **207 测试全绿**（合并后 32 test_domain_init + 175 存量测试）
+
 ## 2.12.0 (2026-06-10)
 - **公式管线全面重写**：从手写 LaTeX 解析器（`latex_to_omml.py`）切换到 `mathml_to_omml.py`（`latex2mathml`→MathML→OMML）。MathML 中间格式比手写解析器（781行）更简洁（~80行核心映射代码），且自动继承 latex2mathml 库对全部 LaTeX 边缘情况的处理
 - **`\xrightarrow{文字}` 正确渲染**：旧方案降级为 `文字 →`（纯文本），新方案正确转为 `<m:acc>` arrow accent 结构

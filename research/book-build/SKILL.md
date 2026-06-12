@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交"
-version: 3.7.0
+version: 3.8.1
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -21,19 +21,17 @@ metadata:
 **例外：** 重大结构性改动（去领域化/架构重构/技能拆分/管线变更），必须先写书面方案 → 用户确认 → 再执行。此规则优先级高于"全自动执行不询问"。
 
 ```
-# 阶段0: 领域注入（新项目初始化时运行）
-book_toc.py          01 从minerU .md提取参考书目录结构
-kg_builder.py        02 合并多书TOC → SQLite知识图谱
-domain_injector.py   03 用领域信号填充references/变量
+# 阶段0: 领域注入（新项目初始化时运行 — 一站式）
+domain_init.py       01 TOC提取 + KG构建 + 领域注入（三阶段合一）
 
 # 阶段1: 写作管线
-setup_project.py     04 创建项目目录
-generate_outlines.py 05 提纲docx → 写作大纲（15板块）
-validate_outlines.py 06 大纲QC
-generate_task_list.py07 生成写作任务
-auto_write.py        08 任务JSON → Agent调用delegate
-batch_fix_numbers    09 批量修复公式编号
-quality_audit.py     10 统一质量审计
+setup_project.py     02 创建项目目录
+generate_outlines.py 03 提纲docx → 写作大纲（15板块）
+validate_outlines.py 04 大纲QC
+generate_task_list.py05 生成写作任务
+auto_write.py        06 任务JSON → Agent调用delegate
+batch_fix_numbers    07 批量修复公式编号
+quality_audit.py     08 统一质量审计
 ```
 
 ## 关键约束（不可违反）
@@ -52,7 +50,7 @@ quality_audit.py     10 统一质量审计
 
 ### delegate_task 边界
 - ✅ 分析参考教材（只读，~200s 3路并行）
-- ✅ 写章节正文（已验证：单章 5 节约 400~500s，80~130 万输入 token）
+- ✅ 写章节正文（已验证：单章 5 节约 400~500s，80~130 万输入 token；单章全量 delegate 实测 470s，909K 输入 token / 45K 输出 token）
 - ❌ 写入大纲（≥35KB 必超时，5次实测）
 - ✅ 正确模式：大纲用 `delegate 做分析 → write_file 直写`；正文用 `delegate 直接写作`
 - **委托写正文时必须禁止 `\[ \]` LaTeX 语法**（子 Agent 常用 `\[ ... \]` 代替 `$$`，导致 `post_generation_check.py` 误报 tag 在 $$ 外）
@@ -104,6 +102,9 @@ setup_project.py 初始化流程：
   ④ build_knowledge_graph() → 多本书 TOC 合并去重 → 词频统计
   ⑤ 写入 output/领域上下文/domain-context.yaml
   ⑥ 用领域信号渲染 references/ 模板 → output/领域上下文/references/
+
+实际执行通过 domain_init.py 一站式完成：
+  python3 scripts/domain_init.py --project /path/to/教材
 ```
 
 **规则3：知识点图谱防止"写偏"**
@@ -118,7 +119,46 @@ setup_project.py 初始化流程：
 **规则4：references/ 是模板，非静态文件**
 references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用领域信号渲染后，写入项目目录。SKILL 层的 references/ 始终保持领域无关。
 
-**规则6：模板层改进优先 — 质量问题先查模板，不单章修补**\n当某章正文质量弱于预期时，**不要直接改那一章**。根因几乎永远是该章的写作大纲（writing-guide）中每节指南不够具体。正确的排查路线：\n\n```\n章节质量弱\n  └→ 查 writing-guide-chX.md 的每节指南是否足够具体\n       ├→ 每节是否有\"结构化要素\"（概念辨析/数学/可视化/案例/教材交叉）？\n       ├→ 开篇方式是否指定了引入手法？\n       ├→ 案例建议是否含公司名/时间/技术参数？\n       ├→ 设问过渡是否直接写出了过渡语句而不是\"[过渡语句]\"？\n       └→ NO → 改进 templates/chapter-writing-guide-template.md  → 重新生成写作大纲 → 重新写章节\n          \n       └→ YES → 检查 auto_write.py 的 delegate_task context 是否传入了完整指令\n```\n\n**核心原则**：改善永远发生在模板层（`templates/`）或流程层（`auto_write.py` 的 context 构造），从未在单章正文层。一次模板改进影响所有未来章节。\n\n详见 `references/chapter-writing-guide-template.md`。该模板的\"每节写作指南\"部分定义了 5 项结构化要素（概念定义与辨析/数学模型/可视化图示/真实案例/对标教材交叉引用），是控制章节质量的关键杠杆。
+**规则6：模板层改进优先 — 质量问题先查模板，不单章修补**
+当某章正文质量弱于预期时，**不要直接改那一章**。根因几乎永远是该章的写作大纲（writing-guide）中每节指南不够具体。正确的排查路线：
+
+```
+章节质量弱
+  └→ 查 writing-guide-chX.md 的每节指南是否足够具体
+       ├→ 每节是否有"结构化要素"（概念辨析/数学/可视化/案例/教材交叉）？
+       ├→ 开篇方式是否指定了引入手法？
+       ├→ 案例建议是否含公司名/时间/技术参数？
+       ├→ 设问过渡是否直接写出了过渡语句而不是"[过渡语句]"？
+       └→ NO → 改进 templates/chapter-writing-guide-template.md → 重新生成写作大纲 → 重新写章节
+
+       └→ YES → 检查 auto_write.py 的 delegate_task context 是否传入了完整指令
+```
+
+**核心原则**：改善永远发生在模板层（`templates/`）或流程层（`auto_write.py` 的 context 构造），从未在单章正文层。一次模板改进影响所有未来章节。
+
+### 规则7：模板设计 — 内联示例 > 文件引用
+
+在模板中提供指导时，**具体句子模板优于 § 文件引用**。例如：
+
+```
+❌ 旧：开篇方式（详见教授级教学法目录 §一、开篇三法）
+✅ 新：开篇方式（§一 开篇三法 — 选一种展开）：
+  - [ ] 日常现象引入法（≥2个生活场景）
+    - 例："你是否遇到过手机靠太近音箱会发出吱吱声？"
+```
+
+**原理**：Agent 看到 § 引用时需要跳转查找另一文件（增加文件读取 + 上下文切换）。内联示例直接呈现在当前上下文中，Agent 可直接复制修改，产出质量更高。
+
+### 规则8：6选3质量原则 — 强制所有要素导致机械写作
+
+写作大纲模板中的结构化要素（概念辨析/公式/Mermaid/案例/脚手架/交叉引用），**不要强制全部实现**。改为 6 选 3（在 [x] 中勾选），理由：
+
+- 不是每一节都适合放公式（例如纯概念节）
+- 不是每一节都需要 Mermaid 图（例如数学推导节）
+- 6 选 3 给 Agent 创作自由度，同时保持每节至少 3 个结构化要素的质量底限
+- 质量审计应只检查被选中的要素是否完整实现，而非全 6 项
+
+详见 `references/chapter-writing-guide-template.md`。该模板的"每节写作指南"部分定义了 6 项结构化要素（6选3勾选制），是控制章节质量的关键杠杆。
 | 类型 | 上限 | 超限处理 |
 |:-----|:-----|:---------|
 | SKILL.md | 300 行 | 拆分到 references/ |
@@ -133,27 +173,27 @@ references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用
 2. **函数分离** — 独立的 check_*/fix_* 函数 → 新 `*_checks.py` 模块，主脚本 import
 3. **包拆分** — 大型单一脚本（>500行且有多个功能域）→ `package/` 子包，每个子模块 ≤ 300 行
 4. **拆分后立即运行全测试**验证不破坏已有功能
-5. **拆分后做端到端验证**：新建测试项目 → 跑一遍 Phase 0（book_toc→kg_builder→domain_injector）+ Phase 1（generate_outlines→quality_audit→post_generation_check）确认管线完整
+5. **拆分后做端到端验证**：新建测试项目 → 跑一遍 Phase 0（`domain_init.py --project ...`）+ Phase 1（generate_outlines→quality_audit→post_generation_check）确认管线完整
 
 ## Workflow
 
 ### 阶段0: 领域注入（新项目初始化时运行一次）
 
 ```bash
-# 提取参考书的目录结构
-python3 scripts/book_toc.py --json /path/to/参考书A.md
+# 全线执行（TOC提取 → KG构建 → 领域注入）
+python3 scripts/domain_init.py --project /path/to/教材 [--verbose] [--noise-report]
 
-# 构建知识图谱 + 写入 domain-context.yaml
-python3 scripts/kg_builder.py build --project /path/to/教材
+# 分阶段执行
+python3 scripts/domain_init.py --project /path/to/教材 --phase toc     # 仅TOC
+python3 scripts/domain_init.py --project /path/to/教材 --phase kg      # 仅KG
+python3 scripts/domain_init.py --project /path/to/教材 --phase inject  # 仅注入
 
-# 查看KG内容
-python3 scripts/kg_builder.py show --project /path/to/教材
+# 单文件TOC提取
+python3 scripts/domain_init.py toc /path/to/参考书.md [--json] [--verbose] [--noise-report]
 
-# 查询某个术语在KG中的位置
-python3 scripts/kg_builder.py query --project /path/to/教材 --term "屏蔽"
-
-# 用领域信号填充references/模板 → output/领域上下文/references/
-python3 scripts/domain_injector.py --project /path/to/教材
+# KG查询/查看
+python3 scripts/domain_init.py query --project /path/to/教材 --term "屏蔽"
+python3 scripts/domain_init.py show --project /path/to/教材
 ```
 
 ### 阶段1: 写作管线
@@ -210,43 +250,61 @@ git push origin book-build-v&lt;version&gt;
 11. **批量写作后"尾巴缺失"** — 连续写多章大纲时，后期章（通常Ch8+）系统性跳过"教授级写作专项"（设问/直觉/教学/呼应）和"参考文献/深入阅读"。写完一批必须逐章扫描6项结构指标（设问引导句/工程直觉提示/教学视角句/前后呼应句/习题/参考文献）→ 只补缺失的，不盲目扩充体量。详见 `references/gap-fill-workflow.md`。
 12. **重大改动先方案后动手** — 去领域化/架构重构/技能合并/管线变更必须预先写方案、确认再执行。不要直接改。此规则优先于"全自动不询问"。
 13. **参考书格式是 minerU，不是 file2md** — `source_books[].path` 指向的是 minerU 处理过的 .md。特点是：`##` 用于所有层级（章节头、子节、元数据），噪声（CIP/前言/目录）混杂其中，不同书格式不一致。TOC 提取必须做噪声过滤。
-14. **多本书 TOC 合并用知识点图谱** — 单本书的章节结构不代表整个领域。必须合并多本书、按概念频次排序。高频概念（出现 3+/4 本）才是必须覆盖的内容。详见 `references/domain-agnostic-architecture.md`。
+14. **多本书 TOC 合并用知识点图谱** — 单本书的章节结构不代表整个领域。必须合并多本书、按概念频次排序。高频概念（出现 3+/4 本）才是必须覆盖的内容。使用 `scripts/domain_init.py --project /path/ --phase kg` 构建。详见 `references/domain-agnostic-architecture.md`。
 15. **`git add -A` 污染父目录文件** — 在 `book-build/` 目录下执行 `git add -A` 会 stage `.hermes/skills/` 下其他技能的文件（如 `.archive/`、`.webui-managed-skills.json`）。必须用 `git add research/book-build/` 精确限定范围。提交前 `git diff --cached --stat` 确认只有本技能的文件。
 16. **子 Agent 用 `\[ \]` 代替 `$$`** — 委托写章节正文时，子 Agent 经常使用 `\[ ... \tag{1-1} \]` LaTeX 语法而不是 `$$ ... \n\tag{1-1}\n$$` Markdown 语法。这导致 `post_generation_check.py` 报 "tag 在 $$ 块外部"。修复方法：用 Python 正则将 `\\[...\\]` 批量替换为 `$$...$$`，同时确保 `\tag{}` 在 `$$` 内部且独占一行。事后运行 `post_generation_check` 确认修复有效。
    规避方法：在委托 prompt 的 context 中明确写入"禁止使用 `\\[` 和 `\\]` 括公式，必须用 `$$` 括公式块"。
 
 17. **写作指南的深度决定章节质量** — 章节正文质量上限由写作大纲中每节指南的深度决定。指南越具体（指定引入方式、写好过渡语句、标注公司名+技术参数），正文质量越好。如果正文字数或案例质量弱，排查路线：writing-guide → templates/ 模板 → auto_write context，**不在正文层修补**。改善永远发生在模板层。
 
+18. **KG 噪声词污染 top_terms** — 中文教材章节标题中的"小结""概述""引言"等结构词会占据词频榜首，淹没真正的领域术语。当 top_terms 中出现这些词时，说明 `domain_init.py` 的 `_STOP_WORDS` 需要补充。验证方法：运行 `domain_init.py show --project /path/` 查看 top_terms，如果前 5 项出现"小结""概述""标准简介"等噪声，立即补充到 `_STOP_WORDS` 后重建 KG。常见的噪声模式：
+    - 章末结构词："小结""本章小结""思考题""习题"
+    - 章首结构词："概述""引言""绪论""标准简介"
+    - 无效片段："基于""磁兼容"（电磁兼容的截断）"的"
+
+19. **骨架大纲"太简单"陷阱** — `generate_outlines.py --chapter N` 只生成模板骨架（~15KB），所有 [占位符] 未填充。如果直接展示给用户，会被认为"太简单"。正确验证流程是两步：
+    a. 运行 `generate_outlines.py` 生成骨架
+    b. 立即用 delegate_task→write_file 模式填充 15 板块（delegate 做分析，直写填充）
+    不要只运行骨架就汇报结果。填充后目标体量 68KB+。
+
+20. **提纲 docx 的章末板块需独立 ## 标题** — 当 `教材提纲.docx` 中某章明确写了「总结；习题；参考文献；深入阅读」等章末板块时，写作指南的"章末必含板块"表只是第一步。
+
+21. **骨架中 {j} 节号未替换** — `generate_outlines.py` 只传入了 `ch` 和 `title`，模板中 `### 第{ch}.{j}节 [标题]` 的 `{j}` 不会被替换，骨架中显示 `### 第1.{j}节 [标题]`。正常现象，`{j}` 由后续填充时逐节替换。但 `{j}` 占位符加重"骨架未完成"印象（pitfall #19），填充时务必替换为实际节号 1~5。
+
+22. **质量审计对中间推导公式编号的误报** — `quality_audit.py` 统计 `$$` 块总数对比 `\\tag` 数量，五步推导的中间步骤（Step 3-4，无 `\\tag`）被报"缺 N 个编号"。这是规范的——"辅助公式直接给出，不自创编号"。规避：中间推导用 `$...$` 行内公式而非 `$$...$$` 块级，消除误报。
+
+23. **写作大纲生成质量——新版Ch1对比提炼的7条增强规则**（2026-06-12）：对比查老师旧版(88KB)和test-pipeline新版(90KB)的Ch1大纲，新版7条硬核创新写入大纲生成指令：①概念建构四步法(Step1现象→Step2定义→Step3辨析→Step4深化，每步必须写出可直接用的正文句子，禁止占位符)；②开篇三法选择(日常现象/历史事件/工程矛盾，用[x]标注选中)；③必备结构化要素6选3([x]勾选+逐项完整实现)；④公式推导五步法(物理原理→建模假设→数学代入→导出→参数解释，≥4步)；⑤案例参数量化表(每案例附≥3个量化值)；⑥KWL表/KM图预留+举一反三；⑦教材匹配度分析总结。同时旧版(查老师)也有2条独有价值需保留：⑧**每节量化底线**——明确每节案例数(≥2个,1生活+1工程)、公式数(≥1个)、设问过渡数(≥2句)的最低要求表；⑨**填充示例**——在每节写作指南末尾附一个完整格式示例（如"### 第1.1节 核心概念定义 → **写作手法**：... → **必须包含的要素**：... → **建议的设问过渡**：... → **案例建议**：..."），让Agent直接从示例理解输出格式。详见 `references/outline-writing-standards.md`
+    - `quality_audit.py` 会报"缺少参考文献章节"（查找 `## 参考文献` 标题）
+    - Agent 写作时可能遗漏这些板块
+    - 提纲 docx 的显式要求与写作指南的结构不一致
+
 ## Reference Index
 
-| 需要时加载 | 内容 |
-|:-----------|:------|
-| `references/professor-level-writing-guide.md` | 教授级写作指南 |
-| `references/outline-writing-standards.md` | 写作大纲质量标准 + 15板块 + 体量基准 |
-| `references/chapter-writing-prep.md` | 章前准备 + 章首模板 + 内容提要 |
-| `references/chapter-writing-style-fusion.md` | 写作风格融合（3.1-3.4） |
-| `references/chapter-writing-style-fusion-2.md` | 写作风格融合（3.5-3.7） |
-| `references/chapter-writing-rules.md` | 12条军规 |
-| `references/chapter-writing-endmatter.md` | 章末模板 + 总结 + 参考文献 |
-| `references/chapter-writing-depth.md` | 深度标准 + 验证 + 工作流 + 已验证模式 |
-| `references/comprehensive-quality-audit.md` | 质量审计工作流 |
-| `references/mermaid-compatibility-guide.md` | Mermaid 兼容性指南（含语法、禁止项、排查表、验证命令） |
-| `references/formula-numbering-diagnosis.md` | 公式编号诊断 |
-| `references/formula-numbering-comprehensive-fix.md` | 公式编号修复流程 |
-| `references/derivation-example-107.md` | 公式推导示例 |
-| `references/volume-standards.md` | 体量基准与映射 |
-| `references/gap-fill-workflow.md` | 写作大纲查疑补漏工作流（6项结构检查+补漏原则） |
-| `references/delegate-vs-direct-write.md` | delegate 边界说明 |
-| `references/parallel-section-writing.md` | 并行分节写作 |
-| `references/content-supplementation-workflow.md` | 内容补充工作流（P0/P1/P2） |
-| `references/domain-agnostic-architecture.md` | 领域无关架构设计（变量+注入策略） |
-| `references/domain-agnostic-audit.md` | 领域无关审计命令 |
-| `scripts/book_toc.py` | 从 minerU .md 提取目录结构 |
-| `scripts/kg_builder.py` | 知识图谱引擎（build/query/show） |
-| `scripts/domain_injector.py` | 领域信号注入（填充 reference 变量） |
-| `references/textbook-style-guide.md` | 排版规范 |
-| `references/audit-script-landscape.md` | 审计脚本全景 |
-| `scripts/post_gen_check/` | 质量检查函数包（formulas/mermaid/content） |
-| `templates/chapter-writing-guide-template.md` | 写作大纲模板（generate_outlines.py 加载） |
-| `references/pipeline-comparison-baseline.md` | 管线输出质量基线（新旧对比数据） |
-| `references/chapter-writing-delegation.md` | 章节写作委托指南（公式/Mermaid/案例约束） |
+### L1 必备（每次加载）
+
+| 文件 | 内容 |
+|:-----|:------|
+| `references/professor-level-writing-guide.md` | 9大教授级教学法（域无关） |
+| `references/outline-writing-standards.md` | 写作大纲质量标准 + 体量基准 |
+| `references/mermaid-compatibility-guide.md` | Mermaid 语法约束 |
+| `references/chapter-writing-delegation.md` | 章节写作委托指南 |
+| `references/domain-agnostic-architecture.md` | 领域无关架构设计 |
+
+### L2 按需（按场景选择）
+
+见 `references/ref-quickref.md`（场景速查表）和 `references/INDEX.md`（完整分层目录）。
+
+### 脚本索引
+
+| 脚本 | 用途 |
+|:-----|:------|
+| `scripts/domain_init.py` | 领域初始化（TOC→KG→注入，合三为一） |
+| `scripts/setup_project.py` | 新建项目目录 |
+| `scripts/generate_outlines.py` | 生成写作大纲骨架 |
+| `scripts/validate_outlines.py` | 大纲QC |
+| `scripts/generate_task_list.py` | 生成写作任务 |
+| `scripts/auto_write.py` | 自动写作（delegate_task） |
+| `scripts/batch_fix_formula_numbers.py` | 批量修复公式编号 |
+| `scripts/quality_audit.py` | 质量审计 |
+| `scripts/outline_vs_chapter_audit.py` | 差距分析 |
+| `scripts/post_generation_check.py` | 生成后检查 |

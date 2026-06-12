@@ -1,6 +1,6 @@
 ---
 name: book-build
-description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交"
+description: "Use when writing university textbooks. Outline-driven pipeline: domain injection → writing guide generation → delegate_task chapter writing → formula fixing → quality audit."
 version: 3.9.0
 author: Hermes Agent
 license: MIT
@@ -68,17 +68,6 @@ quality_audit.py     05 统一质量审计
 | **章节层** | 每章结构、体量、素材 | `写作大纲/writing-guide-chX.md` |
 
 领域上下文层是 v3.5.0 新增；Phase 0 现已由 `domain_init.py` 一站式完成。
-
-### SKILL.md 设计原则（被纠正的错误不要重犯）
-
-SKILL.md **只放 Agent 加载时需要知道的东西**。以下内容不应出现在 SKILL.md：
-- ❌ 维护契约/自检清单（自身就是膨胀）
-- ❌ 与其他技能的对照表（对当前任务无关）
-- ❌ 重复 references/ 已有的详细内容
-- ❌ 历史记录、实战教训、版本对比数据
-
-以上内容应放入 `references/`，通过 Reference Index 按需加载。
-判断标准：这条内容 Agent 每次加载技能时都必须看到吗？如果不需要 → 放 references/。
 
 ### 脚本 vs Agent 分工
 脚本管流程编排和统计检查；Agent 管内容创作和质量判断。
@@ -155,22 +144,7 @@ references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用
 - 6 选 3 给 Agent 创作自由度，同时保持每节至少 3 个结构化要素的质量底限
 - 质量审计应只检查被选中的要素是否完整实现，而非全 6 项
 
-详见 `references/chapter-writing-guide-template.md`。该模板的"每节写作指南"部分定义了 6 项结构化要素（6选3勾选制），是控制章节质量的关键杠杆。
-| 类型 | 上限 | 超限处理 |
-|:-----|:-----|:---------|
-| SKILL.md | 300 行 | 拆分到 references/ |
-| 单个脚本 | 500 行 | 按功能拆分（如 `quality_audit/` 模块包） |
-| 单个 reference | 300 行 | 拆分为多个文件 |
-
-脚本层总行数建议 ≤ 6000 行。超出后应有计划地归档或精简。
-新增脚本时同步删除等量旧代码或冗余文件。
-
-**脚本拆分规范（超限时按此顺序尝试）**：
-1. **模板外提** — 脚本内的大段字符串（模板/文档/示例）→ `templates/` 文件，运行时加载
-2. **函数分离** — 独立的 check_*/fix_* 函数 → 新 `*_checks.py` 模块，主脚本 import
-3. **包拆分** — 大型单一脚本（>500行且有多个功能域）→ `package/` 子包，每个子模块 ≤ 300 行
-4. **拆分后立即运行全测试**验证不破坏已有功能
-5. **拆分后做端到端验证**：新建测试项目 → 跑一遍 Phase 0（`domain_init.py --project ...`）+ Phase 1（`init_project.py` 生成大纲 → 填充15板块 → `quality_audit.py` → `post_generation_check.py`）确认管线完整
+详见 `templates/chapter-writing-guide-template.md`。
 
 ## Workflow
 
@@ -245,6 +219,8 @@ git push origin book-build-v&lt;version&gt;
 
 17. **写作指南的深度决定章节质量** — 章节正文质量上限由写作大纲中每节指南的深度决定。指南越具体（指定引入方式、写好过渡语句、标注公司名+技术参数），正文质量越好。如果正文字数或案例质量弱，排查路线：writing-guide → templates/ 模板 → auto_write context，**不在正文层修补**。改善永远发生在模板层。
 
+18. **SKILL.md 膨胀检测** — 每个版本迭代后运行 `references/skill-audit-checklist.md` 中的 5 步快速检查。本技能历史上多次出现容量红线表自身膨胀（14行反膨胀=14行浪费）、25+ pitfalls、broken references 等问题。
+
 18. **KG 噪声词污染 top_terms** — 中文教材章节标题中的"小结""概述""引言"等结构词会占据词频榜首，淹没真正的领域术语。当 top_terms 中出现这些词时，说明 `domain_init.py` 的 `_STOP_WORDS` 需要补充。验证方法：运行 `domain_init.py show --project /path/` 查看 top_terms，如果前 5 项出现"小结""概述""标准简介"等噪声，立即补充到 `_STOP_WORDS` 后重建 KG。常见的噪声模式：
     - 章末结构词："小结""本章小结""思考题""习题"
     - 章首结构词："概述""引言""绪论""标准简介"
@@ -269,6 +245,8 @@ git push origin book-build-v&lt;version&gt;
     c. delegate_task 填充 15 板块（写完整大纲到 68KB+）
     d. 运行 `quality_audit.py` + `post_generation_check.py` 验证
     只跑骨架就展示结果 = 被用户问"写作大纲怎么这么简单？"。填充前和填充后是完全不同的产物。
+
+25. **`init_project.py` 依赖 `python-docx`** — 解析提纲 .docx 需要 `python-docx` 包。如果环境未安装，`init_project.py` 返回空章节列表（静默失败）。安装命令：`uv pip install python-docx`。如果解析仍失败，检查提纲文件是否存在于 `input/教材提纲.docx` 路径。
 
 ## Reference Index
 

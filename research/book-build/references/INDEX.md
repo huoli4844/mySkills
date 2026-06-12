@@ -98,6 +98,7 @@ references/formula-derivation-standard.md
 | `pitfalls.md` | 完整陷阱列表（SKILL.md 已覆盖关键项） |
 | `delegate-vs-direct-write.md` | delegate 边界测试数据 |
 | `changelog.md` | 版本变更历史 |
+| `skill-audit-checklist.md` | SKILL.md 精简审计检查单（5步快速检查） |
 | `domain-agnostic-audit.md` | 领域无关审计命令 |
 | `pipeline-comparison-baseline.md` | 管线输出质量基线 |
 | `gap-analysis-checklist.md` | 差距分析检查表 |

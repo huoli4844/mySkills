@@ -77,8 +77,12 @@ def audit_chapter(fpath: str, quick: bool = False) -> Dict:
         issues.append(f"{f['orphan_tags']}个孤立tag")
     if not f["tags_continuous"]:
         issues.append("编号不连续")
-    if f["formula_tags"] < f["formula_blocks"]:
-        issues.append(f"缺{f['formula_blocks']-f['formula_tags']}个编号")
+    # 中间推导步骤的辅助公式不需要编号（“辅助公式直接给出，不自创编号”）
+    # 仅公式块>标签数但差值超过4个时才警告（1-2个中间步骤属正常推导）
+    missing = f['formula_blocks'] - f['formula_tags']
+    if f["formula_tags"] < f["formula_blocks"] and not f.get("has_derivation"):
+        if missing > 4:
+            issues.append(f"缺{missing}个编号")
 
     # 军规合规问题
     for c in compliance:

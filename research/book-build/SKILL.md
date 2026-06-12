@@ -1,7 +1,7 @@
 ---
 name: book-build
 description: "教材写作管线：大纲驱动 → delegate_task 并行创作 → batch_fix 公式编号 → 质量审计 → git 提交"
-version: 3.8.1
+version: 3.9.0
 author: Hermes Agent
 license: MIT
 platforms: [macos, linux]
@@ -24,14 +24,11 @@ metadata:
 # 阶段0: 领域注入（新项目初始化时运行 — 一站式）
 domain_init.py       01 TOC提取 + KG构建 + 领域注入（三阶段合一）
 
-# 阶段1: 写作管线
-setup_project.py     02 创建项目目录
-generate_outlines.py 03 提纲docx → 写作大纲（15板块）
-validate_outlines.py 04 大纲QC
-generate_task_list.py05 生成写作任务
-auto_write.py        06 任务JSON → Agent调用delegate
-batch_fix_numbers    07 批量修复公式编号
-quality_audit.py     08 统一质量审计
+# 阶段1: 写作管线（四合一入口 → 创建 + 生成大纲 + QC + 任务清单）
+init_project.py      02 项目创建 + 大纲骨架 + QC验证 + 任务清单
+auto_write.py        03 任务JSON → Agent调用delegate
+batch_fix_numbers    04 批量修复公式编号
+quality_audit.py     05 统一质量审计
 ```
 
 ## 关键约束（不可违反）
@@ -70,7 +67,7 @@ quality_audit.py     08 统一质量审计
 | **领域上下文层** | 领域信号 + 知识点图谱 + 渲染后的 references（初始化时自动生成） | `output/领域上下文/` |
 | **章节层** | 每章结构、体量、素材 | `写作大纲/writing-guide-chX.md` |
 
-领域上下文层是 v3.5.0 新增：`setup_project.py` 在初始化时从参考书 .md 提取章节标题 → 词频统计 → 生成。
+领域上下文层是 v3.5.0 新增；Phase 0 现已由 `domain_init.py` 一站式完成。
 
 ### SKILL.md 设计原则（被纠正的错误不要重犯）
 
@@ -173,7 +170,7 @@ references/ 中的 .md 文件用 {{变量}} 做占位符。项目初始化时用
 2. **函数分离** — 独立的 check_*/fix_* 函数 → 新 `*_checks.py` 模块，主脚本 import
 3. **包拆分** — 大型单一脚本（>500行且有多个功能域）→ `package/` 子包，每个子模块 ≤ 300 行
 4. **拆分后立即运行全测试**验证不破坏已有功能
-5. **拆分后做端到端验证**：新建测试项目 → 跑一遍 Phase 0（`domain_init.py --project ...`）+ Phase 1（generate_outlines→quality_audit→post_generation_check）确认管线完整
+5. **拆分后做端到端验证**：新建测试项目 → 跑一遍 Phase 0（`domain_init.py --project ...`）+ Phase 1（`init_project.py` 生成大纲 → 填充15板块 → `quality_audit.py` → `post_generation_check.py`）确认管线完整
 
 ## Workflow
 
@@ -199,18 +196,9 @@ python3 scripts/domain_init.py show --project /path/to/教材
 ### 阶段1: 写作管线
 
 ```bash
-python3 scripts/setup_project.py /path/to/教材 --name "教材名" --outline 教材提纲.docx
+python3 scripts/init_project.py /path/to/教材 --name "教材名" --outline 教材提纲.docx
 
-# ② 生成写作大纲（两阶段：脚本骨架 → Agent 填充15板块）
-python3 scripts/generate_outlines.py --project /path/to/教材
-
-# ③ 大纲QC
-python3 scripts/validate_outlines.py --project /path/to/教材
-
-# ④ 生成任务列表
-python3 scripts/generate_task_list.py --project /path/to/教材 --force-init
-
-# ⑤ 自动写作（auto_write.py 输出 JSON → delegate_task）
+# ② 自动写作（auto_write.py 输出 JSON → delegate_task）
 python3 scripts/auto_write.py --project /path/to/教材
 
 # ⑤b 修复子 Agent 常见的 `\[ \]` LaTeX 语法（如有）
@@ -262,21 +250,25 @@ git push origin book-build-v&lt;version&gt;
     - 章首结构词："概述""引言""绪论""标准简介"
     - 无效片段："基于""磁兼容"（电磁兼容的截断）"的"
 
-19. **骨架大纲"太简单"陷阱** — `generate_outlines.py --chapter N` 只生成模板骨架（~15KB），所有 [占位符] 未填充。如果直接展示给用户，会被认为"太简单"。正确验证流程是两步：
-    a. 运行 `generate_outlines.py` 生成骨架
-    b. 立即用 delegate_task→write_file 模式填充 15 板块（delegate 做分析，直写填充）
-    不要只运行骨架就汇报结果。填充后目标体量 68KB+。
+19. **骨架大纲"太简单"陷阱** — `init_project.py --chapter N` 只生成模板骨架（~15KB），所有 [占位符] 未填充。如果直接展示给用户，会被认为"太简单"。正确流程：
+    a. 运行 `init_project.py` 生成骨架
+    b. 立即用 delegate_task→write_file 模式填充 15 板块
+    不要只运行骨架生成就汇报结果。填充后目标体量 68KB+。
 
 20. **提纲 docx 的章末板块需独立 ## 标题** — 当 `教材提纲.docx` 中某章明确写了「总结；习题；参考文献；深入阅读」等章末板块时，写作指南的"章末必含板块"表只是第一步。
 
-21. **骨架中 {j} 节号未替换** — `generate_outlines.py` 只传入了 `ch` 和 `title`，模板中 `### 第{ch}.{j}节 [标题]` 的 `{j}` 不会被替换，骨架中显示 `### 第1.{j}节 [标题]`。正常现象，`{j}` 由后续填充时逐节替换。但 `{j}` 占位符加重"骨架未完成"印象（pitfall #19），填充时务必替换为实际节号 1~5。
+21. **骨架中 {j} 节号未替换** — `init_project.py` 生成骨架时只传入了 `ch` 和 `title`，模板中 `### 第{ch}.{j}节 [标题]` 的 `{j}` 不会被替换，骨架中显示 `### 第1.{j}节 [标题]`。正常现象，`{j}` 由后续填充时逐节替换为实际节号 1~5。填充后务必确认所有 `{j}` 已替换。
 
 22. **质量审计对中间推导公式编号的误报** — `quality_audit.py` 统计 `$$` 块总数对比 `\\tag` 数量，五步推导的中间步骤（Step 3-4，无 `\\tag`）被报"缺 N 个编号"。这是规范的——"辅助公式直接给出，不自创编号"。规避：中间推导用 `$...$` 行内公式而非 `$$...$$` 块级，消除误报。
 
-23. **写作大纲生成质量——新版Ch1对比提炼的7条增强规则**（2026-06-12）：对比查老师旧版(88KB)和test-pipeline新版(90KB)的Ch1大纲，新版7条硬核创新写入大纲生成指令：①概念建构四步法(Step1现象→Step2定义→Step3辨析→Step4深化，每步必须写出可直接用的正文句子，禁止占位符)；②开篇三法选择(日常现象/历史事件/工程矛盾，用[x]标注选中)；③必备结构化要素6选3([x]勾选+逐项完整实现)；④公式推导五步法(物理原理→建模假设→数学代入→导出→参数解释，≥4步)；⑤案例参数量化表(每案例附≥3个量化值)；⑥KWL表/KM图预留+举一反三；⑦教材匹配度分析总结。同时旧版(查老师)也有2条独有价值需保留：⑧**每节量化底线**——明确每节案例数(≥2个,1生活+1工程)、公式数(≥1个)、设问过渡数(≥2句)的最低要求表；⑨**填充示例**——在每节写作指南末尾附一个完整格式示例（如"### 第1.1节 核心概念定义 → **写作手法**：... → **必须包含的要素**：... → **建议的设问过渡**：... → **案例建议**：..."），让Agent直接从示例理解输出格式。详见 `references/outline-writing-standards.md`
-    - `quality_audit.py` 会报"缺少参考文献章节"（查找 `## 参考文献` 标题）
-    - Agent 写作时可能遗漏这些板块
-    - 提纲 docx 的显式要求与写作指南的结构不一致
+23. **写作大纲生成质量 — 新版Ch1对比提炼的7条增强规则**（2026-06-12）：写作指南必须包含：①概念建构四步法（现象→定义→辨析→深化，每步写出可直接用的正文句子）；②开篇三法选择（日常现象/历史事件/工程矛盾，[x]标注选中）；③必备结构化要素6选3（[x]勾选+逐项完整实现）；④公式推导五步法；⑤案例参数量化表；⑥教材匹配度分析总结。详见 `references/outline-writing-standards.md`。
+
+24. **验证管线必须端到端** — 当用户要求"验证第1章大纲"时，完整流程是：
+    a. 运行 `domain_init.py --project /path/`（Phase 0）
+    b. 运行 `init_project.py --project /path/ --chapter 1`（生成骨架）
+    c. delegate_task 填充 15 板块（写完整大纲到 68KB+）
+    d. 运行 `quality_audit.py` + `post_generation_check.py` 验证
+    只跑骨架就展示结果 = 被用户问"写作大纲怎么这么简单？"。填充前和填充后是完全不同的产物。
 
 ## Reference Index
 
@@ -299,12 +291,10 @@ git push origin book-build-v&lt;version&gt;
 | 脚本 | 用途 |
 |:-----|:------|
 | `scripts/domain_init.py` | 领域初始化（TOC→KG→注入，合三为一） |
-| `scripts/setup_project.py` | 新建项目目录 |
-| `scripts/generate_outlines.py` | 生成写作大纲骨架 |
-| `scripts/validate_outlines.py` | 大纲QC |
-| `scripts/generate_task_list.py` | 生成写作任务 |
+| `scripts/init_project.py` | 项目初始化（创建+大纲+QC+任务，四合一） |
 | `scripts/auto_write.py` | 自动写作（delegate_task） |
 | `scripts/batch_fix_formula_numbers.py` | 批量修复公式编号 |
 | `scripts/quality_audit.py` | 质量审计 |
 | `scripts/outline_vs_chapter_audit.py` | 差距分析 |
 | `scripts/post_generation_check.py` | 生成后检查 |
+|

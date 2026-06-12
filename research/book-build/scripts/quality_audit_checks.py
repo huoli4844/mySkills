@@ -11,7 +11,7 @@ from typing import List, Dict
 
 
 def check_formulas(content: str, prefix: str) -> Dict:
-    """检查公式编号"""
+    """检查公式编号（含5步推导检测）"""
     tags = [int(t) for t in re.findall(r'\\tag\{' + prefix + r'-(\d+)\}', content)]
     blocks = len(re.findall(r'\$\$(.*?)\$\$', content, re.DOTALL))
 
@@ -22,12 +22,16 @@ def check_formulas(content: str, prefix: str) -> Dict:
         if s == '$$' or s == '> $$':
             in_math = not in_math
 
+    # 检测5步推导模式（“五步推导”或“第N步——"模式）
+    has_derivation = bool(re.search(r'五步推导|第\d步[——点]', content))
+
     return {
         "formula_blocks": blocks,
         "formula_tags": len(tags),
         "tags_continuous": tags == list(range(1, len(tags)+1)) if tags else True,
         "dollars_paired": not in_math,
         "orphan_tags": 0,
+        "has_derivation": has_derivation,
     }
 
 
@@ -36,7 +40,7 @@ def check_content_stats(content: str) -> Dict:
     tables = len(re.findall(r'^\|', content, re.MULTILINE)) // 2
     mermaids = len(re.findall(r'```mermaid', content))
     examples = len(re.findall(r'^### \*\*例\d+-\d+\*\*', content, re.MULTILINE))
-    exercises = len(re.findall(r'^\d+-\d+', content, re.MULTILINE))
+    exercises = len(re.findall(r'^\*\*\d+\.\d+\*\*|^\d+\.\s', content, re.MULTILINE))
     has_summary = '本章总结' in content
     has_exercises = '## 习题' in content or '思考题' in content
     has_refs = '## 参考文献' in content
